@@ -11,7 +11,7 @@
 # 5. 为每次模拟生成包含多个时间点的磁场强度 |B| 空间分布快照图。
 # 6. 附带详细的参数对比表。
 #
-
+import hashlib
 import os
 import glob
 import dill
@@ -182,15 +182,21 @@ def get_centered_magnetic_field(fpath: str, target_shape: tuple) -> Tuple[np.nda
         return Bx, By, Bz
 
 def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldEvolutionData]:
-    """从 .npz 文件序列中加载磁场演化数据。"""
+    """
+    从 .npz 文件序列中加载磁场演化数据。
+    此版本计算 Bx, By, Bz 各分量的空间平均值。
+    """
     field_files = sorted(glob.glob(os.path.join(dir_path, "diags/fields", "fields_*.npz")))
     if not field_files:
         console.print(f"  [yellow]⚠ 在 'diags/fields/' 目录下找不到任何 .npz 文件。[/yellow]")
         return None
 
-    # --- 修改: 从 b_rms_vals 改为 b_mean_vals ---
-    times, b_mean_vals, b_max_vals = [], [], []
-    b_mean_abs_vals, b_mean_x_vals, b_mean_y_vals, b_mean_z_vals = [], [], [], []
+    # --- 数据列表初始化：现在专注于各分量的平均值 ---
+    times, b_max_vals = [], []
+    b_mean_x_vals, b_mean_y_vals, b_mean_z_vals = [], [], []
+    # (b_mean_abs_vals 不再是主要关注点，但可以保留用于其他分析)
+    b_mean_abs_vals = []
+
     console.print(f"  [white]正在处理 {len(field_files)} 个磁场数据文件...[/white]")
     target_shape = (sim_obj.NX, sim_obj.NZ)
 
@@ -199,14 +205,16 @@ def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldE
             step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
             Bx, By, Bz = get_centered_magnetic_field(fpath, target_shape)
 
-            b_magnitude = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
-
-            # --- 修改: 计算平均值而非 RMS ---
-            b_mean_abs_vals.append(np.mean(b_magnitude))
-            b_max_vals.append(np.max(b_magnitude))
+            # --- 核心修改：计算每个分量的平均值 ---
+            # 这些是有符号的平均值，可以揭示场的净方向
             b_mean_x_vals.append(np.mean(Bx))
             b_mean_y_vals.append(np.mean(By))
             b_mean_z_vals.append(np.mean(Bz))
+
+            # 同时保留最大值和幅值平均值的计算，以供参考
+            b_magnitude = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
+            b_max_vals.append(np.max(b_magnitude))
+            b_mean_abs_vals.append(np.mean(b_magnitude)) # 幅值的平均值
 
             times.append(step * sim_obj.dt)
 
@@ -217,20 +225,56 @@ def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldE
     if not times:
         return None
 
+    # --- 返回包含各分量平均值的数据结构 ---
     return FieldEvolutionData(
         time=np.array(times),
-        b_mean_abs_normalized=np.array(b_mean_abs_vals),
         b_max_normalized=np.array(b_max_vals),
         b_mean_x_normalized=np.array(b_mean_x_vals),
         b_mean_y_normalized=np.array(b_mean_y_vals),
-        b_mean_z_normalized=np.array(b_mean_z_vals)
+        b_mean_z_normalized=np.array(b_mean_z_vals),
+        b_mean_abs_normalized=np.array(b_mean_abs_vals)
     )
 
 
+def _generate_safe_filename(prefix: str, runs: List[SimulationRun], max_length: int = 32) -> str:
+    """
+    生成一个安全的文件名，如果描述性名称太长，则使用哈希值缩短它。
+
+    Args:
+        prefix (str): 文件名的前缀 (例如 'field_components_evolution').
+        runs (List[SimulationRun]): 正在比较的 SimulationRun 对象列表.
+        max_length (int): 文件名的最大安全长度.
+
+    Returns:
+        str: 一个不会超长的安全文件名.
+    """
+    # 1. 尝试创建完整的描述性名称
+    descriptive_part = '_vs_'.join(sorted([run.name for run in runs]))  # 排序以保证同样组合下名称一致
+    ideal_name = f"{prefix}_{descriptive_part}.png"
+
+    # 2. 检查长度，如果不超长，直接返回
+    if len(ideal_name) < max_length:
+        return ideal_name
+
+    # 3. 如果太长，创建一个更短的、基于哈希的名称
+    console.print(f"  [yellow]⚠ 组合文件名过长，将生成一个简短的哈希文件名。[/yellow]")
+
+    # 使用所有运行名称的组合来生成一个唯一的哈希ID
+    # encode() 是必需的，因为哈希函数处理的是字节
+    hasher = hashlib.md5(descriptive_part.encode('utf-8'))
+    hash_id = hasher.hexdigest()[:8]  # 取前8位作为唯一标识符通常足够了
+
+    # 生成简短的文件名
+    short_name = f"{prefix}_comparison_of_{len(runs)}_runs_{hash_id}.png"
+
+    return short_name
+
 def generate_field_evolution_plot(runs: List[SimulationRun]):
-    """为选定的模拟生成磁场演化对比图。"""
-    console.print("\n[bold magenta]正在生成磁场演化对比图...[/bold magenta]")
-    output_name = f"field_evolution_{'_vs_'.join([run.name for run in runs])}.png"
+    """
+    为选定的模拟生成磁场各分量演化的对比图，以研究各向异性。
+    """
+    console.print("\n[bold magenta]正在生成磁场分量演化对比图...[/bold magenta]")
+    output_name = _generate_safe_filename("field_components_evolution", runs)
     num_runs = len(runs)
 
     plt.rcParams.update({"font.size": 10})
@@ -238,25 +282,37 @@ def generate_field_evolution_plot(runs: List[SimulationRun]):
         2, 1, figsize=(10, 8 + num_runs * 1.5),
         gridspec_kw={'height_ratios': [3, 1 + 0.3 * num_runs]}
     )
-    fig.suptitle(f"磁场演化对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
-    ax_field.set_title('归一化磁场强度随时间演化')
+    fig.suptitle(f"磁场各向异性演化对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
+    ax_field.set_title('磁场各分量平均值 <B> 随时间演化')
 
     cmap = plt.cm.get_cmap('tab10' if num_runs <= 10 else 'viridis')
     colors = [cmap(i) for i in range(num_runs)]
 
+    # --- 核心修改: 绘制 Bx, By, Bz 各分量的平均值 ---
     for i, run in enumerate(runs):
         if run.field_data:
-            # --- 修改: 绘制平均磁场，并更新标签 ---
-            # ax_field.plot(run.field_data.time, run.field_data.b_mean_normalized, '-', color=colors[i], lw=2,
-            #               label=f'{run.name} - Mean (平均值)')
-            ax_field.plot(run.field_data.time, run.field_data.b_max_normalized, '--', color=colors[i], lw=1.5,
-                          label=f'{run.name} - Max (最大值)')
+            # 使用不同的线型来区分 Bx, By, Bz
+            # 同一个 run 的不同分量使用相同的颜色
+            ax_field.plot(run.field_data.time, run.field_data.b_mean_x_normalized, '-', color=colors[i], lw=2,
+                          label=f'{run.name} - <Bx>')
+            ax_field.plot(run.field_data.time, run.field_data.b_mean_y_normalized, '--', color=colors[i], lw=1.5,
+                          label=f'{run.name} - <By>')
+            ax_field.plot(run.field_data.time, run.field_data.b_mean_z_normalized, ':', color=colors[i], lw=1.5,
+                          label=f'{run.name} - <Bz>')
 
-    ax_field.axhline(1.0, color='red', linestyle=':', linewidth=2, label='β ≈ 1 (能量均分)')
+            # # (可选) 仍然可以绘制最大值作为参考，但使用较低的透明度
+            # ax_field.plot(run.field_data.time, run.field_data.b_max_normalized, ls='-', color=colors[i], lw=1, alpha=0.3,
+            #               label=f'{run.name} - Max |B|')
+
+    # --- 修改坐标轴和图例以适应新数据 ---
+    ax_field.axhline(0.0, color='black', linestyle='-', linewidth=1, alpha=0.7) # 添加 y=0 参考线
     ax_field.set_xlabel('时间 (s)')
-    ax_field.set_ylabel('磁场强度 B / B_norm')
-    ax_field.set_yscale('log')
-    ax_field.legend(fontsize=8)
+    ax_field.set_ylabel('平均磁场分量 <B> / B_norm')
+
+    # 因为平均值可以为负，所以必须使用线性坐标轴，而不是对数坐标轴
+    ax_field.set_yscale('linear')
+
+    ax_field.legend(fontsize=8, ncol=max(1, num_runs)) # 使用多列图例防止重叠
     ax_field.grid(True, which="both", ls="--", alpha=0.5)
 
     ax_table.axis('off')
@@ -314,16 +370,20 @@ def generate_field_snapshots_plot(runs: List[SimulationRun]):
 
         axes = [ax1, ax2, ax3, ax4]
 
-        # 为了美观，共享坐标轴并隐藏多余的刻度标签
-        ax1.sharex(ax3)  # 第一列共享 X 轴
-        ax2.sharex(ax4)  # 第二列共享 X 轴
-        ax1.sharey(ax2)  # 第一行共享 Y 轴
-        ax3.sharey(ax4)  # 第二行共享 Y 轴
+        # --- 坐标轴共享与美化 ---
+        # 共享坐标轴，这样缩放和平移会同步
+        ax1.sharex(ax3)
+        ax2.sharex(ax4)
+        ax1.sharey(ax2)
+        ax3.sharey(ax4)
 
-        axes[0].tick_params(axis='x', labelbottom=False)
-        axes[1].tick_params(axis='x', labelbottom=False)
-        axes[1].tick_params(axis='y', labelleft=False)
-        axes[3].tick_params(axis='y', labelleft=False)
+        # 隐藏内部子图多余的刻度标签，让图像更整洁
+        # 上排子图 (ax1, ax2) 不显示 X 轴刻度标签
+        ax1.tick_params(axis='x', labelbottom=False)
+        ax2.tick_params(axis='x', labelbottom=False)
+        # 右列子图 (ax2, ax4) 不显示 Y 轴刻度标签
+        ax2.tick_params(axis='y', labelleft=False)
+        ax4.tick_params(axis='y', labelleft=False)
         # --- 布局结束 ---
 
         vmax = 0
@@ -342,14 +402,16 @@ def generate_field_snapshots_plot(runs: List[SimulationRun]):
             Bx, By, Bz = get_centered_magnetic_field(fpath, target_shape)
             b_mag = np.sqrt(Bx**2 + By**2 + Bz**2)
 
+            # extent 参数是关键，它将数组索引映射到物理坐标
             im = ax.imshow(b_mag.T, origin='lower',
                            extent=[0, run.sim.Lx, 0, run.sim.Lz],
                            aspect='auto', cmap='viridis', vmin=0, vmax=vmax)
 
             ax.set_title(f'时间 = {time_s:.2e} s')
-            if i in [2, 3]:  # 底部子图
+            # 只在最外围的子图上设置坐标轴标签 (x/y label)
+            if i >= 2:  # 底部子图 (ax3, ax4)
                 ax.set_xlabel('x (m)')
-            if i in [0, 2]:  # 左侧子图
+            if i % 2 == 0:  # 左侧子图 (ax1, ax3)
                 ax.set_ylabel('z (m)')
 
         # 将颜色条绘制到预留的专属坐标轴 cax 上
@@ -391,14 +453,21 @@ def generate_field_streamlines_plot(runs: List[SimulationRun]):
         cax = fig.add_subplot(gs[:, 2])
         axes = [ax1, ax2, ax3, ax4]
 
+        # --- 坐标轴共享与美化 ---
+        # 共享坐标轴，这样缩放和平移会同步
         ax1.sharex(ax3)
         ax2.sharex(ax4)
         ax1.sharey(ax2)
         ax3.sharey(ax4)
+
+        # 隐藏内部子图多余的刻度标签，让图像更整洁
+        # 上排子图 (ax1, ax2) 不显示 X 轴刻度标签
         ax1.tick_params(axis='x', labelbottom=False)
         ax2.tick_params(axis='x', labelbottom=False)
+        # 右列子图 (ax2, ax4) 不显示 Y 轴刻度标签
         ax2.tick_params(axis='y', labelleft=False)
         ax4.tick_params(axis='y', labelleft=False)
+        # --- 布局结束 ---
 
         vmax = 0
         target_shape = (run.sim.NX, run.sim.NZ)
@@ -422,23 +491,26 @@ def generate_field_streamlines_plot(runs: List[SimulationRun]):
             b_in_plane_mag = np.sqrt(Bx ** 2 + Bz ** 2)
 
             # 1. 绘制背景：总磁场强度
+            # extent 参数是关键，它将数组索引映射到物理坐标
             im = ax.imshow(b_mag.T, origin='lower',
                            extent=[0, run.sim.Lx, 0, run.sim.Lz],
                            aspect='auto', cmap='viridis', vmin=0, vmax=vmax)
 
             # 2. 绘制前景：磁场流线
-            #    根据平面内场强调整线宽，增加视觉效果
-            #    添加一个小的 epsilon 防止除以零
             linewidth = 2.5 * b_in_plane_mag / (b_in_plane_mag.max() + 1e-10)
-
-            #    注意: streamplot 需要的 U, V 数组形状是 (M, N)，对应 (z, x)
-            #    而我们的 Bx, Bz 是 (N, M)，所以需要转置 .T
             ax.streamplot(x_coords, z_coords, Bx.T, Bz.T,
                           color='white',
                           linewidth=linewidth.T,
                           density=1.5,
                           arrowstyle='->',
                           arrowsize=0.8)
+
+            ax.set_title(f'时间 = {time_s:.2e} s')
+            # 只在最外围的子图上设置坐标轴标签 (x/y label)
+            if i >= 2:  # 底部子图 (ax3, ax4)
+                ax.set_xlabel('x (m)')
+            if i % 2 == 0:  # 左侧子图 (ax1, ax3)
+                ax.set_ylabel('z (m)')
 
             ax.set_title(f'时间 = {time_s:.2e} s')
             if i in [2, 3]: ax.set_xlabel('x (m)')
@@ -451,109 +523,6 @@ def generate_field_streamlines_plot(runs: List[SimulationRun]):
         plt.savefig(output_name, dpi=200)
         plt.close(fig)
         console.print(f"  [bold green]✔ 磁场流线图已保存到: {output_name}[/bold green]")
-
-
-def generate_field_streamlines_plot2(runs: List[SimulationRun]):
-    """为每次模拟生成包含4个时间点的磁场流线图。
-
-    针对 Bx, By, Bz 三个分量的强度分别生成独立的图像，以研究磁场各向异性。
-    """
-    console.print("\n[bold magenta]正在生成各分量磁场流线图...[/bold magenta]")
-
-    for run in runs:
-        console.print(f"  [white]为 '{run.name}' 生成流线图...[/white]")
-        field_files = sorted(glob.glob(os.path.join(run.path, "diags/fields", "fields_*.npz")))
-        if len(field_files) < 4:
-            console.print(f"  [yellow]⚠ 快照文件不足4个，跳过 '{run.name}' 的流线图绘制。[/yellow]")
-            continue
-
-        num_files = len(field_files)
-        indices = np.linspace(0, num_files - 1, 4, dtype=int)
-        selected_files = [field_files[i] for i in indices]
-
-        # 定义要绘制的磁场分量
-        components_to_plot = ['Bx', 'By', 'Bz']
-
-        for comp_name in components_to_plot:
-            console.print(f"    [cyan]正在处理分量: {comp_name}[/cyan]")
-
-            fig = plt.figure(figsize=(13, 10))
-            # 标题现在会动态显示是哪个分量
-            fig.suptitle(f'平面内磁场线 (Bx, Bz) 与 {comp_name} 分量强度 |{comp_name}|: {run.name}', fontsize=16)
-
-            gs = fig.add_gridspec(2, 3, width_ratios=[15, 15, 1], wspace=0.1, hspace=0.15)
-
-            ax1 = fig.add_subplot(gs[0, 0])
-            ax2 = fig.add_subplot(gs[0, 1])
-            ax3 = fig.add_subplot(gs[1, 0])
-            ax4 = fig.add_subplot(gs[1, 1])
-            cax = fig.add_subplot(gs[:, 2])
-            axes = [ax1, ax2, ax3, ax4]
-
-            ax1.sharex(ax3)
-            ax2.sharex(ax4)
-            ax1.sharey(ax2)
-            ax3.sharey(ax4)
-            ax1.tick_params(axis='x', labelbottom=False)
-            ax2.tick_params(axis='x', labelbottom=False)
-            ax2.tick_params(axis='y', labelleft=False)
-            ax4.tick_params(axis='y', labelleft=False)
-
-            # --- 修改点 1: 根据当前分量计算 vmax ---
-            # vmax 现在是特定分量在所有时间点上的最大绝对值
-            vmax = 0
-            target_shape = (run.sim.NX, run.sim.NZ)
-            for fpath in selected_files:
-                Bx, By, Bz = get_centered_magnetic_field(fpath, target_shape)
-                data_map = {'Bx': Bx, 'By': By, 'Bz': Bz}
-                # 使用 np.abs() 获取分量强度（大小）
-                vmax = max(vmax, np.max(np.abs(data_map[comp_name])))
-
-            im = None
-            # 创建网格坐标
-            x_coords = np.linspace(0, run.sim.Lx, run.sim.NX)
-            z_coords = np.linspace(0, run.sim.Lz, run.sim.NZ)
-
-            for i, fpath in enumerate(selected_files):
-                ax = axes[i]
-                step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
-                time_s = step * run.sim.dt
-
-                Bx, By, Bz = get_centered_magnetic_field(fpath, target_shape)
-
-                # --- 修改点 2: 绘制背景现在是各分量的绝对值 ---
-                data_map = {'Bx': Bx, 'By': By, 'Bz': Bz}
-                background_data = np.abs(data_map[comp_name])
-
-                im = ax.imshow(background_data.T, origin='lower',
-                               extent=[0, run.sim.Lx, 0, run.sim.Lz],
-                               aspect='auto', cmap='viridis', vmin=0, vmax=vmax)
-
-                # --- 前景流线图保持不变 ---
-                # 仍然使用 Bx 和 Bz 绘制平面内流线
-                b_in_plane_mag = np.sqrt(Bx ** 2 + Bz ** 2)
-                linewidth = 2.5 * b_in_plane_mag / (b_in_plane_mag.max() + 1e-10)
-
-                ax.streamplot(x_coords, z_coords, Bx.T, Bz.T,
-                              color='white',
-                              linewidth=linewidth.T,
-                              density=1.5,
-                              arrowstyle='->',
-                              arrowsize=0.8)
-
-                ax.set_title(f'时间 = {time_s:.2e} s')
-                if i in [2, 3]: ax.set_xlabel('x (m)')
-                if i in [0, 2]: ax.set_ylabel('z (m)')
-
-            # --- 修改点 3: 动态设置颜色条标签 ---
-            fig.colorbar(im, cax=cax, label=f'磁场分量 |{comp_name}| 强度 (T)')
-            fig.subplots_adjust(top=0.94)
-
-            # --- 修改点 4: 动态生成输出文件名 ---
-            output_name = f"field_streamlines_{comp_name}_{run.name}.png"
-            plt.savefig(output_name, dpi=200)
-            plt.close(fig)
-            console.print(f"  [bold green]✔ {comp_name} 分量流线图已保存到: {output_name}[/bold green]")
 
 # =============================================================================
 # 主交互流程
@@ -592,9 +561,9 @@ def main():
         return
 
     # 生成两种图
-    # generate_field_evolution_plot(valid_runs)
-    # generate_field_snapshots_plot(valid_runs)
-    generate_field_streamlines_plot2(valid_runs)
+    generate_field_evolution_plot(valid_runs)
+    generate_field_snapshots_plot(valid_runs)
+    generate_field_streamlines_plot(valid_runs)
 
     console.print("\n[bold]分析完成。[/bold]")
 
