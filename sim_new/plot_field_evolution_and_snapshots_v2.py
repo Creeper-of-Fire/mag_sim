@@ -289,12 +289,14 @@ def generate_field_evolution_plot(runs: List[SimulationRun]):
     output_name = _generate_safe_filename("field_components_evolution", runs)
     num_runs = len(runs)
 
-    plt.rcParams.update({"font.size": 10})
+    plt.rcParams.update({"font.size": 9})
     fig, (ax_anisotropy, ax_comp, ax_mag, ax_table) = plt.subplots(
-        4, 1, figsize=(12, 12 + num_runs * 1.0),
-        gridspec_kw={'height_ratios': [3, 3, 1 + 0.2 * num_runs]}
+        4, 1,
+        figsize=(12, 8 + num_runs * 1.5),
+        gridspec_kw={'height_ratios': [3, 3, 3, 1 + 0.6 * num_runs]},
+        constrained_layout=True  # <--- 使用这个替换 tight_layout
     )
-    fig.suptitle(f"磁场各向异性演化对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
+    # fig.suptitle(f"磁场各向异性演化对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
 
     cmap = plt.cm.get_cmap('tab10' if num_runs <= 10 else 'viridis')
     colors = [cmap(i) for i in range(num_runs)]
@@ -314,7 +316,7 @@ def generate_field_evolution_plot(runs: List[SimulationRun]):
     # RMS值总是正的，所以可以使用对数坐标轴来观察增长率
     ax_anisotropy.set_yscale('log')
     ax_anisotropy.legend(fontsize=9, ncol=max(1, num_runs))
-    ax_anisotropy.grid(True, which="both", ls="--", alpha=0.5)
+    # ax_anisotropy.grid(True, which="both", ls="--", alpha=0.5)
 
     # --- 子图1: 磁场各分量平均值 (用于分析各向异性) ---
     ax_comp.set_title('磁场各分量平均值 <B> 演化 (各向异性分析)')
@@ -352,21 +354,21 @@ def generate_field_evolution_plot(runs: List[SimulationRun]):
 
     # --- 子图3: 参数表格 ---
     ax_table.axis('off')
-    ax_table.set_title('模拟参数对比', y=0.95)
+    # ax_table.set_title('模拟参数对比')
     col_labels, row_labels, cell_text = _prepare_table_data(runs)
     table = ax_table.table(cellText=cell_text, rowLabels=row_labels, colLabels=col_labels[1:], loc='center',
                            cellLoc='center')
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.8)
+    table.auto_set_font_size(True)
+    # table.set_fontsize(9)
+    # table.scale(1, 1.2)
     for (row, col), cell in table.get_celld().items():
         if row == 0: cell.set_text_props(weight='bold'); cell.set_facecolor('#B0C4DE')
         if col == -1:
             cell.set_text_props(ha='left', weight='normal')
             if "---" in cell.get_text().get_text(): cell.set_text_props(weight='bold'); cell.set_facecolor('#E0E0E0')
 
-    plt.tight_layout(rect=[0, 0.02, 1, 0.97])
-    plt.savefig(output_name, dpi=200, bbox_inches='tight')
+    # plt.tight_layout(rect=[0, 0.02, 1, 0.97])
+    plt.savefig(output_name, dpi=200)
     plt.close(fig)
     console.print(f"[bold green]✔ 磁场演化图已成功保存到: {output_name}[/bold green]")
 
@@ -598,8 +600,8 @@ def main():
 
     # 生成两种图
     generate_field_evolution_plot(valid_runs)
-    generate_field_snapshots_plot(valid_runs)
-    generate_field_streamlines_plot(valid_runs)
+    # generate_field_snapshots_plot(valid_runs)
+    # generate_field_streamlines_plot(valid_runs)
 
     console.print("\n[bold]分析完成。[/bold]")
 

@@ -330,13 +330,15 @@ def generate_comparison_plot(runs: List[SimulationRun]):
                             label='最终')
 
                 if run.initial_spectrum:
-                    T_plasma_J = run.sim.T_plasma * E
+                    T_plasma = run.sim.T_plasma
+                    T_plasma = 1e3 * 97
+                    T_plasma_J = T_plasma * E
                     total_thermal_particles = np.sum(run.initial_spectrum.weights)
                     pdf_juttner_per_J = get_maxwell_juttner_distribution(bin_centers_MeV * J_PER_MEV, T_plasma_J)
                     dN_dE_juttner = total_thermal_particles * pdf_juttner_per_J * J_PER_MEV
                     valid_mask = dN_dE_juttner > 0
                     ax.plot(bin_centers_MeV[valid_mask], dN_dE_juttner[valid_mask], ':', color='black', alpha=0.8,
-                            label=f'热谱 (T={run.sim.T_plasma / 1e3:.1f} keV)')
+                            label=f'热谱 (T={T_plasma / 1e3:.1f} keV)')
 
                 ax.set_title(f'{run.name}', fontsize=14, pad=10)
                 ax.set_xscale('log')

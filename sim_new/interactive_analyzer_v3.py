@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# --- 交互式多重模拟对比分析脚本 ---
+# --- 交互式多重模拟对比分析脚本 (V3 - 独立分析版) ---
 #
 # 功能:
 # 1. 使用 Rich 库提供一个美观的交互式命令行界面。
 # 2. 自动扫描当前目录下的子文件夹，识别有效的 WarpX 模拟运行。
-# 3. 允许用户选择多个模拟进行并行对比。
-# 4. 生成一张包含 "2*n" 条曲线的能谱对比图 (每个模拟的初始和最终能谱)。
-# 5. 在图下方附带一个详细的、对齐的参数对比表。
-# 6. 自动计算并显示老师关心的关键物理量（空间/时间尺度、总粒子数、束流能量）。
+# 3. 允许用户选择多个模拟进行分析。
+# 4. 对每个选定的模拟：
+#    a. 计算并显示最终时刻粒子的加权平均动能。
+#    b. 提示用户输入一个外部计算的“真实温度”(keV)。
+#    c. 生成一张独立的分析图，包含初始/最终能谱和基于输入温度的理论热谱。
+#    d. 在图下方附带该模拟的详细参数表。
 #
 
 import os
@@ -22,7 +24,7 @@ import matplotlib.pyplot as plt
 from scipy import constants
 from scipy.special import kv
 import matplotlib.font_manager as fm
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 # --- Rich 库用于漂亮的命令行交互 ---
@@ -47,6 +49,7 @@ class SimulationRun:
     sim: object  # 加载自 dill 的模拟参数对象
     initial_spectrum: Optional[SpectrumData]
     final_spectrum: Optional[SpectrumData]
+    user_T_keV: Optional[float] = field(default=None)  # 新增：用于存储用户输入的温度
 
 
 # --- 全局常量和控制台 ---
@@ -109,23 +112,19 @@ def _load_spectrum_from_file(h5_filepath: str) -> Optional[SpectrumData]:
             for species in charged_species:
                 base_path = f"data/{step_key}/particles/{species}/"
 
-                # 定义所需数据集的完整路径
                 px_path = base_path + 'momentum/x'
                 py_path = base_path + 'momentum/y'
                 pz_path = base_path + 'momentum/z'
                 w_path = base_path + 'weighting'
                 required_datasets = [px_path, py_path, pz_path, w_path]
 
-                # 在读取前，检查所有路径是否存在
                 if not all(p in f and isinstance(f[p], h5py.Dataset) for p in required_datasets):
                     console.print(f"  [yellow]  -> ⚠ 物种 '{species}' 缺少必要的数据集(Dataset)，已跳过。[/yellow]")
                     continue
 
-                # 只有当所有数据集都存在时，才加载数据
                 px, py, pz = f[px_path][:], f[py_path][:], f[pz_path][:]
                 weights = f[w_path][:]
 
-                # 如果权重为空（没有粒子），也跳过
                 if weights.size == 0:
                     continue
 
@@ -183,204 +182,158 @@ def load_simulation_data(dir_path: str) -> Optional[SimulationRun]:
 # 3. 绘图与分析核心函数
 # =============================================================================
 
-def _prepare_table_data(runs: List[SimulationRun]) -> Tuple[List[str], List[str], List[List[str]]]:
-    """准备 Matplotlib 表格所需的数据，并计算特殊参数。"""
-    headers = ["参数"] + [run.name for run in runs]
-
+def _prepare_single_run_table_data(run: SimulationRun) -> List[List[str]]:
+    """为单个模拟准备 Matplotlib 表格所需的数据。"""
     m_e_c2_MeV = (M_E * C ** 2) / J_PER_MEV  # ~0.511 MeV
 
-    # 定义要显示的参数和格式化函数
     param_map = {
         "--- 归一化 ---": None,
         "B_norm (β ≈ 1, T)": (lambda s: f"{s.B_norm:.2e}" if hasattr(s, 'B_norm') else "未定义"),
         "J_norm (极限电流密度, A/m²)": (lambda s: f"{s.J_norm:.2e}" if hasattr(s, 'J_norm') else "未定义"),
-
         "--- 物理参数 ---": None,
-        "温度 T (keV)": (lambda s: f"{s.T_plasma / 1e3:.1f}"),
-        "总数密度 n (m^-3)": (lambda s: f"{s.n_plasma:.2e}"),
+        "初始温度 T (keV)": (lambda s: f"{s.T_plasma / 1e3:.1f}"),
+        "总数密度 n (m⁻³)": (lambda s: f"{s.n_plasma:.2e}"),
         "初始重联场 B0 (T)": (lambda s: f"{s.B0:.2f}" if hasattr(s, 'B0') and s.B0 > 0 else "0.0 (无)"),
         "磁化强度 σ": (lambda s: f"{s.sigma:.3f}" if hasattr(s, 'sigma') and s.sigma > 0 else "N/A"),
-
         "--- 束流参数 ---": None,
-        "束流占比": (lambda s: f"{s.beam_fraction * 100:.0f} %" if hasattr(s,
-                                                                           'beam_fraction') and s.beam_fraction > 0 else "N/A"),
-        "束流 p*c (MeV/c)": (
-            lambda s: f"{(s.beam_u_drift * m_e_c2_MeV):.3f}" if hasattr(s,
-                                                                        'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
+        "束流占比": (lambda s: f"{s.beam_fraction * 100:.0f} %" if hasattr(s, 'beam_fraction') and s.beam_fraction > 0 else "N/A"),
+        "束流 p*c (MeV/c)": (lambda s: f"{(s.beam_u_drift * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
         "束流能量 E_k (MeV)": (
-            lambda s: f"{((np.sqrt(1 + s.beam_u_drift ** 2) - 1) * (M_E * C ** 2 / J_PER_MEV)):.3f}" if hasattr(s,
-                                                                                                                'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
+            lambda s: f"{((np.sqrt(1 + s.beam_u_drift ** 2) - 1) * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
         "--- 真实尺寸 ---": None,
         "空间尺度 (m)": (lambda s: f"{s.Lx:.2e} x {s.Lz:.2e}"),
         "时间跨度 (s)": (lambda s: f"{s.total_steps * s.dt:.2e}"),
-        "总粒子数 (加权)": "dynamic",  # 特殊处理
+        "总粒子数 (加权)": "dynamic",
         "--- 数值参数 ---": None,
         "网格": (lambda s: f"{s.NX} x {s.NZ}"),
         "每单元粒子数 (NPPC)": (lambda s: f"{s.NPPC}"),
     }
 
-    rows = list(param_map.keys())
-    cell_text = []
-
-    for param_name in rows:
-        row_data = []
-        if param_map[param_name] is None:  # 分隔符
-            cell_text.append([''] * len(runs))
+    table_data = []
+    for param_name, formatter in param_map.items():
+        if formatter is None:
+            table_data.append([param_name, ''])
             continue
 
-        for run in runs:
-            if param_map[param_name] == "dynamic":
-                # 动态计算总粒子数
-                if run.initial_spectrum:
-                    total_particles = np.sum(run.initial_spectrum.weights)
-                    row_data.append(f"{total_particles:.2e}")
-                else:
-                    row_data.append("N/A")
-            else:
-                try:
-                    formatter = param_map[param_name]
-                    row_data.append(formatter(run.sim))
-                except AttributeError:
-                    row_data.append("N/A")
-        cell_text.append(row_data)
+        value_str = "N/A"
+        if formatter == "dynamic":
+            if run.initial_spectrum and run.initial_spectrum.weights.size > 0:
+                total_particles = np.sum(run.initial_spectrum.weights)
+                value_str = f"{total_particles:.2e}"
+        else:
+            try:
+                value_str = formatter(run.sim)
+            except AttributeError:
+                pass  # 保持 "N/A"
 
-    # 调整行标签以增加可读性
-    formatted_rows = [f"  {r}" if "---" not in r else r for r in rows]
-    return headers, formatted_rows, cell_text
+        table_data.append([f"  {param_name}", value_str])
+
+    return table_data
 
 
-def generate_comparison_plot(runs: List[SimulationRun]):
-    """为选定的模拟运行生成一张包含能谱和参数表的摘要图。"""
-    console.print("\n[bold magenta]正在生成对比图...[/bold magenta]")
+def generate_individual_plots(runs: List[SimulationRun]):
+    """为每个选定的模拟运行生成一张独立的分析图。"""
+    console.print("\n[bold magenta]正在为每个模拟生成独立分析图...[/bold magenta]")
 
-    num_runs = len(runs)
-    output_name = f"comparison_{'_vs_'.join([run.name for run in runs])}.png"
+    for i, run in enumerate(runs):
+        output_name = f"analysis_{run.name}.png"
+        console.print(f"\n--- ({i + 1}/{len(runs)}) 正在处理 [bold]{run.name}[/bold] ---")
 
-    plt.rcParams.update({"font.size": 10})
-    # --- MODIFIED: Create 3 subplots instead of 2 ---
-    fig, (ax_initial, ax_final, ax_table) = plt.subplots(
-        3, 1,
-        figsize=(10, 14 + num_runs * 1.5),  # Taller figure to accommodate the new plot
-        gridspec_kw={'height_ratios': [3, 3, 1 + 0.3 * num_runs]}
-    )
-    fig.suptitle(f"模拟对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
+        # --- 1. 创建 Figure 和布局 ---
+        fig, (ax_plot, ax_table) = plt.subplots(2, 1, figsize=(10, 14),
+                                                gridspec_kw={'height_ratios': [3, 2]})
+        fig.suptitle(f"模拟分析: {run.name}", fontsize=20, y=0.98)
 
-    # --- Setup color scheme ---
-    if len(runs) <= 10:
-        cmap = plt.cm.get_cmap('tab10')
-        colors = [cmap(i) for i in range(len(runs))]
-    else:
-        cmap = plt.cm.get_cmap('viridis')
-        colors = [cmap(i / (len(runs) - 1)) for i in range(len(runs))]
+        # --- 2. 绘制能谱图 ---
+        ax_plot.set_title("粒子能谱演化", fontsize=16)
 
-    # --- Prepare common data for plotting ---
-    all_energies = []
-    for run in runs:
+        all_energies = []
         if run.initial_spectrum: all_energies.append(run.initial_spectrum.energies_MeV)
         if run.final_spectrum: all_energies.append(run.final_spectrum.energies_MeV)
 
-    if not all_energies:
-        ax_initial.text(0.5, 0.5, '无能谱数据', ha='center', va='center', color='red')
-        ax_final.text(0.5, 0.5, '无能谱数据', ha='center', va='center', color='red')
-    else:
-        combined_energies = np.concatenate(all_energies)
-        positive_energies = combined_energies[combined_energies > 0]
+        if not all_energies:
+            ax_plot.text(0.5, 0.5, '无能谱数据', ha='center', va='center', color='red', fontsize=16)
+        else:
+            combined_energies = np.concatenate(all_energies)
+            positive_energies = combined_energies[combined_energies > 0]
+            if positive_energies.size > 1:
+                num_bins = 200
+                min_E = max(positive_energies.min() * 0.5, 1e-4)
+                max_E = positive_energies.max() * 1.2
+                common_bins_MeV = np.logspace(np.log10(min_E), np.log10(max_E), num_bins + 1)
+                bin_centers_MeV = np.sqrt(common_bins_MeV[:-1] * common_bins_MeV[1:])
+                bin_widths_MeV = np.diff(common_bins_MeV)
 
-        if positive_energies.size > 1:
-            # Create common energy bins for all plots
-            num_bins = 150
-            min_E = max(positive_energies.min() * 0.5, 1e-4)
-            max_E = positive_energies.max() * 1.2
-            common_bins_MeV = np.logspace(np.log10(min_E), np.log10(max_E), num_bins + 1)
-            bin_centers_MeV = np.sqrt(common_bins_MeV[:-1] * common_bins_MeV[1:])
-            bin_widths_MeV = np.diff(common_bins_MeV)
-
-            # --- 1. Plot Theoretical Maxwell-Jüttner on BOTH subplots ---
-            ref_run = runs[0]
-            if ref_run.initial_spectrum:
-                T_plasma_J = ref_run.sim.T_plasma * E
-                total_thermal_particles = np.sum(ref_run.initial_spectrum.weights) * (1.0 - ref_run.sim.beam_fraction)
-                pdf_juttner_per_J = get_maxwell_juttner_distribution(bin_centers_MeV * J_PER_MEV, T_plasma_J)
-                dN_dE_juttner = total_thermal_particles * pdf_juttner_per_J * J_PER_MEV
-
-                # --- MODIFIED STYLE: Use a less obtrusive color and style ---
-                theory_label_initial = f'理论热谱 (T={ref_run.sim.T_plasma / 1e3:.1f} keV)'
-                theory_label_final = '初始理论热谱 (参考)'
-                theory_style = {
-                    'linestyle': ':',  # Dotted line is less prominent than dashed
-                    'color': 'gray',  # Gray is less prominent than black
-                    'alpha': 0.8,
-                    'lw': 1.2,
-                    'zorder': 1  # Explicitly set lowest z-order
-                }
-
-                # Plot on initial axes
-                ax_initial.plot(bin_centers_MeV, dN_dE_juttner, **theory_style, label=theory_label_initial)
-                # Plot on final axes
-                ax_final.plot(bin_centers_MeV, dN_dE_juttner, **theory_style, label=theory_label_final)
-
-            # --- 2. Plot Initial Spectra on the first subplot (ax_initial) ---
-            ax_initial.set_title('初始能谱对比 (t=0)')
-            for i, run in enumerate(runs):
+                # 绘制初始能谱
                 if run.initial_spectrum:
                     counts, _ = np.histogram(run.initial_spectrum.energies_MeV, bins=common_bins_MeV,
                                              weights=run.initial_spectrum.weights)
                     dN_dE = counts / bin_widths_MeV
                     valid_mask = dN_dE > 0
-                    # Use solid lines, legend will differentiate
-                    ax_initial.plot(bin_centers_MeV[valid_mask], dN_dE[valid_mask],
-                                    color=colors[i], lw=2.0, label=f'{run.name}')
-
-            # --- 3. Plot Final Spectra on the second subplot (ax_final) ---
-            ax_final.set_title('最终能谱对比 (t=T_final)')
-            for i, run in enumerate(runs):
+                    ax_plot.plot(bin_centers_MeV[valid_mask], dN_dE[valid_mask], linestyle='--', color='gray', lw=2,
+                                 label='初始')
+                # 绘制最终能谱
                 if run.final_spectrum:
                     counts, _ = np.histogram(run.final_spectrum.energies_MeV, bins=common_bins_MeV,
                                              weights=run.final_spectrum.weights)
                     dN_dE = counts / bin_widths_MeV
                     valid_mask = dN_dE > 0
-                    ax_final.plot(bin_centers_MeV[valid_mask], dN_dE[valid_mask],
-                                  color=colors[i], lw=2.0, label=f'{run.name}')
+                    ax_plot.plot(bin_centers_MeV[valid_mask], dN_dE[valid_mask], linestyle='-', color='royalblue', lw=2.5,
+                                 label='最终')
 
+                # 绘制基于用户输入温度的麦克斯韦-朱特纳分布
+                if run.user_T_keV is not None and run.user_T_keV > 0 and run.initial_spectrum:
+                    T_plasma_J = run.user_T_keV * 1e3 * E
+                    total_particles = np.sum(run.initial_spectrum.weights)
+                    pdf_juttner_per_J = get_maxwell_juttner_distribution(bin_centers_MeV * J_PER_MEV, T_plasma_J)
+                    dN_dE_juttner = total_particles * pdf_juttner_per_J * J_PER_MEV
+                    valid_mask = dN_dE_juttner > 0
+                    ax_plot.plot(bin_centers_MeV[valid_mask], dN_dE_juttner[valid_mask], ':', color='red', alpha=0.9, lw=2,
+                                 label=f'理论热谱 (T={run.user_T_keV:.2f} keV)')
 
+            ax_plot.set_xscale('log')
+            ax_plot.set_yscale('log')
+            ax_plot.set_xlabel('动能 (MeV)', fontsize=14)
+            ax_plot.set_ylabel('粒子数谱密度 (dN/dE [MeV⁻¹])', fontsize=14)
+            ax_plot.grid(True, which="both", ls="--", alpha=0.5)
+            ax_plot.legend(fontsize=12, loc='best')
 
-    # --- 4. Setup Axes and Legends for BOTH spectral plots ---
-    for ax in [ax_initial, ax_final]:
-        ax.set_xlabel('动能 (MeV)')
-        ax.set_ylabel('dN/dE [MeV⁻¹]')
-        ax.set_xscale('log')
-        ax.set_yscale('log')
-        ax.legend(fontsize=8)
-        # ax.grid(True, which="both", ls="--", alpha=0.5)
+        # --- 3. 绘制参数表 ---
+        ax_table.axis('off')
+        ax_table.set_title('模拟参数详情', fontsize=16, y=1.0, pad=20)
 
-    # --- 2. 绘制参数表 ---
-    ax_table.axis('off')
-    ax_table.set_title('模拟参数对比', y=0.95)
+        table_data = _prepare_single_run_table_data(run)
+        table = ax_table.table(cellText=table_data,
+                               colLabels=['参数', '值'],
+                               loc='center',
+                               cellLoc='left',
+                               colWidths=[0.4, 0.4])
 
-    col_labels, row_labels, cell_text = _prepare_table_data(runs)
+        table.auto_set_font_size(False)
+        table.set_fontsize(11)
+        table.scale(1, 2.0)  # 增加行高
 
-    table = ax_table.table(cellText=cell_text, rowLabels=row_labels, colLabels=col_labels[1:], loc='center',
-                           cellLoc='center')
+        # 美化表格
+        for key, cell in table.get_celld().items():
+            row, col = key
+            cell.set_edgecolor('lightgray')
+            if row == 0:  # 表头
+                cell.set_text_props(weight='bold', ha='center')
+                cell.set_facecolor('#B0C4DE')
+            else:
+                if "---" in table_data[row - 1][0]:
+                    cell.set_text_props(weight='bold', ha='center')
+                    cell.set_facecolor('#E0E0E0')
+                if col == 0:  # 参数名列
+                    cell.set_text_props(ha='left')
+                if row % 2 == 0:  # 数据行交替颜色
+                    cell.set_facecolor('#F5F5F5')
 
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.8)
-
-    for (row, col), cell in table.get_celld().items():
-        if row == 0:
-            cell.set_text_props(weight='bold')
-            cell.set_facecolor('#B0C4DE')
-        if col == -1:
-            cell.set_text_props(ha='left', weight='normal')
-            if "---" in cell.get_text().get_text():
-                cell.set_text_props(weight='bold')
-                cell.set_facecolor('#E0E0E0')
-
-    # --- 3. 保存图像 ---
-    plt.tight_layout(rect=[0, 0.02, 1, 0.97])
-    plt.savefig(output_name, dpi=200, bbox_inches='tight')
-    plt.close(fig)
-    console.print(f"[bold green]✔ 对比图已成功保存到: {output_name}[/bold green]")
+        # --- 4. 保存图像 ---
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.savefig(output_name, dpi=200, bbox_inches='tight')
+        plt.close(fig)
+        console.print(f"[bold green]✔ 分析图已成功保存到: {output_name}[/bold green]")
 
 
 # =============================================================================
@@ -406,7 +359,7 @@ def select_directories() -> List[str]:
 
     while True:
         try:
-            prompt_text = "[bold]请输入要对比的模拟索引 (用逗号/空格分隔, [cyan]直接回车则全选[/cyan])[/bold]"
+            prompt_text = "[bold]请输入要分析的模拟索引 (用逗号/空格分隔, [cyan]直接回车则全选[/cyan])[/bold]"
             choice_str = Prompt.ask(prompt_text, default="all")
 
             if choice_str.strip().lower() == "all":
@@ -414,7 +367,6 @@ def select_directories() -> List[str]:
                 return valid_dirs
 
             indices_str = choice_str.replace(',', ' ').split()
-            # 如果用户输入了内容但解析后为空（例如只输入了空格），则重新提示
             if not indices_str:
                 continue
 
@@ -430,7 +382,7 @@ def select_directories() -> List[str]:
 
 def main():
     """主执行函数"""
-    console.print("[bold inverse] WarpX 多重模拟交互式分析器 [/bold inverse]")
+    console.print("[bold inverse] WarpX 独立模拟交互式分析器 [/bold inverse]")
     setup_chinese_font()
 
     selected_dirs = select_directories()
@@ -448,8 +400,42 @@ def main():
         console.print("\n[red]未能成功加载任何模拟数据，无法生成图像。[/red]")
         return
 
-    generate_comparison_plot(loaded_runs)
-    console.print("\n[bold]分析完成。[/bold]")
+    # --- 新增：交互式获取温度 ---
+    console.print("\n" + "=" * 50)
+    console.print("[bold yellow]      交互式温度输入环节[/bold yellow]")
+    console.print("=" * 50)
+
+    for run in loaded_runs:
+        console.print(f"\n[bold]正在处理模拟: [cyan]{run.name}[/cyan][/bold]")
+
+        if not run.final_spectrum or run.final_spectrum.weights.size == 0:
+            console.print("[yellow]⚠ 最终能谱数据为空，无法计算平均能量，将跳过此模拟的理论谱绘制。[/yellow]")
+            continue
+
+        # 计算加权平均动能
+        avg_energy_MeV = np.average(
+            run.final_spectrum.energies_MeV,
+            weights=run.final_spectrum.weights
+        )
+
+        console.print(f"  [green]➔ 计算出的最终加权平均动能为: [bold white]{avg_energy_MeV:.6f} MeV[/bold white][/green]")
+        console.print("  [white]  (请使用此值在 Mathematica 等工具中计算对应的温度)[/white]")
+
+        # 提示用户输入温度
+        try:
+            user_temp = Prompt.ask(
+                f"  [bold spring_green2]请输入您为 [cyan]{run.name}[/cyan] 计算出的温度 (keV)[/bold spring_green2]",
+                # default="0.0",
+                console=console
+            )
+            run.user_T_keV = float(user_temp)
+            console.print(f"  [green]✔ 已记录温度: {run.user_T_keV:.2f} keV[/green]")
+        except (ValueError, TypeError):
+            console.print("[yellow]⚠ 输入无效，将不绘制此模拟的理论谱。[/yellow]")
+            run.user_T_keV = None
+
+    generate_individual_plots(loaded_runs)
+    console.print("\n[bold]所有分析完成。[/bold]")
 
 
 if __name__ == "__main__":
