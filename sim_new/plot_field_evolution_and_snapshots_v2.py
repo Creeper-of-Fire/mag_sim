@@ -45,6 +45,9 @@ class FieldEvolutionData:
     b_mean_x_normalized: np.ndarray    # 平均X分量 ⟨Bx⟩
     b_mean_y_normalized: np.ndarray    # 平均Y分量 ⟨By⟩
     b_mean_z_normalized: np.ndarray    # 平均Z分量 ⟨Bz⟩
+    b_rms_x_normalized: np.ndarray        # Bx分量的均方根值 sqrt(<Bx^2>)
+    b_rms_y_normalized: np.ndarray        # By分量的均方根值 sqrt(<By^2>)
+    b_rms_z_normalized: np.ndarray        # Bz分量的均方根值 sqrt(<Bz^2>)
 
 
 @dataclass
@@ -194,7 +197,7 @@ def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldE
     # --- 数据列表初始化：现在专注于各分量的平均值 ---
     times, b_max_vals = [], []
     b_mean_x_vals, b_mean_y_vals, b_mean_z_vals = [], [], []
-    # (b_mean_abs_vals 不再是主要关注点，但可以保留用于其他分析)
+    b_rms_x_vals, b_rms_y_vals, b_rms_z_vals = [], [], []
     b_mean_abs_vals = []
 
     console.print(f"  [white]正在处理 {len(field_files)} 个磁场数据文件...[/white]")
@@ -205,11 +208,17 @@ def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldE
             step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
             Bx, By, Bz = get_centered_magnetic_field(fpath, target_shape)
 
-            # --- 核心修改：计算每个分量的平均值 ---
+            # --- 计算每个分量的平均值 ---
             # 这些是有符号的平均值，可以揭示场的净方向
             b_mean_x_vals.append(np.mean(Bx))
             b_mean_y_vals.append(np.mean(By))
             b_mean_z_vals.append(np.mean(Bz))
+
+            # ---计算每个分量的RMS值 ---
+            # np.mean(Bx**2) 计算 <Bx^2>，然后开方
+            b_rms_x_vals.append(np.sqrt(np.mean(Bx ** 2)))
+            b_rms_y_vals.append(np.sqrt(np.mean(By ** 2)))
+            b_rms_z_vals.append(np.sqrt(np.mean(Bz ** 2)))
 
             # 同时保留最大值和幅值平均值的计算，以供参考
             b_magnitude = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
@@ -232,7 +241,10 @@ def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldE
         b_mean_x_normalized=np.array(b_mean_x_vals),
         b_mean_y_normalized=np.array(b_mean_y_vals),
         b_mean_z_normalized=np.array(b_mean_z_vals),
-        b_mean_abs_normalized=np.array(b_mean_abs_vals)
+        b_mean_abs_normalized=np.array(b_mean_abs_vals),
+        b_rms_x_normalized=np.array(b_rms_x_vals),
+        b_rms_y_normalized=np.array(b_rms_y_vals),
+        b_rms_z_normalized=np.array(b_rms_z_vals)
     )
 
 
@@ -278,43 +290,67 @@ def generate_field_evolution_plot(runs: List[SimulationRun]):
     num_runs = len(runs)
 
     plt.rcParams.update({"font.size": 10})
-    fig, (ax_field, ax_table) = plt.subplots(
-        2, 1, figsize=(10, 8 + num_runs * 1.5),
-        gridspec_kw={'height_ratios': [3, 1 + 0.3 * num_runs]}
+    fig, (ax_anisotropy, ax_comp, ax_mag, ax_table) = plt.subplots(
+        4, 1, figsize=(12, 12 + num_runs * 1.0),
+        gridspec_kw={'height_ratios': [3, 3, 1 + 0.2 * num_runs]}
     )
     fig.suptitle(f"磁场各向异性演化对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
-    ax_field.set_title('磁场各分量平均值 <B> 随时间演化')
 
     cmap = plt.cm.get_cmap('tab10' if num_runs <= 10 else 'viridis')
     colors = [cmap(i) for i in range(num_runs)]
 
-    # --- 核心修改: 绘制 Bx, By, Bz 各分量的平均值 ---
+    # --- 子图1: 磁场各分量RMS值 (用于分析湍流各向异性) ---
+    ax_anisotropy.set_title('磁场分量RMS值演化 (湍流各向异性分析)')
     for i, run in enumerate(runs):
         if run.field_data:
-            # 使用不同的线型来区分 Bx, By, Bz
-            # 同一个 run 的不同分量使用相同的颜色
-            ax_field.plot(run.field_data.time, run.field_data.b_mean_x_normalized, '-', color=colors[i], lw=2,
-                          label=f'{run.name} - <Bx>')
-            ax_field.plot(run.field_data.time, run.field_data.b_mean_y_normalized, '--', color=colors[i], lw=1.5,
-                          label=f'{run.name} - <By>')
-            ax_field.plot(run.field_data.time, run.field_data.b_mean_z_normalized, ':', color=colors[i], lw=1.5,
-                          label=f'{run.name} - <Bz>')
+            ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_x_normalized, '-', color=colors[i], lw=2,
+                               label=f'{run.name} - RMS(Bx)')
+            ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_y_normalized, '--', color=colors[i], lw=1.5,
+                               label=f'{run.name} - RMS(By)')
+            ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_z_normalized, ':', color=colors[i], lw=1.5,
+                               label=f'{run.name} - RMS(Bz)')
 
-            # # (可选) 仍然可以绘制最大值作为参考，但使用较低的透明度
-            # ax_field.plot(run.field_data.time, run.field_data.b_max_normalized, ls='-', color=colors[i], lw=1, alpha=0.3,
-            #               label=f'{run.name} - Max |B|')
+    ax_anisotropy.set_ylabel('分量RMS值 / B_norm')
+    # RMS值总是正的，所以可以使用对数坐标轴来观察增长率
+    ax_anisotropy.set_yscale('log')
+    ax_anisotropy.legend(fontsize=9, ncol=max(1, num_runs))
+    ax_anisotropy.grid(True, which="both", ls="--", alpha=0.5)
 
-    # --- 修改坐标轴和图例以适应新数据 ---
-    ax_field.axhline(0.0, color='black', linestyle='-', linewidth=1, alpha=0.7) # 添加 y=0 参考线
-    ax_field.set_xlabel('时间 (s)')
-    ax_field.set_ylabel('平均磁场分量 <B> / B_norm')
+    # --- 子图1: 磁场各分量平均值 (用于分析各向异性) ---
+    ax_comp.set_title('磁场各分量平均值 <B> 演化 (各向异性分析)')
+    for i, run in enumerate(runs):
+        if run.field_data:
+            # 使用不同线型区分 Bx, By, Bz
+            ax_comp.plot(run.field_data.time, run.field_data.b_mean_x_normalized, '-', color=colors[i], lw=2,
+                         label=f'{run.name} - <Bx>')
+            ax_comp.plot(run.field_data.time, run.field_data.b_mean_y_normalized, '--', color=colors[i], lw=1.5,
+                         label=f'{run.name} - <By>')
+            ax_comp.plot(run.field_data.time, run.field_data.b_mean_z_normalized, ':', color=colors[i], lw=1.5,
+                         label=f'{run.name} - <Bz>')
 
-    # 因为平均值可以为负，所以必须使用线性坐标轴，而不是对数坐标轴
-    ax_field.set_yscale('linear')
+    ax_comp.axhline(0.0, color='black', linestyle='-', linewidth=1, alpha=0.7)  # 添加 y=0 参考线
+    ax_comp.set_ylabel('平均磁场分量 <B_i> / B_norm')
+    ax_comp.set_yscale('linear')  # 必须使用线性坐标轴以显示正负值
+    ax_comp.legend(fontsize=9, ncol=max(1, num_runs))
+    # ax_comp.grid(True, which="both", ls="--", alpha=0.5)
 
-    ax_field.legend(fontsize=8, ncol=max(1, num_runs)) # 使用多列图例防止重叠
-    ax_field.grid(True, which="both", ls="--", alpha=0.5)
+    # --- 子图2: 磁场强度 (用于分析增长与饱和) ---
+    ax_mag.set_title('磁场强度演化 (增长与饱和分析)')
+    for i, run in enumerate(runs):
+        if run.field_data:
+            # 实线表示平均强度，虚线表示最大强度
+            ax_mag.plot(run.field_data.time, run.field_data.b_mean_abs_normalized, '-', color=colors[i], lw=2,
+                        label=f'{run.name} - <|B|> / B_norm')
+            ax_mag.plot(run.field_data.time, run.field_data.b_max_normalized, '--', color=colors[i], lw=1.5, alpha=0.8,
+                        label=f'{run.name} - Max|B| / B_norm')
 
+    ax_mag.set_xlabel('时间 (s)')
+    ax_mag.set_ylabel('磁场强度 |B| / B_norm')
+    ax_mag.set_yscale('log')  # 使用对数坐标轴以观察指数增长
+    ax_mag.legend(fontsize=9, ncol=max(1, num_runs))
+    # ax_mag.grid(True, which="both", ls="--", alpha=0.5)
+
+    # --- 子图3: 参数表格 ---
     ax_table.axis('off')
     ax_table.set_title('模拟参数对比', y=0.95)
     col_labels, row_labels, cell_text = _prepare_table_data(runs)
