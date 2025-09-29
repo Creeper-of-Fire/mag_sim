@@ -247,57 +247,6 @@ def load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldE
         b_rms_z_normalized=np.array(b_rms_z_vals)
     )
 
-def _prepare_single_run_table_data(run: 'SimulationRun') -> List[List[str]]:
-    """
-    为单个模拟准备 Matplotlib 表格所需的数据。
-    (这个函数应该已经在您的脚本中了，如果没有，请复制这个版本)
-    """
-    # 假设 SimulationRun, M_E, C, J_PER_MEV 等已定义
-    m_e_c2_MeV = (constants.m_e * constants.c**2) / (constants.e * 1e6)
-
-    param_map = {
-        "--- 归一化 ---": None,
-        "B_norm (β ≈ 1, T)": (lambda s: f"{s.B_norm:.2e}" if hasattr(s, 'B_norm') else "未定义"),
-        "J_norm (极限电流密度, A/m²)": (lambda s: f"{s.J_norm:.2e}" if hasattr(s, 'J_norm') else "未定义"),
-        "--- 物理参数 ---": None,
-        "初始温度 T (keV)": (lambda s: f"{s.T_plasma / 1e3:.1f}"),
-        "总数密度 n (m⁻³)": (lambda s: f"{s.n_plasma:.2e}"),
-        "初始重联场 B0 (T)": (lambda s: f"{s.B0:.2f}" if hasattr(s, 'B0') and s.B0 > 0 else "0.0 (无)"),
-        "磁化强度 σ": (lambda s: f"{s.sigma:.3f}" if hasattr(s, 'sigma') and s.sigma > 0 else "N/A"),
-        "--- 束流参数 ---": None,
-        "束流占比": (lambda s: f"{s.beam_fraction * 100:.0f} %" if hasattr(s, 'beam_fraction') and s.beam_fraction > 0 else "N/A"),
-        "束流 p*c (MeV/c)": (lambda s: f"{(s.beam_u_drift * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
-        "束流能量 E_k (MeV)": (lambda s: f"{((np.sqrt(1 + s.beam_u_drift ** 2) - 1) * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
-        "--- 真实尺寸 ---": None,
-        "空间尺度 (m)": (lambda s: f"{s.Lx:.2e} x {s.Lz:.2e}"),
-        "时间跨度 (s)": (lambda s: f"{s.total_steps * s.dt:.2e}"),
-        "总粒子数 (加权)": "dynamic",
-        "--- 数值参数 ---": None,
-        "网格": (lambda s: f"{s.NX} x {s.NZ}"),
-        "每单元粒子数 (NPPC)": (lambda s: f"{s.NPPC}"),
-    }
-
-    table_data = []
-    for param_name, formatter in param_map.items():
-        if formatter is None:
-            table_data.append([param_name, ''])
-            continue
-
-        value_str = "N/A"
-        if formatter == "dynamic":
-            # 假设 run.initial_spectrum 存在
-            if hasattr(run, 'initial_spectrum') and run.initial_spectrum and run.initial_spectrum.weights.size > 0:
-                total_particles = np.sum(run.initial_spectrum.weights)
-                value_str = f"{total_particles:.2e}"
-        else:
-            try:
-                value_str = formatter(run.sim)
-            except AttributeError:
-                pass
-
-        table_data.append([f"  {param_name}", value_str])
-
-    return table_data
 
 def _generate_safe_filename(prefix: str, runs: List[SimulationRun], max_length: int = 32) -> str:
     """
@@ -332,92 +281,96 @@ def _generate_safe_filename(prefix: str, runs: List[SimulationRun], max_length: 
 
     return short_name
 
-def generate_individual_field_evolution_plots(runs: List['SimulationRun']):
+def generate_field_evolution_plot(runs: List[SimulationRun]):
     """
-    为每个选定的模拟生成一张独立的磁场演化分析图。
+    为选定的模拟生成磁场各分量演化的对比图，以研究各向异性。
     """
-    console.print("\n[bold magenta]正在为每个模拟生成独立的磁场演化图...[/bold magenta]")
+    console.print("\n[bold magenta]正在生成磁场分量演化对比图...[/bold magenta]")
+    output_name = _generate_safe_filename("field_components_evolution", runs)
+    num_runs = len(runs)
 
+    plt.rcParams.update({"font.size": 9})
+    fig, (ax_anisotropy, ax_comp, ax_mag, ax_table) = plt.subplots(
+        4, 1,
+        figsize=(12, 8 + num_runs * 1.5),
+        gridspec_kw={'height_ratios': [3, 3, 3, 1 + 0.6 * num_runs]},
+        constrained_layout=True  # <--- 使用这个替换 tight_layout
+    )
+    # fig.suptitle(f"磁场各向异性演化对比: {', '.join([run.name for run in runs])}", fontsize=16, y=0.99)
+
+    cmap = plt.cm.get_cmap('tab10' if num_runs <= 10 else 'viridis')
+    colors = [cmap(i) for i in range(num_runs)]
+
+    # --- 子图1: 磁场各分量RMS值 (用于分析湍流各向异性) ---
+    ax_anisotropy.set_title('磁场分量RMS值演化 (湍流各向异性分析)')
     for i, run in enumerate(runs):
-        output_name = f"field_evolution_{run.name}.png"
-        console.print(f"\n--- ({i+1}/{len(runs)}) 正在处理 [bold]{run.name}[/bold] ---")
+        if run.field_data:
+            ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_x_normalized, '-', color=colors[i], lw=2,
+                               label=f'{run.name} - RMS(Bx)')
+            ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_y_normalized, '--', color=colors[i], lw=1.5,
+                               label=f'{run.name} - RMS(By)')
+            ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_z_normalized, ':', color=colors[i], lw=1.5,
+                               label=f'{run.name} - RMS(Bz)')
 
-        if not run.field_data:
-            console.print(f"  [yellow]⚠ 警告: 模拟 '{run.name}' 缺少场数据，已跳过。[/yellow]")
-            continue
+    ax_anisotropy.set_ylabel('分量RMS值 / B_norm')
+    # RMS值总是正的，所以可以使用对数坐标轴来观察增长率
+    ax_anisotropy.set_yscale('log')
+    ax_anisotropy.legend(fontsize=9, ncol=max(1, num_runs))
+    # ax_anisotropy.grid(True, which="both", ls="--", alpha=0.5)
 
-        # --- 1. 创建 Figure 和布局 ---
-        fig, (ax_anisotropy, ax_comp, ax_mag, ax_table) = plt.subplots(
-            4, 1,
-            figsize=(12, 18),
-            gridspec_kw={'height_ratios': [3, 3, 3, 3]},
-            constrained_layout=True
-        )
-        # fig.suptitle(f"磁场演化分析: {run.name}", fontsize=20, y=0.99)
+    # --- 子图1: 磁场各分量平均值 (用于分析各向异性) ---
+    ax_comp.set_title('磁场各分量平均值 <B> 演化 (各向异性分析)')
+    for i, run in enumerate(runs):
+        if run.field_data:
+            # 使用不同线型区分 Bx, By, Bz
+            ax_comp.plot(run.field_data.time, run.field_data.b_mean_x_normalized, '-', color=colors[i], lw=2,
+                         label=f'{run.name} - <Bx>')
+            ax_comp.plot(run.field_data.time, run.field_data.b_mean_y_normalized, '--', color=colors[i], lw=1.5,
+                         label=f'{run.name} - <By>')
+            ax_comp.plot(run.field_data.time, run.field_data.b_mean_z_normalized, ':', color=colors[i], lw=1.5,
+                         label=f'{run.name} - <Bz>')
 
-        # --- 2. 子图1: 磁场分量RMS值 (湍流各向异性分析) ---
-        ax_anisotropy.set_title('磁场分量RMS值演化 (湍流各向异性分析)', fontsize=14)
-        ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_x_normalized, '-', color='red', lw=2, label='RMS(Bx)')
-        ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_y_normalized, '--', color='green', lw=2, label='RMS(By)')
-        ax_anisotropy.plot(run.field_data.time, run.field_data.b_rms_z_normalized, ':', color='blue', lw=2, label='RMS(Bz)')
-        ax_anisotropy.set_ylabel('分量RMS值 / B_norm')
-        ax_anisotropy.set_yscale('log')
-        ax_anisotropy.legend()
-        # ax_anisotropy.grid(True, which="both", ls="--", alpha=0.5)
+    ax_comp.axhline(0.0, color='black', linestyle='-', linewidth=1, alpha=0.7)  # 添加 y=0 参考线
+    ax_comp.set_ylabel('平均磁场分量 <B_i> / B_norm')
+    ax_comp.set_yscale('linear')  # 必须使用线性坐标轴以显示正负值
+    ax_comp.legend(fontsize=9, ncol=max(1, num_runs))
+    # ax_comp.grid(True, which="both", ls="--", alpha=0.5)
 
-        # --- 3. 子图2: 磁场分量平均值 (宏观各向异性分析) ---
-        ax_comp.set_title('磁场分量平均值 <B> 演化 (宏观各向异性分析)', fontsize=14)
-        ax_comp.plot(run.field_data.time, run.field_data.b_mean_x_normalized, '-', color='red', lw=2, label='<Bx>')
-        ax_comp.plot(run.field_data.time, run.field_data.b_mean_y_normalized, '--', color='green', lw=2, label='<By>')
-        ax_comp.plot(run.field_data.time, run.field_data.b_mean_z_normalized, ':', color='blue', lw=2, label='<Bz>')
-        ax_comp.axhline(0.0, color='black', linestyle='-', linewidth=1, alpha=0.7)
-        ax_comp.set_ylabel('平均磁场分量 <B_i> / B_norm')
-        ax_comp.set_yscale('linear')
-        ax_comp.legend()
-        # ax_comp.grid(True, which="both", ls="--", alpha=0.5)
+    # --- 子图2: 磁场强度 (用于分析增长与饱和) ---
+    ax_mag.set_title('磁场强度演化 (增长与饱和分析)')
+    for i, run in enumerate(runs):
+        if run.field_data:
+            # 实线表示平均强度，虚线表示最大强度
+            ax_mag.plot(run.field_data.time, run.field_data.b_mean_abs_normalized, '-', color=colors[i], lw=2,
+                        label=f'{run.name} - <|B|> / B_norm')
+            ax_mag.plot(run.field_data.time, run.field_data.b_max_normalized, '--', color=colors[i], lw=1.5, alpha=0.8,
+                        label=f'{run.name} - Max|B| / B_norm')
 
-        # --- 4. 子图3: 磁场强度 (增长与饱和分析) ---
-        ax_mag.set_title('磁场强度演化 (增长与饱和分析)', fontsize=14)
-        ax_mag.plot(run.field_data.time, run.field_data.b_mean_abs_normalized, '-', color='purple', lw=2.5, label='<|B|> / B_norm (平均强度)')
-        ax_mag.plot(run.field_data.time, run.field_data.b_max_normalized, '--', color='orange', lw=2, alpha=0.9, label='Max|B| / B_norm (最大强度)')
-        ax_mag.set_xlabel('时间 (s)', fontsize=12)
-        ax_mag.set_ylabel('磁场强度 |B| / B_norm')
-        ax_mag.set_yscale('log')
-        ax_mag.legend()
-        # ax_mag.grid(True, which="both", ls="--", alpha=0.5)
+    ax_mag.set_xlabel('时间 (s)')
+    ax_mag.set_ylabel('磁场强度 |B| / B_norm')
+    ax_mag.set_yscale('log')  # 使用对数坐标轴以观察指数增长
+    ax_mag.legend(fontsize=9, ncol=max(1, num_runs))
+    # ax_mag.grid(True, which="both", ls="--", alpha=0.5)
 
-        # --- 5. 子图4: 参数表 ---
-        ax_table.axis('off')
-        ax_table.set_title('模拟参数详情', fontsize=16, y=1.0, pad=20)
-        table_data = _prepare_single_run_table_data(run)
-        table = ax_table.table(cellText=table_data,
-                               colLabels=['参数', '值'],
-                               loc='center',
-                               cellLoc='left',
-                               colWidths=[0.4, 0.4])
-        table.auto_set_font_size(False)
-        table.set_fontsize(11)
-        table.scale(1, 2.0)
+    # --- 子图3: 参数表格 ---
+    ax_table.axis('off')
+    # ax_table.set_title('模拟参数对比')
+    col_labels, row_labels, cell_text = _prepare_table_data(runs)
+    table = ax_table.table(cellText=cell_text, rowLabels=row_labels, colLabels=col_labels[1:], loc='center',
+                           cellLoc='center')
+    table.auto_set_font_size(True)
+    # table.set_fontsize(9)
+    # table.scale(1, 1.2)
+    for (row, col), cell in table.get_celld().items():
+        if row == 0: cell.set_text_props(weight='bold'); cell.set_facecolor('#B0C4DE')
+        if col == -1:
+            cell.set_text_props(ha='left', weight='normal')
+            if "---" in cell.get_text().get_text(): cell.set_text_props(weight='bold'); cell.set_facecolor('#E0E0E0')
 
-        for key, cell in table.get_celld().items():
-            row, col = key
-            cell.set_edgecolor('lightgray')
-            if row == 0:
-                cell.set_text_props(weight='bold', ha='center')
-                cell.set_facecolor('#B0C4DE')
-            else:
-                if "---" in table_data[row-1][0]:
-                    cell.set_text_props(weight='bold', ha='center')
-                    cell.set_facecolor('#E0E0E0')
-                if col == 0:
-                    cell.set_text_props(ha='left')
-                if row % 2 == 0:
-                    cell.set_facecolor('#F5F5F5')
-
-        # --- 6. 保存图像 ---
-        plt.savefig(output_name, dpi=200, bbox_inches='tight')
-        plt.close(fig) # <-- 非常重要！
-        console.print(f"[bold green]✔ 磁场演化图已成功保存到: {output_name}[/bold green]")
+    # plt.tight_layout(rect=[0, 0.02, 1, 0.97])
+    plt.savefig(output_name, dpi=200)
+    plt.close(fig)
+    console.print(f"[bold green]✔ 磁场演化图已成功保存到: {output_name}[/bold green]")
 
 
 # --- 新增功能: 绘制磁场快照 ---
@@ -646,7 +599,7 @@ def main():
         return
 
     # 生成两种图
-    generate_individual_field_evolution_plots(valid_runs)
+    generate_field_evolution_plot(valid_runs)
     # generate_field_snapshots_plot(valid_runs)
     # generate_field_streamlines_plot(valid_runs)
 
