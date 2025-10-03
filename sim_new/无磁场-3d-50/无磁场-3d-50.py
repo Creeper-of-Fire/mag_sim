@@ -68,9 +68,9 @@ class SimulationParameters:
     DT = 0.05  # 时间步长 (单位: 等离子体周期 1/w_pe) (需满足CFL条件)
 
     # --- 3. 数值和扰动参数 (Numerical and Perturbation Parameters) ---
-    NX = 32  # x 方向网格数
-    NY = 32  # y 方向网格数
-    NZ = 32  # z 方向网格数
+    NX = 64  # x 方向网格数
+    NY = 64  # y 方向网格数
+    NZ = 64  # z 方向网格数
     NPPC = 10  # 每个单元的宏粒子数 (每个物种)
 
     # 磁场和导向场设置
@@ -108,10 +108,12 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         self.beam_u_drift = self.p.beam_u_drift
 
         self.LX = self.p.LX
+        self.LY = self.p.LY
         self.LZ = self.p.LZ
         self.LT = self.p.LT
         self.DT = self.p.DT
         self.NX = self.p.NX
+        self.NY = self.p.NY
         self.NZ = self.p.NZ
         self.NPPC = self.p.NPPC
 
@@ -130,6 +132,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
 
         # 现在使用计算出的物理尺度来定义模拟域的绝对尺寸
         self.Lx = self.LX * self.d_e
+        self.Ly = self.LY * self.d_e
         self.Lz = self.LZ * self.d_e
         self.dt = self.DT / self.w_pe  # dt based on w_pe
 
@@ -186,9 +189,10 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             )
             print("--- Numerical Parameters ---")
             print(
-                f"\tDomain = {self.Lx:.3f}m x {self.Lz:.3f}m ({self.LX:.0f} d_e x {self.LZ:.0f} d_e)\n"
-                f"\tGrid = {self.NX} x {self.NZ}\n"
-                f"\tdz = {self.Lz / self.NZ:.3e} m\n"
+                f"\tDomain = {self.Lx:.3e}m x {self.Ly:.3e}m x {self.Lz:.3e}m "
+                f"({self.LX:.0f} d_e x {self.LY:.0f} d_e x {self.LZ:.0f} d_e)\n"
+                f"\tGrid = {self.NX} x {self.NY} x {self.NZ}\n"
+                f"\tdx = {self.Lx / self.NX:.3e} m, dy = {self.Ly / self.NY:.3e} m, dz = {self.Lz / self.NZ:.3e} m\n"
                 f"\tdt = {self.dt:.3e} s ({self.DT:.2e} / w_pe)\n"
                 f"\tTotal steps = {self.total_steps:d} (runtime = {self.total_steps * self.dt:.3e} s)\n"
             )
@@ -321,15 +325,15 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         # Set geometry and boundary conditions                                #
         #######################################################################
 
-        self.grid = picmi.Cartesian2DGrid(
-            number_of_cells=[self.NX, self.NZ],
-            lower_bound=[-self.Lx / 2.0, -self.Lz / 2.0],
-            upper_bound=[self.Lx / 2.0, self.Lz / 2.0],
-            lower_boundary_conditions=["periodic", "periodic"],
-            upper_boundary_conditions=["periodic", "periodic"],
-            lower_boundary_conditions_particles=["periodic", "periodic"],
-            upper_boundary_conditions_particles=["periodic", "periodic"],
-            warpx_max_grid_size=self.NZ,
+        self.grid = picmi.Cartesian3DGrid(
+            number_of_cells=[self.NX, self.NY, self.NZ],
+            lower_bound=[-self.Lx / 2.0, -self.Ly / 2.0, -self.Lz / 2.0],
+            upper_bound=[self.Lx / 2.0, self.Ly / 2.0, self.Lz / 2.0],
+            lower_boundary_conditions=["periodic", "periodic", "periodic"],
+            upper_boundary_conditions=["periodic", "periodic", "periodic"],
+            lower_boundary_conditions_particles=["periodic", "periodic", "periodic"],
+            upper_boundary_conditions_particles=["periodic", "periodic", "periodic"],
+            warpx_max_grid_size=min(self.NX, self.NY, self.NZ),  # 调整最大网格大小
         )
         simulation.time_step_size = self.dt
         simulation.max_steps = self.total_steps
@@ -420,9 +424,11 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             probe_geometry="Plane",
             resolution=60,
             x_probe=0.0,
+            y_probe=0.0,
             z_probe=0.0,
             detector_radius=self.d_e,
             target_up_x=0,
+            target_up_y=0,
             target_up_z=1.0,
         )
         simulation.add_diagnostic(plane)
@@ -431,7 +437,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             name="particle_states",
             period=self.diag_steps,
             species=all_particle_species_for_diags,
-            data_list=["ux", "uy", "uz", "x", "z", "weighting"],
+            data_list=["ux", "uy", "uz", "x", "y",  "z", "weighting"],
             warpx_format='openpmd',
             warpx_openpmd_backend='h5',
         )
@@ -503,71 +509,86 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         #    假设 Ex.shape is (NX, NZ+1) and Ez.shape is (NX+1, NZ)
         #    (或者反过来，这取决于WarpX的索引顺序，但差分方法是相同的)
         Ex = fields.ExFPWrapper()[...]
+        Ey = fields.EyFPWrapper()[...]
         Ez = fields.EzFPWrapper()[...]
 
         # 2. 获取网格尺寸以进行数值微分。
         dx = self.Lx / self.NX
+        dy = self.Ly / self.NY
         dz = self.Lz / self.NZ
 
-        # 3. 手动计算中心差分，将导数结果统一到网格单元中心。
-        #    这将产生两个形状为 (NX, NZ) 的数组。
+        # 3D散度计算 - 这里需要根据实际的场分量形状进行调整
+        # 注意：WarpX在3D中的场分量形状可能不同，需要根据实际情况调整
 
-        # 检查并处理可能的维度顺序
-        # WarpX/AMReX 通常是 (x, z) 顺序
-        if Ex.shape[0] == self.NX and Ex.shape[1] == self.NZ + 1:
-            # Ex.shape is (NX, NZ+1) -> (32, 33)
-            # Ez.shape is (NX+1, NZ) -> (33, 32)
-            dEx_dx_centered = (Ex[1:, :-1] - Ex[:-1, :-1]) / dx  # 这部分可能有误，我们直接算散度
-            dEz_dz_centered = (Ez[:-1, 1:] - Ez[:-1, :-1]) / dz
-
-            # 一个更稳健的中心差分方法：
-            dEx_dx = (Ex[1:, :-1] - Ex[:-1, :-1]) / dx  # 应该是Ez的x导数
-            # 让我们重新思考散度定义
-            # div(E)_i,k = (Ex_i+1/2,k - Ex_i-1/2,k)/dx + (Ez_i,k+1/2 - Ez_i,k-1/2)/dz
-
-            # 对于形状为 (NX+1, NZ) 的 Ez 数组：
-            dEz_dx = (Ez[1:, :] - Ez[:-1, :]) / dx  # 结果形状 (NX, NZ)
-
-            # 对于形状为 (NX, NZ+1) 的 Ex 数组：
-            # (注意：根据错误信息，Ex和Ez的形状可能是反过来的，但逻辑不变)
-            if Ex.shape[0] == self.NX:  # Ex shape (NX, NZ+1)
-                dEx_dz = (Ex[:, 1:] - Ex[:, :-1]) / dz  # 结果形状 (NX, NZ)
-                div_E = dEz_dx + dEx_dz  # 应该是 dEx/dx + dEz/dz
-            else:  # Ex shape (NX+1, NZ)
-                dEx_dx = (Ex[1:, :] - Ex[:-1, :]) / dx  # 结果形状 (NX, NZ)
-                # Ez shape (NX, NZ+1)
-                dEz_dz = (Ez[:, 1:] - Ez[:, :-1]) / dz  # 结果形状 (NX, NZ)
-                div_E = dEx_dx + dEz_dz
-
-        else:
-            # 如果顺序是反的 (Python/Numpy 默认 row-major, (z,x))
-            # Ez.shape is (NZ, NX+1)
-            # Ex.shape is (NZ+1, NX)
-            dEz_dx = (Ez[:, 1:] - Ez[:, :-1]) / dx  # 结果形状 (NZ, NX)
-            dEx_dz = (Ex[1:, :] - Ex[:-1, :]) / dz  # 结果形状 (NZ, NX)
-            div_E = dEx_dz + dEz_dx  # 应该是 dEx/dx + dEz/dz
-
-        # --- 让我们简化并使用最可能正确的形式 ---
-        # 假设 WarpX 导出到 Python 的数组是 (x, z) 索引
-        # Ez.shape = (NX+1, NZ) -> (33, 32)
-        # Ex.shape = (NX, NZ+1) -> (32, 33)
-        # (这与错误信息中的形状顺序相反，但我们来测试一下)
-
-        # 假设 E_x[i, k+1/2] 和 E_z[i+1/2, k]
-        # div(E) 在 (i,k) 处 = (E_z[i+1/2, k] - E_z[i-1/2, k])/dx + (E_x[i, k+1/2] - E_x[i, k-1/2])/dz
-
-        dEz_dx = (Ez[1:, :] - Ez[:-1, :]) / dx  # 结果形状 (NX, NZ) = (32, 32)
-        dEx_dz = (Ex[:, 1:] - Ex[:, :-1]) / dz  # 结果形状 (NX, NZ) = (32, 32)
-
-        div_E = dEz_dx + dEx_dz
-
-        # 4. 根据高斯定律 ρ = ε₀ * ∇·E 计算电荷密度。
-        rho = constants.ep0 * div_E
+        # 简化处理：只保存场数据，不计算散度
+        # 在3D中计算散度更复杂，这里暂时跳过
 
         # Update field wrappers for the new setup
         # Jiy (ion current) is replaced by Jey (electron current)
         # rho = _MultiFABWrapper(mf_name="rho")[:, :]
         # 使用在 __init__ 中定义的、对 B0=0 情况稳健的归一化尺度
+
+        # # 3. 手动计算中心差分，将导数结果统一到网格单元中心。
+        # #    这将产生两个形状为 (NX, NZ) 的数组。
+        #
+        # # 检查并处理可能的维度顺序
+        # # WarpX/AMReX 通常是 (x, z) 顺序
+        # if Ex.shape[0] == self.NX and Ex.shape[1] == self.NZ + 1:
+        #     # Ex.shape is (NX, NZ+1) -> (32, 33)
+        #     # Ez.shape is (NX+1, NZ) -> (33, 32)
+        #     dEx_dx_centered = (Ex[1:, :-1] - Ex[:-1, :-1]) / dx  # 这部分可能有误，我们直接算散度
+        #     dEz_dz_centered = (Ez[:-1, 1:] - Ez[:-1, :-1]) / dz
+        #
+        #     # 一个更稳健的中心差分方法：
+        #     dEx_dx = (Ex[1:, :-1] - Ex[:-1, :-1]) / dx  # 应该是Ez的x导数
+        #     # 让我们重新思考散度定义
+        #     # div(E)_i,k = (Ex_i+1/2,k - Ex_i-1/2,k)/dx + (Ez_i,k+1/2 - Ez_i,k-1/2)/dz
+        #
+        #     # 对于形状为 (NX+1, NZ) 的 Ez 数组：
+        #     dEz_dx = (Ez[1:, :] - Ez[:-1, :]) / dx  # 结果形状 (NX, NZ)
+        #
+        #     # 对于形状为 (NX, NZ+1) 的 Ex 数组：
+        #     # (注意：根据错误信息，Ex和Ez的形状可能是反过来的，但逻辑不变)
+        #     if Ex.shape[0] == self.NX:  # Ex shape (NX, NZ+1)
+        #         dEx_dz = (Ex[:, 1:] - Ex[:, :-1]) / dz  # 结果形状 (NX, NZ)
+        #         div_E = dEz_dx + dEx_dz  # 应该是 dEx/dx + dEz/dz
+        #     else:  # Ex shape (NX+1, NZ)
+        #         dEx_dx = (Ex[1:, :] - Ex[:-1, :]) / dx  # 结果形状 (NX, NZ)
+        #         # Ez shape (NX, NZ+1)
+        #         dEz_dz = (Ez[:, 1:] - Ez[:, :-1]) / dz  # 结果形状 (NX, NZ)
+        #         div_E = dEx_dx + dEz_dz
+        #
+        # else:
+        #     # 如果顺序是反的 (Python/Numpy 默认 row-major, (z,x))
+        #     # Ez.shape is (NZ, NX+1)
+        #     # Ex.shape is (NZ+1, NX)
+        #     dEz_dx = (Ez[:, 1:] - Ez[:, :-1]) / dx  # 结果形状 (NZ, NX)
+        #     dEx_dz = (Ex[1:, :] - Ex[:-1, :]) / dz  # 结果形状 (NZ, NX)
+        #     div_E = dEx_dz + dEz_dx  # 应该是 dEx/dx + dEz/dz
+        #
+        # # --- 让我们简化并使用最可能正确的形式 ---
+        # # 假设 WarpX 导出到 Python 的数组是 (x, z) 索引
+        # # Ez.shape = (NX+1, NZ) -> (33, 32)
+        # # Ex.shape = (NX, NZ+1) -> (32, 33)
+        # # (这与错误信息中的形状顺序相反，但我们来测试一下)
+        #
+        # # 假设 E_x[i, k+1/2] 和 E_z[i+1/2, k]
+        # # div(E) 在 (i,k) 处 = (E_z[i+1/2, k] - E_z[i-1/2, k])/dx + (E_x[i, k+1/2] - E_x[i, k-1/2])/dz
+        #
+        # dEz_dx = (Ez[1:, :] - Ez[:-1, :]) / dx  # 结果形状 (NX, NZ) = (32, 32)
+        # dEx_dz = (Ex[:, 1:] - Ex[:, :-1]) / dz  # 结果形状 (NX, NZ) = (32, 32)
+        #
+        # div_E = dEz_dx + dEx_dz
+        #
+        # # 4. 根据高斯定律 ρ = ε₀ * ∇·E 计算电荷密度。
+        # rho = constants.ep0 * div_E
+        #
+        # # Update field wrappers for the new setup
+        # # Jiy (ion current) is replaced by Jey (electron current)
+        # # rho = _MultiFABWrapper(mf_name="rho")[:, :]
+        # # 使用在 __init__ 中定义的、对 B0=0 情况稳健的归一化尺度
+
+
         Jey = fields.JyFPWrapper()[...] / self.J_norm
         Jy = fields.JyFPWrapper()[...] / self.J_norm
         Bx = fields.BxFPWrapper()[...] / self.B_norm
@@ -579,7 +600,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
 
         # save the fields to file
         with open(f"diags/fields/fields_{step:06d}.npz", "wb") as f:
-            np.savez(f, rho=rho, Jey=Jey, Jy=Jy, Bx=Bx, By=By, Bz=Bz,
+            np.savez(f, Ex=Ex, Ey=Ey, Ez=Ez, Jey=Jey, Jy=Jy, Bx=Bx, By=By, Bz=Bz,
                      J_norm=self.J_norm, B_norm=self.B_norm)
 
 

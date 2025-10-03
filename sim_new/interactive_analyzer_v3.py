@@ -201,11 +201,11 @@ def _prepare_single_run_table_data(run: SimulationRun) -> List[List[str]]:
         "束流能量 E_k (MeV)": (
             lambda s: f"{((np.sqrt(1 + s.beam_u_drift ** 2) - 1) * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
         "--- 真实尺寸 ---": None,
-        "空间尺度 (m)": (lambda s: f"{s.Lx:.2e} x {s.Lz:.2e}"),
+        "空间尺度 (m)": (lambda s: f"{s.Lx:.2e} x {s.Ly:.2e} x {s.Lz:.2e}" if hasattr(s, 'Ly') and s.Ly > 0 else f"{s.Lx:.2e} x {s.Lz:.2e}"),
         "时间跨度 (s)": (lambda s: f"{s.total_steps * s.dt:.2e}"),
         "总粒子数 (加权)": "dynamic",
         "--- 数值参数 ---": None,
-        "网格": (lambda s: f"{s.NX} x {s.NZ}"),
+        "网格": (lambda s: f"{s.NX} x {s.NY} x {s.NZ}" if hasattr(s, 'NY') and s.NY > 1 else f"{s.NX} x {s.NZ}"),
         "每单元粒子数 (NPPC)": (lambda s: f"{s.NPPC}"),
     }
 
