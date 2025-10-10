@@ -83,8 +83,7 @@ class SimulationParameters:
 
     # --- 4. 非热扰动参数 (Non-thermal Perturbation Parameters) --- #
     beam_fraction = 0.5  # 非热束流粒子占总数的比例 (e.g., 20%)
-    beam_u_drift = 0.3  # 束流的归一化动量 u = p/(mc)
-
+    beam_energy_eV = 8.4e4 / 2 # 束流粒子的动能 (eV)。例如 1.0e6 表示 1 MeV。
 
 # =============================================================================
 # END OF USER-CONFIGURABLE PARAMETERS
@@ -105,7 +104,15 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         self.n_photon = self.p.n_photon_to_plasma_ratio * self.n_plasma
 
         self.beam_fraction = self.p.beam_fraction
-        self.beam_u_drift = self.p.beam_u_drift
+
+        # 从动能计算归一化动量 u_drift
+        self.beam_energy_eV = self.p.beam_energy_eV
+        # 1. 将动能从 eV 转换为焦耳
+        beam_ke_joules = self.beam_energy_eV * constants.q_e
+        # 2. 计算洛伦兹因子 gamma = 1 + KE / (m*c^2)
+        gamma_beam = 1.0 + beam_ke_joules / (constants.m_e * constants.c**2)
+        # 3. 计算归一化动量 u = sqrt(gamma^2 - 1)
+        self.beam_u_drift = np.sqrt(gamma_beam**2 - 1.0)
 
         self.LX = self.p.LX
         self.LY = self.p.LY
@@ -178,6 +185,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
                 f"\tn0 = {self.n_plasma:.2e} m^-3 (per species)\n"
                 f"\tT = {self.T_plasma * 1e-6:.2f} MeV\n"
                 f"\tBeam Fraction = {self.beam_fraction * 100:.1f}%\n"
+                f"\tBeam Kinetic Energy = {self.beam_energy_eV * 1e-6:.2f} MeV\n"
                 f"\tBeam u_drift = {self.beam_u_drift:.2f}\n"
             )
             print("--- Derived Plasma Parameters ---")
