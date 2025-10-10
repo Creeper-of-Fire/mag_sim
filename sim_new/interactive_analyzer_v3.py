@@ -192,14 +192,14 @@ def _prepare_single_run_table_data(run: SimulationRun) -> List[List[str]]:
         "J_norm (极限电流密度, A/m²)": (lambda s: f"{s.J_norm:.2e}" if hasattr(s, 'J_norm') else "未定义"),
         "--- 物理参数 ---": None,
         "初始温度 T (keV)": (lambda s: f"{s.T_plasma / 1e3:.1f}"),
-        "总数密度 n (m⁻³)": (lambda s: f"{s.n_plasma:.2e}"),
+        "总数密度 n (/m³)": (lambda s: f"{s.n_plasma:.2e}"),
         "初始重联场 B0 (T)": (lambda s: f"{s.B0:.2f}" if hasattr(s, 'B0') and s.B0 > 0 else "0.0 (无)"),
         "磁化强度 σ": (lambda s: f"{s.sigma:.3f}" if hasattr(s, 'sigma') and s.sigma > 0 else "N/A"),
         "--- 束流参数 ---": None,
         "束流占比": (lambda s: f"{s.beam_fraction * 100:.0f} %" if hasattr(s, 'beam_fraction') and s.beam_fraction > 0 else "N/A"),
         "束流 p*c (MeV/c)": (lambda s: f"{(s.beam_u_drift * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
         "束流能量 E_k (MeV)": (
-            lambda s: f"{((np.sqrt(1 + s.beam_u_drift ** 2) - 1) * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
+            lambda s: f"{(s.beam_energy_eV / 1e6):.3f}" if hasattr(s, 'beam_energy_eV') and s.beam_fraction > 0 else "N/A"),
         "--- 真实尺寸 ---": None,
         "空间尺度 (m)": (lambda s: f"{s.Lx:.2e} x {s.Ly:.2e} x {s.Lz:.2e}" if hasattr(s, 'Ly') and s.Ly > 0 else f"{s.Lx:.2e} x {s.Lz:.2e}"),
         "时间跨度 (s)": (lambda s: f"{s.total_steps * s.dt:.2e}"),
@@ -294,7 +294,7 @@ def generate_individual_plots(runs: List[SimulationRun]):
             ax_plot.set_xscale('log')
             ax_plot.set_yscale('log')
             ax_plot.set_xlabel('动能 (MeV)', fontsize=14)
-            ax_plot.set_ylabel('粒子数谱密度 (dN/dE [MeV⁻¹])', fontsize=14)
+            ax_plot.set_ylabel('粒子数谱密度 (dN/dE [/MeV])', fontsize=14)
             ax_plot.grid(True, which="both", ls="--", alpha=0.5)
             ax_plot.legend(fontsize=12, loc='best')
 
