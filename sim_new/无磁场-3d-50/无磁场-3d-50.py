@@ -169,6 +169,10 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         )
         self.Bz = f"{self.dB}*sin({2.0 * np.pi / self.Lx}*x)*cos({np.pi / self.Lz}*z)"
 
+        self.dx = self.Lx / self.NX
+        self.dy = self.Ly / self.NY
+        self.dz = self.Lz / self.NZ
+
         # dump all the current attributes to a dill pickle file
         if comm.rank == 0:
             with open("sim_parameters.dpkl", "wb") as f:
