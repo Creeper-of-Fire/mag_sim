@@ -14,50 +14,27 @@
 #    d. 在图下方附带该模拟的详细参数表。
 #
 
-import os
 import glob
+import os
+from typing import List, Optional
+
 import dill
 import h5py
-import numpy as np
 import matplotlib
-import matplotlib.pyplot as plt
-from scipy import constants
-from scipy.special import kv
 import matplotlib.font_manager as fm
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
-
-# --- Rich 库用于漂亮的命令行交互 ---
-from rich.console import Console
-from rich.table import Table
+import matplotlib.pyplot as plt
+import numpy as np
 from rich.prompt import Prompt
+from scipy.special import kv
 
-
-# --- 数据结构定义 ---
-@dataclass
-class SpectrumData:
-    """存放能谱数据"""
-    energies_MeV: np.ndarray
-    weights: np.ndarray
-
-
-@dataclass
-class SimulationRun:
-    """存放一次模拟运行的所有相关数据"""
-    path: str
-    name: str
-    sim: object  # 加载自 dill 的模拟参数对象
-    initial_spectrum: Optional[SpectrumData]
-    final_spectrum: Optional[SpectrumData]
-    user_T_keV: Optional[float] = field(default=None)  # 新增：用于存储用户输入的温度
-
-
-# --- 全局常量和控制台 ---
-console = Console()
-C = constants.c
-M_E = constants.m_e
-E = constants.e
-J_PER_MEV = E * 1e6
+from warpx_analysis_utils import (
+    console, C, M_E, E, J_PER_MEV,
+    setup_chinese_font,
+    select_directories,
+    plot_parameter_table,
+    SimulationRun,
+    SpectrumData
+)
 
 
 # =============================================================================
@@ -182,55 +159,6 @@ def load_simulation_data(dir_path: str) -> Optional[SimulationRun]:
 # 3. 绘图与分析核心函数
 # =============================================================================
 
-def _prepare_single_run_table_data(run: SimulationRun) -> List[List[str]]:
-    """为单个模拟准备 Matplotlib 表格所需的数据。"""
-    m_e_c2_MeV = (M_E * C ** 2) / J_PER_MEV  # ~0.511 MeV
-
-    param_map = {
-        "--- 归一化 ---": None,
-        "B_norm (β ≈ 1, T)": (lambda s: f"{s.B_norm:.2e}" if hasattr(s, 'B_norm') else "未定义"),
-        "J_norm (极限电流密度, A/m²)": (lambda s: f"{s.J_norm:.2e}" if hasattr(s, 'J_norm') else "未定义"),
-        "--- 物理参数 ---": None,
-        "初始温度 T (keV)": (lambda s: f"{s.T_plasma / 1e3:.1f}"),
-        "总数密度 n (/m³)": (lambda s: f"{s.n_plasma:.2e}"),
-        "初始重联场 B0 (T)": (lambda s: f"{s.B0:.2f}" if hasattr(s, 'B0') and s.B0 > 0 else "0.0 (无)"),
-        "磁化强度 σ": (lambda s: f"{s.sigma:.3f}" if hasattr(s, 'sigma') and s.sigma > 0 else "N/A"),
-        "--- 束流参数 ---": None,
-        "束流占比": (lambda s: f"{s.beam_fraction * 100:.0f} %" if hasattr(s, 'beam_fraction') and s.beam_fraction > 0 else "N/A"),
-        "束流 p*c (MeV/c)": (lambda s: f"{(s.beam_u_drift * m_e_c2_MeV):.3f}" if hasattr(s, 'beam_u_drift') and s.beam_fraction > 0 else "N/A"),
-        "束流能量 E_k (MeV)": (
-            lambda s: f"{(s.beam_energy_eV / 1e6):.3f}" if hasattr(s, 'beam_energy_eV') and s.beam_fraction > 0 else "N/A"),
-        "--- 真实尺寸 ---": None,
-        "空间尺度 (m)": (lambda s: f"{s.Lx:.2e} x {s.Ly:.2e} x {s.Lz:.2e}" if hasattr(s, 'Ly') and s.Ly > 0 else f"{s.Lx:.2e} x {s.Lz:.2e}"),
-        "时间跨度 (s)": (lambda s: f"{s.total_steps * s.dt:.2e}"),
-        "总粒子数 (加权)": "dynamic",
-        "--- 数值参数 ---": None,
-        "网格": (lambda s: f"{s.NX} x {s.NY} x {s.NZ}" if hasattr(s, 'NY') and s.NY > 1 else f"{s.NX} x {s.NZ}"),
-        "每单元粒子数 (NPPC)": (lambda s: f"{s.NPPC}"),
-    }
-
-    table_data = []
-    for param_name, formatter in param_map.items():
-        if formatter is None:
-            table_data.append([param_name, ''])
-            continue
-
-        value_str = "N/A"
-        if formatter == "dynamic":
-            if run.initial_spectrum and run.initial_spectrum.weights.size > 0:
-                total_particles = np.sum(run.initial_spectrum.weights)
-                value_str = f"{total_particles:.2e}"
-        else:
-            try:
-                value_str = formatter(run.sim)
-            except AttributeError:
-                pass  # 保持 "N/A"
-
-        table_data.append([f"  {param_name}", value_str])
-
-    return table_data
-
-
 def generate_individual_plots(runs: List[SimulationRun]):
     """为每个选定的模拟运行生成一张独立的分析图。"""
     console.print("\n[bold magenta]正在为每个模拟生成独立分析图...[/bold magenta]")
@@ -299,35 +227,7 @@ def generate_individual_plots(runs: List[SimulationRun]):
             ax_plot.legend(fontsize=12, loc='best')
 
         # --- 3. 绘制参数表 ---
-        ax_table.axis('off')
-        ax_table.set_title('模拟参数详情', fontsize=16, y=1.0, pad=20)
-
-        table_data = _prepare_single_run_table_data(run)
-        table = ax_table.table(cellText=table_data,
-                               colLabels=['参数', '值'],
-                               loc='center',
-                               cellLoc='left',
-                               colWidths=[0.4, 0.4])
-
-        table.auto_set_font_size(False)
-        table.set_fontsize(11)
-        table.scale(1, 2.0)  # 增加行高
-
-        # 美化表格
-        for key, cell in table.get_celld().items():
-            row, col = key
-            cell.set_edgecolor('lightgray')
-            if row == 0:  # 表头
-                cell.set_text_props(weight='bold', ha='center')
-                cell.set_facecolor('#B0C4DE')
-            else:
-                if "---" in table_data[row - 1][0]:
-                    cell.set_text_props(weight='bold', ha='center')
-                    cell.set_facecolor('#E0E0E0')
-                if col == 0:  # 参数名列
-                    cell.set_text_props(ha='left')
-                if row % 2 == 0:  # 数据行交替颜色
-                    cell.set_facecolor('#F5F5F5')
+        plot_parameter_table(ax_table, run)
 
         # --- 4. 保存图像 ---
         plt.tight_layout(rect=[0, 0, 1, 0.96])
@@ -339,46 +239,6 @@ def generate_individual_plots(runs: List[SimulationRun]):
 # =============================================================================
 # 4. 主交互流程
 # =============================================================================
-
-def select_directories() -> List[str]:
-    """扫描并让用户选择要分析的目录。"""
-    console.print("\n[bold]扫描当前目录下的有效模拟文件夹...[/bold]")
-    valid_dirs = [d.path for d in os.scandir('.') if
-                  d.is_dir() and os.path.exists(os.path.join(d.path, 'sim_parameters.dpkl'))]
-
-    if not valid_dirs:
-        console.print("[red]错误: 未找到任何包含 'sim_parameters.dpkl' 的子目录。[/red]")
-        return []
-
-    table = Table(title="可用的模拟运行")
-    table.add_column("索引", justify="right", style="cyan")
-    table.add_column("文件夹名称", style="magenta")
-    for i, dir_name in enumerate(valid_dirs):
-        table.add_row(str(i), os.path.basename(dir_name))
-    console.print(table)
-
-    while True:
-        try:
-            prompt_text = "[bold]请输入要分析的模拟索引 (用逗号/空格分隔, [cyan]直接回车则全选[/cyan])[/bold]"
-            choice_str = Prompt.ask(prompt_text, default="all")
-
-            if choice_str.strip().lower() == "all":
-                console.print(f"[green]已选择全部 {len(valid_dirs)} 个模拟。[/green]")
-                return valid_dirs
-
-            indices_str = choice_str.replace(',', ' ').split()
-            if not indices_str:
-                continue
-
-            choices = [int(i) for i in indices_str]
-
-            if all(0 <= c < len(valid_dirs) for c in choices):
-                return [valid_dirs[c] for c in choices]
-            else:
-                console.print("[yellow]警告: 输入的索引超出范围，请重试。[/yellow]")
-        except ValueError:
-            console.print("[red]错误: 无效输入，请输入数字索引。[/red]")
-
 
 def main():
     """主执行函数"""
@@ -400,7 +260,7 @@ def main():
         console.print("\n[red]未能成功加载任何模拟数据，无法生成图像。[/red]")
         return
 
-    # --- 新增：交互式获取温度 ---
+    # --- 交互式获取温度 ---
     console.print("\n" + "=" * 50)
     console.print("[bold yellow]      交互式温度输入环节[/bold yellow]")
     console.print("=" * 50)
