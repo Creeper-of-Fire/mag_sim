@@ -41,19 +41,6 @@ from warpx_analysis_utils import (
 # 1. 辅助函数 (字体设置, 理论分布)
 # =============================================================================
 
-def setup_chinese_font():
-    """自动查找并设置支持中文的字体。"""
-    chinese_fonts_priority = ['WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'SimHei',
-                              'Microsoft YaHei']
-    found_font = next((font for font in chinese_fonts_priority if fm.findfont(font, fontext='ttf')), None)
-    if found_font:
-        plt.rcParams['font.sans-serif'] = [found_font]
-        console.print(f"[green]✔ Matplotlib 字体已设置为：{found_font}[/green]")
-    else:
-        console.print("[yellow]⚠ 警告：未能找到支持中文的字体。图表中的中文可能无法正常显示。[/yellow]")
-    plt.rcParams['axes.unicode_minus'] = False
-
-
 def get_maxwell_juttner_distribution(E_bins_J: np.ndarray, T_J: float) -> np.ndarray:
     """计算相对论麦克斯韦-朱特纳分布的概率密度函数 (PDF)。"""
     if T_J <= 0: return np.zeros_like(E_bins_J)
