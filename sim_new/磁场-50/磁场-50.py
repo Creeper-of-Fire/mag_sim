@@ -152,7 +152,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             self.diag_steps = self.total_steps // 5
         else:
             self.total_steps = int(self.LT / self.DT)
-            self.diag_steps = self.total_steps // 25
+            self.diag_steps = self.total_steps // 200
             # 您也可以在这里覆盖参数以进行快速测试，例如：
             # self.NX = 32
             # self.NZ = 32
