@@ -56,7 +56,7 @@ class SimulationParameters:
     # 这些参数现在描述一个相对论性的电子-正电子对等离子体
 
     # 设置一个与等效热能磁场 B_norm (根据先前模拟约 2.2e4 T) 可比拟的非零初始磁场
-    B0 = 1.0e4  # 初始磁场强度 (T)
+    B0 = 1.0e6  # 初始磁场强度 (T)
 
     n_plasma = 7.3e27  # 等离子体数密度 (m^-3) (这是指电子或正电子的数密度)
     T_plasma_eV = 8.4e4  # 等离子体温度 (eV), e.g., 1 MeV. 对电子和正电子相同。
@@ -279,14 +279,12 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             charge="-q_e",
             mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_thermal),
-            method='LLRK4'
         )
         self.electrons_beam = picmi.Species(
             name="electrons_beam",
             charge="-q_e",
             mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_beam),
-            method='LLRK4'
         )
 
         self.positrons_thermal = picmi.Species(
@@ -294,14 +292,12 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             charge="q_e",
             mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_thermal),
-            method='LLRK4'
         )
         self.positrons_beam = picmi.Species(
             name="positrons_beam",
             charge="q_e",
             mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_beam),
-            method='LLRK4'
         )
 
         self.photons = picmi.Species(

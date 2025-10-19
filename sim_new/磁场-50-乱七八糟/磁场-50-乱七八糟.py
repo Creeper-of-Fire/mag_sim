@@ -159,8 +159,8 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             # self.total_steps = 200
             # self.diag_steps = 10
 
-        self.Bx = "0.0"
-        self.By = "0.0"
+        self.Bx = f"{self.B0}"
+        self.By = f"{self.B0}"
         self.Bz = f"{self.B0}"
 
         self.dx = self.Lx / self.NX

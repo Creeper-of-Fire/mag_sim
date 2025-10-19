@@ -46,15 +46,26 @@ class FieldEvolutionData:
 class EnergyEvolutionData:
     """存储能量随时间演化的数据"""
     time: np.ndarray
-    # 平均能量密度 (J/m^3)
-    mean_mag_energy_density_x: np.ndarray
-    mean_mag_energy_density_y: np.ndarray
-    mean_mag_energy_density_z: np.ndarray
-    mean_mag_energy_density_total: np.ndarray
-    mean_kin_energy_density: np.ndarray
+
+    # 平均磁场能量密度 (J/m^3)
+    mean_mag_energy_density_x: Optional[np.ndarray] = field(default=None)
+    mean_mag_energy_density_y: Optional[np.ndarray] = field(default=None)
+    mean_mag_energy_density_z: Optional[np.ndarray] = field(default=None)
+    mean_mag_energy_density_total: Optional[np.ndarray] = field(default=None)
+
+    # 平均电场能量密度 (J/m^3)
+    mean_elec_energy_density_x: Optional[np.ndarray] = field(default=None)
+    mean_elec_energy_density_y: Optional[np.ndarray] = field(default=None)
+    mean_elec_energy_density_z: Optional[np.ndarray] = field(default=None)
+    mean_elec_energy_density_total: Optional[np.ndarray] = field(default=None)
+
+    # 平均动能密度 (J/m^3)
+    mean_kin_energy_density: Optional[np.ndarray] = field(default=None)
+
     # 盒子内的总能量 (J)
-    total_magnetic_energy: np.ndarray
-    total_kinetic_energy: np.ndarray
+    total_magnetic_energy: Optional[np.ndarray] = field(default=None)
+    total_electric_energy: Optional[np.ndarray] = field(default=None)
+    total_kinetic_energy: Optional[np.ndarray] = field(default=None)
 
 @dataclass
 class SpectrumData:
