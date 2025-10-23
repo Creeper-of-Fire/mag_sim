@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 #
-# --- Test script for a fully kinetic pair-plasma simulation in WarpX.
-# --- This script simulates magnetic reconnection in a relativistic,
-# --- electron-positron force-free current sheet. The setup is analogous
-# --- to the original ion-electron problem but adapted for a pair plasma,
-# --- a common scenario in high-energy astrophysics.
-# ---
-# --- Key changes from the original hybrid script:
-# --- 1. Replaced kinetic ions and fluid electrons with kinetic electrons,
-# ---    kinetic positrons, and photons.
-# --- 2. Switched from a Hybrid PIC solver to a full Electromagnetic PIC solver.
-# --- 3. Adjusted physical parameters for a relativistic (MeV-scale) plasma.
-# --- 4. Renormalized the problem using electron skin depth (d_e) and plasma
-# ---    frequency (w_pe) as the natural scales.
+# --- 脚本说明 ---
+# 这是一个用于WarpX的全动力学对等离子体模拟脚本。
+#
+# --- 关键特性 ---
+# 1. 物种：热背景电子/正电子、高能束流电子/正电子、以及用于未来扩展的光子。
+# 2. 求解器：全电磁PIC求解器，包含二进制库仑碰撞。
+# 3. 物理模型：模拟一个初始非平衡态的系统，并观察其向热平衡态演化的过程。
+# 4. 归一化：使用电子趋肤深度 (d_e) 和等离子体频率 (w_pe) 作为自然尺度。
 
 import argparse
 import shutil
@@ -93,11 +88,10 @@ class SimulationParameters:
 # =============================================================================
 
 
-class PairPlasmaReconnection(object):  # Class name updated for clarity
-    def __init__(self, params: SimulationParameters, test: bool, verbose: bool):
+class PlasmaReconnection(object):  # Class name updated for clarity
+    def __init__(self, params: SimulationParameters, verbose: bool):
         self.p = params
-        self.test = test
-        self.verbose = verbose or self.test
+        self.verbose = verbose
 
         # 将所有参数从参数对象复制到实例属性
         self.B0 = self.p.B0
@@ -146,18 +140,8 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         self.Lz = self.LZ * self.d_e
         self.dt = self.DT / self.w_pe  # dt based on w_pe
 
-        # run very low resolution as a CI test
-        if self.test:
-            self.total_steps = 20
-            self.diag_steps = self.total_steps // 5
-        else:
-            self.total_steps = int(self.LT / self.DT)
-            self.diag_steps = self.total_steps // 200
-            # 您也可以在这里覆盖参数以进行快速测试，例如：
-            # self.NX = 32
-            # self.NZ = 32
-            # self.total_steps = 200
-            # self.diag_steps = 10
+        self.total_steps = int(self.LT / self.DT)
+        self.diag_steps = self.total_steps // 200 # 每200步输出一次诊断
 
         self.Bx = f"{self.B0}"
         self.By = f"{self.B0}"
@@ -167,12 +151,12 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         self.dy = self.Ly / self.NY
         self.dz = self.Lz / self.NZ
 
-        # dump all the current attributes to a dill pickle file
+        # 保存模拟参数到文件
         if comm.rank == 0:
             with open("sim_parameters.dpkl", "wb") as f:
                 dill.dump(self, f)
 
-        # print out updated plasma parameters
+        # 打印更新后的等离子体参数
         if comm.rank == 0:
             print("--- Normalization Scales ---")
             print(f"\tB_norm (Equipartition Field) = {self.B_norm:.3e} T")
@@ -207,7 +191,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
 
     def get_plasma_quantities(self):
         """
-        Calculate derived plasma parameters for an electron-positron plasma.
+        为电子-正电子对等离子体计算派生参数。
         """
         # Plasma frequency (rad/s) for electrons (positrons have the same)
         self.w_pe = np.sqrt(self.n_plasma * constants.q_e ** 2 / (constants.m_e * constants.ep0))
@@ -262,11 +246,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
     def setup_run(self):
         """Setup simulation components."""
         #######################################################################
-        # Particle types setup                                                #
-        #######################################################################
-
-        #######################################################################
-        # Particle types setup                                                #
+        # 设置粒子种类 (Species)
         #######################################################################
 
         # Calculate densities for thermal and beam components
@@ -312,7 +292,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         # TODO 在这里，我们没有为光子创建它的初始能量，包括电子也只是设置了初始速度……因为picmi没有实现这个功能，我再查查看怎么做。
 
         #######################################################################
-        # Add Collisions for Thermalization                                   #
+        # 添加库仑碰撞
         #######################################################################
 
         print("\n--- Generating Binary Coulomb Collision Pairs ---")
@@ -332,8 +312,8 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         print(f"--- Total of {len(all_collisions)} collision pairs added to simulation. ---\n")
 
         #######################################################################
-        # Set geometry and boundary conditions                                #
-        ################################################################diag_steps #######
+        # 设置几何、边界条件和时间步
+        #######################################################################
 
         self.grid = picmi.Cartesian3DGrid(
             number_of_cells=[self.NX, self.NY, self.NZ],
@@ -353,7 +333,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         simulation.verbose = self.verbose
 
         #######################################################################
-        # Field solver and external field                                     #
+        # 设置场求解器和外场
         #######################################################################
 
         self.solver = picmi.ElectromagneticSolver(
@@ -367,6 +347,10 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             Bx_expression=self.Bx, By_expression=self.By, Bz_expression=self.Bz
         )
         simulation.add_applied_field(B_ext)
+
+        #######################################################################
+        # 添加粒子和布局
+        #######################################################################
 
         # Calculate NPPC for each component, ensuring they are integers
         nppc_thermal = int(self.NPPC * (1.0 - self.beam_fraction))
@@ -398,7 +382,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         # TODO 目前，光子和其他粒子没有相互作用，如果有相互作用，它通常会通过电子对产生、康普顿散射之类的效应来提供“热化”或“阻力”，阻碍磁重联。
 
         #######################################################################
-        # Add diagnostics                                                     #
+        # 添加诊断
         #######################################################################
 
         callbacks.installafterEsolve(self.check_fields)
@@ -409,22 +393,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
             self.positrons_thermal, self.positrons_beam
         ]
 
-        if self.test:
-            particle_diag = picmi.ParticleDiagnostic(
-                name="diag1",
-                period=self.total_steps,
-                species=all_particle_species_for_diags,
-                data_list=["ux", "uy", "uz", "x", "z", "weighting"],
-            )
-            simulation.add_diagnostic(particle_diag)
-            field_diag = picmi.FieldDiagnostic(
-                name="diag1",
-                grid=self.grid,
-                period=self.total_steps,
-                data_list=["Bx", "By", "Bz", "Ex", "Ey", "Ez", "Jx", "Jy", "Jz"],
-            )
-            simulation.add_diagnostic(field_diag)
-
+        # 探测平面诊断
         plane = picmi.ReducedDiagnostic(
             diag_type="FieldProbe",
             name="plane",
@@ -443,6 +412,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         )
         simulation.add_diagnostic(plane)
 
+        # 粒子状态快照 (OpenPMD格式)
         particle_state_diag = picmi.ParticleDiagnostic(
             name="particle_states",
             period=self.diag_steps,
@@ -453,6 +423,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         )
         simulation.add_diagnostic(particle_state_diag)
 
+        # 场状态快照 (OpenPMD格式)
         field_state_diag = picmi.FieldDiagnostic(
             name="field_states",
             grid=self.grid,
@@ -464,7 +435,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         simulation.add_diagnostic(field_state_diag)
 
         #######################################################################
-        # Initialize                                                          #
+        # 初始化模拟
         #######################################################################
 
         if comm.rank == 0:
@@ -474,8 +445,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
 
         simulation.initialize_inputs()
 
-        # <--- MODIFIED SECTION START ---
-        # Now, set the momentum distribution for each of the four species
+        # 设置初始动量分布
         theta_plasma = (self.T_plasma * e) / (m_e * c ** 2)
         u_drift = self.beam_u_drift
 
@@ -509,96 +479,18 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         simulation.initialize_warpx()
 
     def check_fields(self):
+        """回调函数，用于在每个诊断步保存场数据。"""
         step = simulation.extension.warpx.getistep(lev=0) - 1
 
         if not (step == 1 or step % self.diag_steps == 0):
             return
 
-        # --- 最终解决方案 (考虑Yee交错网格) ---
-        # 1. 获取必定存在的电场分量。它们的形状因交错网格而不同。
-        #    假设 Ex.shape is (NX, NZ+1) and Ez.shape is (NX+1, NZ)
-        #    (或者反过来，这取决于WarpX的索引顺序，但差分方法是相同的)
+        # 获取场数据
         Ex = fields.ExFPWrapper()[...]
         Ey = fields.EyFPWrapper()[...]
         Ez = fields.EzFPWrapper()[...]
 
-        # 2. 获取网格尺寸以进行数值微分。
-        dx = self.Lx / self.NX
-        dy = self.Ly / self.NY
-        dz = self.Lz / self.NZ
-
-        # 3D散度计算 - 这里需要根据实际的场分量形状进行调整
-        # 注意：WarpX在3D中的场分量形状可能不同，需要根据实际情况调整
-
-        # 简化处理：只保存场数据，不计算散度
-        # 在3D中计算散度更复杂，这里暂时跳过
-
-        # Update field wrappers for the new setup
-        # Jiy (ion current) is replaced by Jey (electron current)
-        # rho = _MultiFABWrapper(mf_name="rho")[:, :]
-        # 使用在 __init__ 中定义的、对 B0=0 情况稳健的归一化尺度
-
-        # # 3. 手动计算中心差分，将导数结果统一到网格单元中心。
-        # #    这将产生两个形状为 (NX, NZ) 的数组。
-        #
-        # # 检查并处理可能的维度顺序
-        # # WarpX/AMReX 通常是 (x, z) 顺序
-        # if Ex.shape[0] == self.NX and Ex.shape[1] == self.NZ + 1:
-        #     # Ex.shape is (NX, NZ+1) -> (32, 33)
-        #     # Ez.shape is (NX+1, NZ) -> (33, 32)
-        #     dEx_dx_centered = (Ex[1:, :-1] - Ex[:-1, :-1]) / dx  # 这部分可能有误，我们直接算散度
-        #     dEz_dz_centered = (Ez[:-1, 1:] - Ez[:-1, :-1]) / dz
-        #
-        #     # 一个更稳健的中心差分方法：
-        #     dEx_dx = (Ex[1:, :-1] - Ex[:-1, :-1]) / dx  # 应该是Ez的x导数
-        #     # 让我们重新思考散度定义
-        #     # div(E)_i,k = (Ex_i+1/2,k - Ex_i-1/2,k)/dx + (Ez_i,k+1/2 - Ez_i,k-1/2)/dz
-        #
-        #     # 对于形状为 (NX+1, NZ) 的 Ez 数组：
-        #     dEz_dx = (Ez[1:, :] - Ez[:-1, :]) / dx  # 结果形状 (NX, NZ)
-        #
-        #     # 对于形状为 (NX, NZ+1) 的 Ex 数组：
-        #     # (注意：根据错误信息，Ex和Ez的形状可能是反过来的，但逻辑不变)
-        #     if Ex.shape[0] == self.NX:  # Ex shape (NX, NZ+1)
-        #         dEx_dz = (Ex[:, 1:] - Ex[:, :-1]) / dz  # 结果形状 (NX, NZ)
-        #         div_E = dEz_dx + dEx_dz  # 应该是 dEx/dx + dEz/dz
-        #     else:  # Ex shape (NX+1, NZ)
-        #         dEx_dx = (Ex[1:, :] - Ex[:-1, :]) / dx  # 结果形状 (NX, NZ)
-        #         # Ez shape (NX, NZ+1)
-        #         dEz_dz = (Ez[:, 1:] - Ez[:, :-1]) / dz  # 结果形状 (NX, NZ)
-        #         div_E = dEx_dx + dEz_dz
-        #
-        # else:
-        #     # 如果顺序是反的 (Python/Numpy 默认 row-major, (z,x))
-        #     # Ez.shape is (NZ, NX+1)
-        #     # Ex.shape is (NZ+1, NX)
-        #     dEz_dx = (Ez[:, 1:] - Ez[:, :-1]) / dx  # 结果形状 (NZ, NX)
-        #     dEx_dz = (Ex[1:, :] - Ex[:-1, :]) / dz  # 结果形状 (NZ, NX)
-        #     div_E = dEx_dz + dEz_dx  # 应该是 dEx/dx + dEz/dz
-        #
-        # # --- 让我们简化并使用最可能正确的形式 ---
-        # # 假设 WarpX 导出到 Python 的数组是 (x, z) 索引
-        # # Ez.shape = (NX+1, NZ) -> (33, 32)
-        # # Ex.shape = (NX, NZ+1) -> (32, 33)
-        # # (这与错误信息中的形状顺序相反，但我们来测试一下)
-        #
-        # # 假设 E_x[i, k+1/2] 和 E_z[i+1/2, k]
-        # # div(E) 在 (i,k) 处 = (E_z[i+1/2, k] - E_z[i-1/2, k])/dx + (E_x[i, k+1/2] - E_x[i, k-1/2])/dz
-        #
-        # dEz_dx = (Ez[1:, :] - Ez[:-1, :]) / dx  # 结果形状 (NX, NZ) = (32, 32)
-        # dEx_dz = (Ex[:, 1:] - Ex[:, :-1]) / dz  # 结果形状 (NX, NZ) = (32, 32)
-        #
-        # div_E = dEz_dx + dEx_dz
-        #
-        # # 4. 根据高斯定律 ρ = ε₀ * ∇·E 计算电荷密度。
-        # rho = constants.ep0 * div_E
-        #
-        # # Update field wrappers for the new setup
-        # # Jiy (ion current) is replaced by Jey (electron current)
-        # # rho = _MultiFABWrapper(mf_name="rho")[:, :]
-        # # 使用在 __init__ 中定义的、对 B0=0 情况稳健的归一化尺度
-
-
+        # 使用归一化尺度
         Jey = fields.JyFPWrapper()[...] / self.J_norm
         Jy = fields.JyFPWrapper()[...] / self.J_norm
         Bx = fields.BxFPWrapper()[...] / self.B_norm
@@ -608,7 +500,7 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
         if libwarpx.amr.ParallelDescriptor.MyProc() != 0:
             return
 
-        # save the fields to file
+        # 将场数据保存到文件
         with open(f"diags/fields/fields_{step:06d}.npz", "wb") as f:
             np.savez(f, Ex=Ex, Ey=Ey, Ez=Ez, Jey=Jey, Jy=Jy, Bx=Bx, By=By, Bz=Bz,
                      J_norm=self.J_norm, B_norm=self.B_norm)
@@ -620,12 +512,6 @@ class PairPlasmaReconnection(object):  # Class name updated for clarity
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-t",
-    "--test",
-    help="toggle whether this script is run as a short CI test",
-    action="store_true",
-)
-parser.add_argument(
     "-v",
     "--verbose",
     help="Verbose output",
@@ -634,5 +520,5 @@ parser.add_argument(
 args, left = parser.parse_known_args()
 sys.argv = sys.argv[:1] + left
 
-run = PairPlasmaReconnection(params=SimulationParameters(), test=args.test, verbose=args.verbose)
+run = PlasmaReconnection(params=SimulationParameters(), verbose=args.verbose)
 simulation.step()
