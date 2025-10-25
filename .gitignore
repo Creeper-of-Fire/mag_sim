@@ -3,6 +3,7 @@ diags/
 *.png
 *.csv
 *.json
+*.mp4
 warpx_used_inputs
 sim_parameters.dpkl
 Backtrace.*

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import itertools
+import random
 import shutil
 import typing
 from pathlib import Path
@@ -27,6 +28,11 @@ class PlasmaReconnection(object):
 
         self._calculate_derived_parameters()
 
+        # 从 config 中读取磁场参数
+        self.B_field_type = self.p.B_field_type
+        self.num_gaussians = self.p.num_gaussians
+        self.gaussian_width_L_ratio = self.p.gaussian_width_L_ratio
+
         comm.Barrier()
 
         if comm.rank == 0:
@@ -40,7 +46,8 @@ class PlasmaReconnection(object):
             self.output_dir.mkdir(parents=True)
 
             with open(self.output_dir / "sim_parameters.dpkl", "wb") as f:
-                dill.dump(self, f)
+                # 只保存纯数据字典，而不是整个对象
+                dill.dump(self.__dict__, f)
             print("主进程 (rank 0) 目录准备完毕。")
 
         comm.Barrier()
@@ -221,6 +228,64 @@ class PlasmaReconnection(object):
 
         return collision_objects
 
+    def _setup_magnetic_field(self):
+        """根据配置生成初始磁场表达式"""
+        if comm.rank == 0:
+            print(f"\n--- 设置初始磁场: 类型 = {self.B_field_type} ---")
+
+        if self.B_field_type == 'uniform':
+            self.Bx = f"{self.B0}"
+            self.By = f"{self.B0}"
+            self.Bz = f"{self.B0}"
+            if comm.rank == 0:
+                print(f"  - 创建均匀磁场 B = ({self.B0}, {self.B0}, {self.B0}) T")
+
+        elif self.B_field_type in ['single_gaussian', 'multi_gaussian']:
+            num_gaussians = 1 if self.B_field_type == 'single_gaussian' else self.num_gaussians
+
+            bx_terms, by_terms, bz_terms = [], [], []
+
+            # 计算高斯宽度 (物理单位)
+            wx = self.gaussian_width_L_ratio * self.Lx
+            wy = self.gaussian_width_L_ratio * self.Ly
+            wz = self.gaussian_width_L_ratio * self.Lz
+
+            for i in range(num_gaussians):
+                # 随机生成高斯中心位置 (在模拟域内)
+                x0 = random.uniform(-self.Lx / 2.0, self.Lx / 2.0)
+                y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
+                z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
+
+                # 随机生成磁场方向矢量并归一化
+                rand_vec = np.array([random.uniform(-1, 1) for _ in range(3)])
+                norm_vec = rand_vec / np.linalg.norm(rand_vec)
+
+                # B0 作为每个高斯包的峰值幅度
+                b_peak_x, b_peak_y, b_peak_z = self.B0 * norm_vec
+
+                # 创建高斯函数字符串
+                gaussian_str = f"exp(-(((x-({x0}))/{wx})**2 + ((y-({y0}))/{wy})**2 + ((z-({z0}))/{wz})**2))"
+
+                bx_terms.append(f"({b_peak_x}) * {gaussian_str}")
+                by_terms.append(f"({b_peak_y}) * {gaussian_str}")
+                bz_terms.append(f"({b_peak_z}) * {gaussian_str}")
+
+                if comm.rank == 0:
+                    print(f"  - 添加第 {i + 1}/{num_gaussians} 个高斯场:")
+                    print(f"    - 中心: ({x0:.2e}, {y0:.2e}, {z0:.2e}) m")
+                    print(f"    - 峰值 B 矢量: ({b_peak_x:.2e}, {b_peak_y:.2e}, {b_peak_z:.2e}) T")
+
+            # 将所有高斯项连接成一个总表达式
+            self.Bx = " + ".join(bx_terms)
+            self.By = " + ".join(by_terms)
+            self.Bz = " + ".join(bz_terms)
+
+        else:
+            raise ValueError(f"未知的磁场类型: {self.B_field_type}")
+
+        if comm.rank == 0:
+            print("--- 磁场设置完毕 ---\n")
+
     def setup_run(self):
         """Setup simulation components."""
         #######################################################################
@@ -322,6 +387,8 @@ class PlasmaReconnection(object):
             cfl=0.999
         )
         simulation.solver = self.solver
+
+        self._setup_magnetic_field()
 
         B_ext = picmi.AnalyticInitialField(
             Bx_expression=self.Bx, By_expression=self.By, Bz_expression=self.Bz

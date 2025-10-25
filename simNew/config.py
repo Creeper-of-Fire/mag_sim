@@ -20,8 +20,8 @@ class SimulationParameters:
     LX = 20.0  # 模拟域 x 方向长度 (单位: 电子趋肤深度 d_e)
     LY = 20.0  # 模拟域 y 方向长度 (单位: 电子趋肤深度 d_e)
     LZ = 20.0  # 模拟域 z 方向长度 (单位: 电子趋肤深度 d_e)
-    LT = 400.0  # 模拟总时长 (单位: 等离子体周期 1/w_pe)
-    DT = 0.05  # 时间步长 (单位: 等离子体周期 1/w_pe) (需满足CFL条件)
+    LT = 100.0  # 模拟总时长 (单位: 等离子体周期 1/w_pe)
+    DT = 0.025  # 时间步长 (单位: 等离子体周期 1/w_pe) (需满足CFL条件)
 
     # --- 3. 数值和扰动参数 (Numerical and Perturbation Parameters) ---
     NX = 32  # x 方向网格数
@@ -38,4 +38,18 @@ class SimulationParameters:
     beam_energy_eV = 8.4e4  # 束流粒子的动能 (eV)。例如 1.0e6 表示 1 MeV。
 
     # --- 5. 输出和诊断 ---
-    output_dir = "测试"  # 默认输出目录
+    output_dir = "测试2"  # 默认输出目录
+
+    # --- 6. 磁场配置 ---
+    # 在这里，您可以选择背景磁场的类型
+    # 'uniform': 均匀磁场 (原始行为)
+    # 'single_gaussian': 单个随机位置、随机方向的高斯磁场
+    # 'multi_gaussian': 多个随机高斯磁场的叠加
+    B_field_type = "multi_gaussian"
+
+    # 当 B_field_type 为 'multi_gaussian' 时，此参数指定高斯场的数量
+    num_gaussians = 5
+
+    # 高斯包的宽度，以相应方向的模拟域尺寸 (Lx, Ly, Lz) 的分数表示。
+    # 例如，0.1 表示宽度为 0.1 * Lx。较小的值产生更集中的磁场结构。
+    gaussian_width_L_ratio = 0.15
