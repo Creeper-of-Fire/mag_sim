@@ -16,7 +16,7 @@ def run_notification_script():
     """
     try:
         # 假设 notify_me.sh 和 main.py 在同一个目录下
-        script_dir = os.path.dirname(os.path.realpath(__file__))
+        script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
         notification_script_path = os.path.join(script_dir, 'notify_me.sh')
 
         if os.path.exists(notification_script_path):
