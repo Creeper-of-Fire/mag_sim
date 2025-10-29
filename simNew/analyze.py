@@ -10,118 +10,103 @@
 # 4. 根据所选分析的需求，按需加载数据。
 # 5. 依次执行所选的分析模块。
 #
+import argparse
 import importlib
 from pathlib import Path
-from typing import Dict
+from typing import List, Dict, Tuple, Type, Union
 
 from rich.prompt import Prompt
 
 # --- 导入核心库组件 ---
-from simNew.analysis.core.utils import console, setup_chinese_font, select_directories
-from simNew.analysis.core.data_loader import load_run_data
-from simNew.analysis.modules.base_module import BaseAnalysisModule
+from analysis.core.utils import console, setup_chinese_font, select_directories
+from analysis.core.data_loader import load_run_data
+from analysis.modules.base_module import BaseAnalysisModule, BaseComparisonModule
 
+# 定义模块类型别名
+AnyModule = Union[BaseAnalysisModule, BaseComparisonModule]
 
-def discover_modules() -> Dict[str, BaseAnalysisModule]:
+def discover_modules() -> Tuple[Dict[str, BaseAnalysisModule], Dict[str, BaseComparisonModule]]:
     """
-    动态扫描 `modules` 文件夹，加载所有合法的分析模块。
+    动态扫描 `modules` 文件夹，加载并区分单个分析模块和对比分析模块。
     """
-    modules = {}
-    modules_dir = Path(__file__).parent / "modules"
+    individual_modules = {}
+    comparison_modules = {}
+    modules_dir = Path(__file__).resolve().parent / "analysis/modules"
 
     for f in modules_dir.glob("*.py"):
         if f.name.startswith(('_', 'base_')):
             continue
 
-        module_name = f"modules.{f.stem}"
+        module_name = f"analysis.modules.{f.stem}"
         try:
             module = importlib.import_module(module_name)
             for item_name in dir(module):
                 item = getattr(module, item_name)
-                if isinstance(item, type) and issubclass(item, BaseAnalysisModule) and item is not BaseAnalysisModule:
-                    # 找到了一个模块类，实例化它
-                    instance = item()
-                    # 使用模块名称作为键，避免重名
-                    modules[instance.name] = instance
+                if not isinstance(item, type) or not issubclass(item, (BaseAnalysisModule, BaseComparisonModule)):
+                    continue
+
+                # 避免加载基类自身
+                if item in (BaseAnalysisModule, BaseComparisonModule):
+                    continue
+
+                instance = item()
+                if isinstance(instance, BaseAnalysisModule):
+                    individual_modules[instance.name] = instance
+                elif isinstance(instance, BaseComparisonModule):
+                    comparison_modules[instance.name] = instance
+
         except Exception as e:
             console.print(f"[red]加载模块 {module_name} 失败: {e}[/red]")
 
-    # 按名称排序，保证菜单顺序稳定
-    return dict(sorted(modules.items()))
+    return dict(sorted(individual_modules.items())), dict(sorted(comparison_modules.items()))
 
 
-def main():
-    """主执行函数"""
-    console.print("[bold inverse] WarpX 可扩展交互式分析框架 [/bold inverse]")
-    setup_chinese_font()
+def _select_modules_from_list(module_dict: Dict[str, AnyModule]) -> List[AnyModule]:
+    """通用模块选择交互函数"""
+    if not module_dict:
+        return []
 
-    # 1. 发现并展示可用的分析模块
-    analysis_modules = discover_modules()
-    if not analysis_modules:
-        console.print("[red]错误: 在 'modules/' 目录下未找到任何有效的分析模块。[/red]")
-        return
-
-    module_list = list(analysis_modules.values())
-    # 使用简单的打印代替表格，以获得更好的兼容性
-    console.print("\n[bold underline]可用的分析模块：[/bold underline]\n")
+    module_list = list(module_dict.values())
+    console.print("\n[bold underline]请选择要执行的分析模块：[/bold underline]\n")
     for i, mod in enumerate(module_list):
-        # 打印 " [索引] 模块名称 "
         console.print(f"[[cyan]{i}[/cyan]] [magenta]{mod.name}[/magenta]")
-        # 缩进打印 "   ↳ 功能描述 "
         console.print(f"    ↳ [white]{mod.description}[/white]")
     console.print("")
 
-    # 2. 让用户选择要执行的分析
-    selected_modules = []
     while True:
         try:
-            prompt_text = "[bold]请输入要执行的分析索引 (用逗号/空格分隔, [cyan]直接回车则全选[/cyan]): [/bold]"
+            prompt_text = "[bold]请输入索引 (用逗号/空格分隔, [cyan]回车全选[/cyan]): [/bold]"
             choice_str = Prompt.ask(prompt_text, default="all")
 
             if choice_str.strip().lower() == "all":
-                selected_modules = module_list
-                console.print(f"[green]✔ 已选择全部 {len(selected_modules)} 个分析模块。[/green]")
-                break
+                console.print(f"[green]✔ 已选择全部 {len(module_list)} 个模块。[/green]")
+                return module_list
 
-            # 如果不是 'all'，则处理输入的索引
             indices_str = choice_str.replace(',', ' ').split()
-            if not indices_str:  # 如果用户输入了空格然后回车
-                continue
+            if not indices_str: continue
 
             indices = [int(i) for i in indices_str]
             if all(0 <= i < len(module_list) for i in indices):
-                selected_modules = [module_list[i] for i in indices]
-                break
+                return [module_list[i] for i in indices]
             else:
                 console.print("[yellow]警告: 输入的索引超出范围，请重试。[/yellow]")
         except ValueError:
             console.print("[red]错误: 无效输入，请输入数字索引。[/red]")
 
-    # 3. 选择要分析的模拟目录
-    selected_dirs = select_directories()
-    if not selected_dirs:
-        console.print("\n[yellow]未选择任何目录，程序退出。[/yellow]")
+
+def _run_analysis_workflow(selected_modules: List[AnyModule], selected_dirs: List[str]):
+    """统一的数据加载和模块执行流程"""
+    if not selected_modules or not selected_dirs:
         return
 
-    # 4. 智能数据加载
-    # 汇总所有需要的数据类型
-    all_required_data = set()
-    for mod in selected_modules:
-        all_required_data.update(mod.required_data)
-
+    all_required_data = set().union(*(mod.required_data for mod in selected_modules))
     console.print(f"\n[bold]将为分析加载以下数据类型: {all_required_data}[/bold]")
 
-    loaded_runs = []
-    for dir_path in selected_dirs:
-        run_data = load_run_data(dir_path, all_required_data)
-        if run_data:
-            loaded_runs.append(run_data)
-
+    loaded_runs = [run for dir_path in selected_dirs if (run := load_run_data(dir_path, all_required_data))]
     if not loaded_runs:
         console.print("\n[red]未能成功加载任何模拟数据，无法继续分析。[/red]")
         return
 
-    # 5. 依次执行所选的分析模块
     console.print("\n" + "=" * 50)
     console.print("[bold green]      数据加载完成，开始执行分析模块[/bold green]")
     console.print("=" * 50)
@@ -130,9 +115,64 @@ def main():
             mod.run(loaded_runs)
         except Exception as e:
             console.print(f"[bold red]✗ 执行模块 '{mod.name}' 时发生严重错误: {e}[/bold red]")
-            # 可以在这里添加更详细的错误追溯信息
             import traceback
             console.print(traceback.format_exc())
+
+
+def main():
+    """主执行函数"""
+    console.print("[bold inverse] WarpX 可扩展交互式分析框架 [/bold inverse]")
+    setup_chinese_font()
+
+    # 1. 优先发现所有模块
+    individual_modules, comparison_modules = discover_modules()
+
+    if not individual_modules and not comparison_modules:
+        console.print("[red]错误: 在 'analysis/modules/' 目录下未找到任何有效的分析模块。程序退出。[/red]")
+        return
+
+    # 2. 设置并解析命令行参数
+    parser = argparse.ArgumentParser(description="WarpX 交互式分析框架")
+    parser.add_argument(
+        '-c', '--compare',
+        action='store_true',
+        help="进入对比分析模式。如果未指定，则默认为单个分析模式。"
+    )
+    args = parser.parse_args()
+
+    # 3. 根据模式选择工作流
+    mode_is_compare = args.compare
+
+    if mode_is_compare:
+        console.print("\n[bold]--- 运行在 [magenta]对比分析[/magenta] 模式 ---[/bold]")
+        if not comparison_modules:
+            console.print("[red]错误: 没有可用的对比分析模块。请先创建对比模块。[/red]")
+            return
+
+        selected_dirs = select_directories()
+        if not selected_dirs:
+            return
+        if len(selected_dirs) < 2:
+            console.print("[yellow]警告: 对比分析至少需要选择两个模拟目录。操作已取消。[/yellow]")
+            return
+
+        selected_mods = _select_modules_from_list(comparison_modules)
+
+    else:  # 默认进入单个分析模式
+        console.print("\n[bold]--- 运行在 [magenta]独立分析[/magenta] 模式 (默认) ---[/bold]")
+        if not individual_modules:
+            console.print("[red]错误: 没有可用的独立分析模块。[/red]")
+            if comparison_modules:
+                console.print("[cyan]提示: 检测到有可用的对比分析模块，可以尝试使用 `--compare` 或 `-c` 标志运行。[/cyan]")
+            return
+
+        selected_dirs = select_directories()
+        if not selected_dirs:
+            return
+        selected_mods = _select_modules_from_list(individual_modules)
+
+    # 4. 执行工作流
+    _run_analysis_workflow(selected_mods, selected_dirs)
 
     console.print("\n[bold]所有选定的分析任务已完成。[/bold]")
 

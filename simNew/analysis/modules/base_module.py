@@ -48,3 +48,35 @@ class BaseAnalysisModule(ABC):
         主程序会调用此方法，并传入一个已经加载好所需数据的 SimulationRun 列表。
         """
         pass
+
+class BaseComparisonModule(ABC):
+    """
+    所有【对比】分析模块的抽象基类。
+    它的 run 方法应该将所有模拟数据作为一个整体来处理，通常生成一张包含所有模拟对比结果的图。
+    """
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """模块的名称，用于在交互式菜单中向用户显示。"""
+        pass
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """模块功能的简短描述。"""
+        pass
+
+    @property
+    @abstractmethod
+    def required_data(self) -> Set[str]:
+        """声明此模块运行所必需的数据类型。"""
+        pass
+
+    @abstractmethod
+    def run(self, loaded_runs: List['SimulationRun']):
+        """
+        执行对比分析和绘图的核心方法。
+        对于对比分析模块，此方法通常会将所有 loaded_runs 的数据
+        绘制在同一张图上，以进行比较。
+        """
+        pass
