@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from .base_module import BaseComparisonModule
 from ..core.simulation import SimulationRun
-from ..core.utils import console
+from ..core.utils import console, save_figure
 from ..plotting.spectrum_plotter import SpectrumComparisonPlotter
 
 
@@ -39,7 +39,12 @@ class SpectrumComparisonModule(BaseComparisonModule):
             console.print(f"[yellow]警告: 找到的有效能谱数据不足两个 ({len(valid_runs)}个)，无法进行对比分析。[/yellow]")
             return
 
-        output_name = "comparison_spectrum_final.png"
+        # 1. 获取所有参与对比的模拟的名称并排序
+        run_names = tuple(sorted([r.name for r in valid_runs]))
+        # 2. 计算哈希值并转换为简短的十六进制字符串
+        short_hash = hex(abs(hash(run_names)))[2:8]  # 取6位十六进制哈希
+        output_name = f"comparison_spectrum_{short_hash}.png"
+
         console.print(f"  -> 正在为 {len(valid_runs)} 个模拟生成对比图...")
 
         try:
@@ -62,6 +67,5 @@ class SpectrumComparisonModule(BaseComparisonModule):
 
         # 5. 保存图像
         plt.tight_layout(rect=[0, 0, 1, 0.96])
-        plt.savefig(output_name, dpi=200, bbox_inches='tight')
-        plt.close(fig)
-        console.print(f"  [green]✔ 对比图已保存: {output_name}[/green]")
+
+        save_figure(fig, output_name)

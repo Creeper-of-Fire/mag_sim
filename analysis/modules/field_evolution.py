@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
-from ..core.utils import console, plot_parameter_table
+from ..core.utils import console, plot_parameter_table, save_figure
 from ..plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
 
 
@@ -64,6 +64,4 @@ class FieldEvolutionModule(BaseAnalysisModule):
         # 子图4: 参数表
         plot_parameter_table(ax_table, run)
 
-        plt.savefig(output_name, dpi=200, bbox_inches='tight')
-        plt.close(fig)
-        console.print(f"  [green]✔ 图已保存: {output_name}[/green]")
+        save_figure(fig, output_name)

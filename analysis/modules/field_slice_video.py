@@ -14,7 +14,7 @@ from .base_module import BaseVideoModule
 # 注意：这个模块需要data_loader里的函数，但为了解耦，我们把它复制过来
 from ..core.data_loader import _center_field_3d
 from ..core.simulation import SimulationRun
-from ..core.utils import console
+from ..core.utils import console, save_figure
 
 # --- 用户可配置参数 ---
 SLICE_AXIS = 'z'
@@ -99,8 +99,7 @@ class FieldSliceVideoModule(BaseVideoModule):
             ax.set_aspect('equal')
 
             frame_filename = temp_dir / f"frame_{step:06d}.png"
-            plt.savefig(frame_filename, dpi=150, bbox_inches='tight')
-            plt.close(fig)
+            save_figure(fig, frame_filename)
             frame_paths.append(frame_filename)
 
         console.print(f"  [cyan]正在将 {len(frame_paths)} 帧合成为 '{output_name}'...[/cyan]")

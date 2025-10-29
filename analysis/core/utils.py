@@ -12,6 +12,7 @@ from typing import List
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.table import Table as mpl_Table
 import numpy as np
 
@@ -20,6 +21,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt
 
+from .config import config
 # --- 导入核心数据结构 ---
 from .simulation import SimulationRun
 
@@ -148,6 +150,7 @@ def plot_parameter_table(ax: Axes, run: SimulationRun) -> mpl_Table:
     ax.set_title('模拟参数详情', fontsize=16, y=1.0, pad=20)
     table_data = _create_parameter_table_data(run)
     table = ax.table(
+        ax,
         cellText=table_data,
         colLabels=['参数', '值'],
         loc='center',
@@ -172,3 +175,32 @@ def plot_parameter_table(ax: Axes, run: SimulationRun) -> mpl_Table:
             if row % 2 == 0:
                 cell.set_facecolor('#F5F5F5')
     return table
+
+# =============================================================================
+# 新增: 绘图辅助函数
+# =============================================================================
+def save_figure(fig: Figure, filename: str):
+    """
+    将 Matplotlib Figure 保存到配置的输出目录，然后关闭它。
+
+    此函数封装了以下操作：
+    1. 从全局配置 `config.output_dir` 构建完整输出路径。
+    2. 以标准参数 (dpi=200, bbox_inches='tight') 保存图像。
+    3. 关闭图像以释放内存。
+    4. 打印一条确认信息到控制台。
+
+    Args:
+        fig (Figure): 要保存的 Matplotlib Figure 对象。
+        filename (str): 输出文件的基本名称 (例如 "spectrum_analysis.png")。
+    """
+    # 构造完整路径
+    output_path = os.path.join(config.output_dir, filename)
+
+    # 保存图像
+    fig.savefig(output_path, dpi=200, bbox_inches='tight')
+
+    # 关闭图像，防止内存泄漏
+    plt.close(fig)
+
+    # 打印确认信息
+    console.print(f"  [green]✔ 图已保存: {output_path}[/green]")

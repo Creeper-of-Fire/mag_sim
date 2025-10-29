@@ -10,7 +10,7 @@ from scipy.special import kn as bessel_k  # 第二类修正贝塞尔函数 K_n
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
-from ..core.utils import console, plot_parameter_table
+from ..core.utils import console, plot_parameter_table, save_figure
 from ..plotting.spectrum_plotter import SpectrumPlotter
 
 # 为了清晰和效率，在模块级别定义常量
@@ -151,6 +151,4 @@ class SpectrumAnalysisModule(BaseAnalysisModule):
         plot_parameter_table(ax_table, run)
 
         plt.tight_layout(rect=[0, 0, 1, 0.96])
-        plt.savefig(output_name, dpi=200, bbox_inches='tight')
-        plt.close(fig)
-        console.print(f"  [green]✔ 图已保存: {output_name}[/green]")
+        save_figure(fig, output_name)
