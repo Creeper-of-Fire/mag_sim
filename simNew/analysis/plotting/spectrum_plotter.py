@@ -1,5 +1,5 @@
 # plotting/spectrum_plotter.py
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 from matplotlib.axes import Axes
@@ -74,3 +74,106 @@ class SpectrumPlotter(BasePlotter):
         ax.set_ylabel('dN/dE [/MeV]')
         ax.grid(True, which="both", ls="--", alpha=0.5)
         ax.legend()
+
+
+class SpectrumComparisonPlotter(BasePlotter):
+    """
+    绘制多个模拟的能谱对比图。
+    它在构造时接收所有模拟数据以预计算统一的能量分箱，
+    但其 plot 方法一次只绘制一个模拟的数据。
+    """
+
+    def __init__(self, runs: List[SimulationRun]):
+        """
+        构造函数，负责数据预处理和统一分箱。
+        Args:
+            runs (List[SimulationRun]): 包含所有待对比模拟的列表。
+        """
+        self.runs = runs
+        self._initial_plotted_label = False  # 用于确保初始谱图例只显示一次
+        self._create_common_bins()
+
+    def _create_common_bins(self):
+        """
+        遍历所有模拟的**初始和最终**能谱，创建统一的能量分箱。
+        """
+        all_energies = []
+        for run in self.runs:
+            if run.initial_spectrum and run.initial_spectrum.energies_MeV.size > 0:
+                all_energies.append(run.initial_spectrum.energies_MeV)
+            if run.final_spectrum and run.final_spectrum.energies_MeV.size > 0:
+                all_energies.append(run.final_spectrum.energies_MeV)
+
+        if not all_energies:
+            raise ValueError("所有提供的模拟中都没有任何有效的能谱数据。")
+
+        combined = np.concatenate(all_energies)
+        positive = combined[combined > 0]
+        if positive.size < 2:
+            raise ValueError("有效的正能量数据点不足，无法创建分箱。")
+
+        global_min = max(positive.min() * 0.8, 1e-4)
+        global_max = positive.max() * 1.2
+
+        self.bins = np.logspace(np.log10(global_min), np.log10(global_max), 201)
+        self.centers = np.sqrt(self.bins[:-1] * self.bins[1:])
+        self.widths = np.diff(self.bins)
+
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
+        """
+        在给定的 Axes 上绘制单个模拟的初始和最终能谱。
+        """
+        run_color = color
+
+        # 1. 绘制最终能谱 (实线)
+        if run.final_spectrum and run.final_spectrum.weights.size > 0:
+            counts_final, _ = np.histogram(
+                run.final_spectrum.energies_MeV,
+                bins=self.bins,
+                weights=run.final_spectrum.weights
+            )
+            normalized_counts = counts_final / self.widths
+            mask = normalized_counts > 0
+
+            # 绘制并捕获颜色，以便初始谱复用
+            lines = ax.plot(
+                self.centers[mask],
+                normalized_counts[mask],
+                '-',
+                lw=2.5,
+                label=f"{label} (最终)",
+                color=run_color,  # 使用传入的颜色或 matplotlib 自动选择
+                **kwargs
+            )
+            # 如果颜色是自动选择的，就保存下来
+            if run_color is None:
+                run_color = lines[0].get_color()
+
+        # 2. 绘制初始能谱 (虚线)，使用与最终谱相同的颜色
+        if run.initial_spectrum and run.initial_spectrum.weights.size > 0:
+            counts_initial, _ = np.histogram(
+                run.initial_spectrum.energies_MeV,
+                bins=self.bins,
+                weights=run.initial_spectrum.weights
+            )
+            normalized_counts = counts_initial / self.widths
+            mask = normalized_counts > 0
+            ax.plot(
+                self.centers[mask],
+                normalized_counts[mask],
+                '--',
+                lw=1.5,
+                label=f"{label} (初始)",
+                color=run_color,  # 强制使用相同颜色
+                **kwargs
+            )
+
+    def setup_axes(self, ax: Axes):
+        """配置对比图的坐标轴。"""
+        ax.set_title("初始与最终粒子能谱对比", fontsize=16)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('动能 (MeV)')
+        ax.set_ylabel('dN/dE [/MeV]')
+        ax.grid(True, which="both", ls="--", alpha=0.5)
+        ax.legend(title="模拟", fontsize=10, ncol=2)  # 使用多列图例以防太长
