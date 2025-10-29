@@ -1,4 +1,5 @@
 # plotting/spectrum_plotter.py
+from typing import Optional
 
 import numpy as np
 from matplotlib.axes import Axes
@@ -23,7 +24,9 @@ class SpectrumPlotter(BasePlotter):
         normalization = 1.0 / (m_e_c2 * theta * kv(2, 1.0 / theta))
         return normalization * (pc / m_e_c2) * gamma * np.exp(-gamma / theta)
 
-    def plot(self, ax: Axes, run: SimulationRun, **kwargs):
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
+        label_suffix = f" ({label})"
+
         # 确定能量区间 (bins)
         all_energies = []
         if run.initial_spectrum: all_energies.append(run.initial_spectrum.energies_MeV)
@@ -46,13 +49,13 @@ class SpectrumPlotter(BasePlotter):
         if run.initial_spectrum:
             counts, _ = np.histogram(run.initial_spectrum.energies_MeV, bins=bins, weights=run.initial_spectrum.weights)
             mask = counts > 0
-            ax.plot(centers[mask], (counts / widths)[mask], '--', color='gray', lw=2, label='初始')
+            ax.plot(centers[mask], (counts / widths)[mask], '--', color='gray', lw=2, label='初始' + label_suffix)
 
         # 绘制最终谱
         if run.final_spectrum:
             counts, _ = np.histogram(run.final_spectrum.energies_MeV, bins=bins, weights=run.final_spectrum.weights)
             mask = counts > 0
-            ax.plot(centers[mask], (counts / widths)[mask], '-', color='royalblue', lw=2.5, label='最终')
+            ax.plot(centers[mask], (counts / widths)[mask], '-', color='royalblue', lw=2.5, label='最终' + label_suffix)
 
         # 绘制理论热谱
         if run.user_T_keV is not None and run.user_T_keV > 0 and run.initial_spectrum:

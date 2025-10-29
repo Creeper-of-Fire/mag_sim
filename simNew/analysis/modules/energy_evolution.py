@@ -1,7 +1,8 @@
 # modules/energy_evolution.py
 
-import matplotlib.pyplot as plt
 from typing import List, Set
+
+import matplotlib.pyplot as plt
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
@@ -49,11 +50,11 @@ class EnergyEvolutionModule(BaseAnalysisModule):
 
         # --- 使用绘图器 ---
         # 子图1: 平均能量密度
-        density_plotter.plot(ax_density, run)
+        density_plotter.plot(ax_density, run, run.name)
         density_plotter.setup_axes(ax_density)
 
         # 子图2: 总能量
-        total_energy_plotter.plot(ax_total, run)
+        total_energy_plotter.plot(ax_total, run, run.name)
         total_energy_plotter.setup_axes(ax_total)
 
         # 子图3: 参数表 (保持不变)

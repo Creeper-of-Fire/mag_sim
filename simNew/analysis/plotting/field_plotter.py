@@ -1,4 +1,5 @@
 # plotting/field_plotter.py
+from typing import Optional
 
 from matplotlib.axes import Axes
 
@@ -9,9 +10,9 @@ from ..core.simulation import SimulationRun
 class FieldRmsPlotter(BasePlotter):
     """绘制磁场分量 RMS 值的演化。"""
 
-    def plot(self, ax: Axes, run: SimulationRun, **kwargs):
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.field_data
-        label_suffix = f" ({kwargs.get('label', run.name)})"
+        label_suffix = f" ({label})"
 
         ax.plot(data.time, data.b_rms_x_normalized, '-', label='RMS(Bx)' + label_suffix, **kwargs)
         ax.plot(data.time, data.b_rms_y_normalized, '--', label='RMS(By)' + label_suffix, **kwargs)
@@ -28,9 +29,9 @@ class FieldRmsPlotter(BasePlotter):
 class FieldMeanPlotter(BasePlotter):
     """绘制磁场分量平均值的演化。"""
 
-    def plot(self, ax: Axes, run: SimulationRun, **kwargs):
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.field_data
-        label_suffix = f" ({kwargs.get('label', run.name)})"
+        label_suffix = f" ({label})"
 
         ax.plot(data.time, data.b_mean_x_normalized, '-', label='<Bx>' + label_suffix, **kwargs)
         ax.plot(data.time, data.b_mean_y_normalized, '--', label='<By>' + label_suffix, **kwargs)
@@ -47,9 +48,9 @@ class FieldMeanPlotter(BasePlotter):
 class FieldMagnitudePlotter(BasePlotter):
     """绘制磁场强度（平均值和最大值）的演化。"""
 
-    def plot(self, ax: Axes, run: SimulationRun, **kwargs):
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.field_data
-        label_suffix = f" ({kwargs.get('label', run.name)})"
+        label_suffix = f" ({label})"
 
         ax.plot(data.time, data.b_mean_abs_normalized, '-', label='<|B|>' + label_suffix, **kwargs)
         ax.plot(data.time, data.b_max_normalized, '--', alpha=0.9, label='Max|B|' + label_suffix, **kwargs)

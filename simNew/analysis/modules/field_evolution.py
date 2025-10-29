@@ -1,7 +1,8 @@
 # modules/field_evolution.py
 
-import matplotlib.pyplot as plt
 from typing import List, Set
+
+import matplotlib.pyplot as plt
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
@@ -49,15 +50,15 @@ class FieldEvolutionModule(BaseAnalysisModule):
 
         # --- 使用绘图器 ---
         # 子图1: RMS
-        rms_plotter.plot(ax_rms, run)
+        rms_plotter.plot(ax_rms, run, run.name)
         rms_plotter.setup_axes(ax_rms)
 
         # 子图2: 平均值
-        mean_plotter.plot(ax_mean, run)
+        mean_plotter.plot(ax_mean, run, run.name)
         mean_plotter.setup_axes(ax_mean)
 
         # 子图3: 强度
-        mag_plotter.plot(ax_mag, run)
+        mag_plotter.plot(ax_mag, run, run.name)
         mag_plotter.setup_axes(ax_mag)
 
         # 子图4: 参数表

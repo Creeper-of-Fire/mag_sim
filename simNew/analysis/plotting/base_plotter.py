@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from matplotlib.axes import Axes
 
 # 导入类型提示，避免循环导入
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ..core.simulation import SimulationRun
@@ -17,15 +17,16 @@ class BasePlotter(ABC):
     """
 
     @abstractmethod
-    def plot(self, ax: Axes, run: 'SimulationRun', **kwargs):
+    def plot(self, ax: Axes, run: 'SimulationRun', label: str, color: Optional[str] = None, **kwargs):
         """
         在给定的 Matplotlib Axes 对象上绘制单个模拟运行的数据。
 
         Args:
             ax (Axes): 用于绘图的 Matplotlib Axes 对象。
             run (SimulationRun): 包含数据的模拟运行对象。
-            **kwargs: 传递给绘图函数的额外参数 (例如 label, color, linestyle)。
-                      这对于实现对比图至关重要。
+            label (str): 用于图例的标签，此为必需参数。
+            color (Optional[str]): 绘图所用的颜色。如果未提供，通常将使用 matplotlib 的默认颜色循环。
+            **kwargs: 传递给底层绘图函数的其他参数 (例如 linestyle, lw)。
         """
         pass
 

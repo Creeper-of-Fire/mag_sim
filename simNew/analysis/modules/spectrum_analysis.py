@@ -4,10 +4,9 @@ from typing import List, Set, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-from rich.prompt import Prompt
+from scipy.constants import k as kB, c, m_e, e  # 物理常量
 from scipy.optimize import root_scalar
 from scipy.special import kn as bessel_k  # 第二类修正贝塞尔函数 K_n
-from scipy.constants import k as kB, c, m_e, e  # 物理常量
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
@@ -15,10 +14,11 @@ from ..core.utils import console, plot_parameter_table
 from ..plotting.spectrum_plotter import SpectrumPlotter
 
 # 为了清晰和效率，在模块级别定义常量
-ME_C2_J = m_e * c**2             # 电子静能量 (单位: 焦耳)
-MEV_TO_J = e * 1e6                 # MeV 到 焦耳 的转换因子
-KEV_TO_J = e * 1e3                 # keV 到 焦耳 的转换因子
-J_TO_KEV = 1.0 / KEV_TO_J          # 焦耳 到 keV 的转换因子
+ME_C2_J = m_e * c ** 2  # 电子静能量 (单位: 焦耳)
+MEV_TO_J = e * 1e6  # MeV 到 焦耳 的转换因子
+KEV_TO_J = e * 1e3  # keV 到 焦耳 的转换因子
+J_TO_KEV = 1.0 / KEV_TO_J  # 焦耳 到 keV 的转换因子
+
 
 class SpectrumAnalysisModule(BaseAnalysisModule):
     @property
@@ -144,7 +144,7 @@ class SpectrumAnalysisModule(BaseAnalysisModule):
         fig.suptitle(f"能谱分析: {run.name}", fontsize=20, y=0.98)
 
         # --- 使用绘图器 ---
-        spectrum_plotter.plot(ax_plot, run)
+        spectrum_plotter.plot(ax_plot, run, run.name)
         spectrum_plotter.setup_axes(ax_plot)
 
         # --- 参数表 ---
