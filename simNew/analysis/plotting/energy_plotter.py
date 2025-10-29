@@ -1,4 +1,5 @@
 # plotting/energy_plotter.py
+from typing import Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -11,12 +12,11 @@ from ..core.simulation import SimulationRun
 class EnergyDensityPlotter(BasePlotter):
     """绘制平均能量密度随时间的演化。"""
 
-    def plot(self, ax: Axes, run: SimulationRun, **kwargs):
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.energy_data
         J_PER_EV = e
 
-        # 为了对比图，我们使用 run.name 作为默认标签的一部分
-        label_suffix = f" ({kwargs.get('label', run.name)})"
+        label_suffix = f" ({label})"
 
         # 动能
         ax.plot(data.time, data.mean_kin_energy_density / J_PER_EV,
@@ -49,12 +49,11 @@ class EnergyDensityPlotter(BasePlotter):
 class TotalEnergyPlotter(BasePlotter):
     """绘制盒子内总能量随时间的演化。"""
 
-    def plot(self, ax: Axes, run: SimulationRun, **kwargs):
+    def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.energy_data
         J_PER_EV = e
 
-        # 为了对比图，我们使用 run.name 作为默认标签的一部分
-        label_suffix = f" ({kwargs.get('label', run.name)})"
+        label_suffix = f" ({label})"
 
         total_kin_ev = data.total_kinetic_energy / J_PER_EV
         total_mag_ev = data.total_magnetic_energy / J_PER_EV
