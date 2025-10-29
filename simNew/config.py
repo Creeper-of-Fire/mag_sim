@@ -38,7 +38,7 @@ class SimulationParameters:
     beam_energy_eV = 8.4e4  # 束流粒子的动能 (eV)。例如 1.0e6 表示 1 MeV。
 
     # --- 5. 输出和诊断 ---
-    output_dir = "测试2"  # 默认输出目录
+    output_dir = "sim_result/测试2"  # 默认输出目录
 
     # --- 6. 磁场配置 ---
     # 在这里，您可以选择背景磁场的类型
