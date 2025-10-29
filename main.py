@@ -40,6 +40,7 @@ def main():
     # 无论程序是正常结束还是中途崩溃，这个函数都会被调用
     atexit.register(run_notification_script)
     # -------------------------------------------
+    exec ("from config import SimulationParameters")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",
