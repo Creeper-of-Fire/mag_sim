@@ -12,11 +12,13 @@
 #
 import argparse
 import importlib
+import os
 from pathlib import Path
 from typing import List, Dict, Union
 
 from rich.prompt import Prompt
 
+from analysis.core.config import config
 from analysis.core.data_loader import load_run_data
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, setup_chinese_font, select_directories
@@ -49,7 +51,7 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
                 if not isinstance(item, type) or item.__module__ != module_name:
                     continue
 
-                if not isinstance(item, type) or not issubclass(item, (BaseAnalysisModule, BaseComparisonModule, BaseVideoModule)):
+                if not issubclass(item, BaseAnalysisModule) or item in [BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]:
                     continue
 
                 instance = item()
@@ -148,7 +150,18 @@ def main():
         action='store_true',
         help="进入视频生成模式。"
     )
+    parser.add_argument(
+        '-o', '--output',
+        type=str,
+        default='analysis_results',
+        help="指定保存分析结果（图片、视频等）的目录。"
+    )
     args = parser.parse_args()
+
+    config.output_dir = args.output
+
+    os.makedirs(args.output, exist_ok=True)
+    console.print(f"[green]✔ 所有分析结果将保存到 '{args.output}/' 目录。[/green]")
 
     # 3. 根据模式选择工作流
 
