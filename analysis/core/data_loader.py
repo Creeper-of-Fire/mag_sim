@@ -90,6 +90,41 @@ def _cached_loader(
 # 1. 底层计算和辅助函数
 # =============================================================================
 
+def _get_h5_dataset(h5_item: h5py.Group, component_path: str) -> np.ndarray:
+    """
+    稳健地读取 HDF5 数据集，处理扁平、嵌套和单成员组等多种结构。
+    """
+    item = h5_item[component_path]
+    if isinstance(item, h5py.Dataset):
+        # 情况1：路径直接指向一个数据集 (最简单的情况)
+        return item[:]
+    elif isinstance(item, h5py.Group):
+        # 情况2：路径指向一个组 (需要进一步探查)
+
+        # 如果组是空的，说明这个物种在该时刻没有粒子，返回空数组
+        if not item: # 在 h5py 中，空组的布尔值为 False
+            return np.array([])
+
+        if len(item) <= 0:
+            return np.array([])
+
+        # 稳健策略：如果组内只有一个成员，且是数据集，则假定它就是目标数据。
+        # 这能处理 '.../momentum/x' (Group) -> 'momentum/x' (Dataset) 的情况。
+        if len(item) == 1:
+            first_key = list(item.keys())[0]
+            if isinstance(item[first_key], h5py.Dataset):
+                return item[first_key][:]
+
+        # 后备策略：尝试使用路径的最后一部分作为数据集名称 (例如 'weighting' -> 'weighting')
+        dataset_name = component_path.split('/')[-1]
+        if dataset_name in item and isinstance(item[dataset_name], h5py.Dataset):
+            return item[dataset_name][:]
+
+        # 如果以上策略都失败，抛出明确的错误
+        raise KeyError(f"在组 '{item.name}' 中无法找到预期的数据集。组内成员: {list(item.keys())}")
+    else:
+        raise TypeError(f"HDF5 对象 '{item.name}' 的类型无法识别。")
+
 def _get_step_from_filename(filename: str) -> Optional[int]:
     """从 WarpX 诊断文件名中稳健地提取步数。"""
     try:
@@ -134,12 +169,15 @@ def _load_spectrum_data(h5_filepath: str) -> Optional[SpectrumData]:
         with h5py.File(h5_filepath, 'r') as f:
             step_key = list(f['data'].keys())[0]
             particles_group = f[f'data/{step_key}/particles']
-            for species in particles_group.keys():
-                if 'photon' in species: continue
-                px = particles_group[f'{species}/momentum/x'][:]
-                py = particles_group[f'{species}/momentum/y'][:]
-                pz = particles_group[f'{species}/momentum/z'][:]
-                weights = particles_group[f'{species}/weighting'][:]
+            for species_name in particles_group.keys():
+                if 'photon' in species_name: continue
+
+                species_group = particles_group[species_name]
+
+                px = _get_h5_dataset(species_group, 'momentum/x')
+                py = _get_h5_dataset(species_group, 'momentum/y')
+                pz = _get_h5_dataset(species_group, 'momentum/z')
+                weights = _get_h5_dataset(species_group, 'weighting')
                 if weights.size == 0: continue
                 p_sq = px ** 2 + py ** 2 + pz ** 2
                 kinetic_energy_J = np.sqrt(p_sq * c ** 2 + m_e_c2_J ** 2) - m_e_c2_J
@@ -240,14 +278,14 @@ def _load_energy_evolution_data(dir_path: str, sim_obj: object) -> Optional[Ener
         mag_ed_x, mag_ed_y, mag_ed_z = (Bx ** 2) / (2 * mu_0), (By ** 2) / (2 * mu_0), (Bz ** 2) / (2 * mu_0)
         elec_ed_x, elec_ed_y, elec_ed_z = (epsilon_0 * Ex ** 2) / 2, (epsilon_0 * Ey ** 2) / 2, (epsilon_0 * Ez ** 2) / 2
 
-        mag_edens_x.append(np.mean(mag_ed_x));
-        mag_edens_y.append(np.mean(mag_ed_y));
+        mag_edens_x.append(np.mean(mag_ed_x))
+        mag_edens_y.append(np.mean(mag_ed_y))
         mag_edens_z.append(np.mean(mag_ed_z))
         mag_edens_tot.append(np.mean(mag_ed_x + mag_ed_y + mag_ed_z))
         total_mag_E.append(np.sum(mag_ed_x + mag_ed_y + mag_ed_z) * cell_volume)
 
-        elec_edens_x.append(np.mean(elec_ed_x));
-        elec_edens_y.append(np.mean(elec_ed_y));
+        elec_edens_x.append(np.mean(elec_ed_x))
+        elec_edens_y.append(np.mean(elec_ed_y))
         elec_edens_z.append(np.mean(elec_ed_z))
         elec_edens_tot.append(np.mean(elec_ed_x + elec_ed_y + elec_ed_z))
         total_elec_E.append(np.sum(elec_ed_x + elec_ed_y + elec_ed_z) * cell_volume)
@@ -258,9 +296,16 @@ def _load_energy_evolution_data(dir_path: str, sim_obj: object) -> Optional[Ener
         with h5py.File(particle_files[step], 'r') as f:
             step_key = list(f['data'].keys())[0]
             particles_group = f[f'data/{step_key}/particles']
-            for species in particles_group.keys():
-                if 'photon' in species: continue
-                px, py, pz, weights = [particles_group[f'{species}/{k}'][:] for k in ['momentum/x', 'momentum/y', 'momentum/z', 'weighting']]
+            for species_name in particles_group.keys():
+                if 'photon' in species_name: continue
+
+                species_group = particles_group[species_name]
+
+                px = _get_h5_dataset(species_group, 'momentum/x')
+                py = _get_h5_dataset(species_group, 'momentum/y')
+                pz = _get_h5_dataset(species_group, 'momentum/z')
+                weights = _get_h5_dataset(species_group, 'weighting')
+
                 if weights.size == 0: continue
                 p_sq = px ** 2 + py ** 2 + pz ** 2
                 kinetic_energy_J = np.sqrt(p_sq * c ** 2 + m_e_c2_J ** 2) - m_e_c2_J

@@ -13,24 +13,26 @@
 import argparse
 import importlib
 from pathlib import Path
-from typing import List, Dict, Tuple, Type, Union
+from typing import List, Dict, Union
 
 from rich.prompt import Prompt
 
+from analysis.core.data_loader import load_run_data
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, setup_chinese_font, select_directories
-from analysis.core.data_loader import load_run_data
-from analysis.modules.base_module import BaseAnalysisModule, BaseComparisonModule
+from analysis.modules.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
 
 # 定义模块类型别名
-AnyModule = Union[BaseAnalysisModule, BaseComparisonModule]
+AnyModule = Union[BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]
 
-def discover_modules() -> Tuple[Dict[str, BaseAnalysisModule], Dict[str, BaseComparisonModule]]:
+
+def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseComparisonModule], dict[str, BaseVideoModule]]:
     """
     动态扫描 `modules` 文件夹，加载并区分单个分析模块和对比分析模块。
     """
     individual_modules = {}
     comparison_modules = {}
+    video_modules = {}
     modules_dir = Path(__file__).resolve().parent / "analysis/modules"
 
     for f in modules_dir.glob("*.py"):
@@ -42,23 +44,26 @@ def discover_modules() -> Tuple[Dict[str, BaseAnalysisModule], Dict[str, BaseCom
             module = importlib.import_module(module_name)
             for item_name in dir(module):
                 item = getattr(module, item_name)
-                if not isinstance(item, type) or not issubclass(item, (BaseAnalysisModule, BaseComparisonModule)):
-                    continue
 
                 # 避免加载基类自身
-                if item in (BaseAnalysisModule, BaseComparisonModule):
+                if not isinstance(item, type) or item.__module__ != module_name:
+                    continue
+
+                if not isinstance(item, type) or not issubclass(item, (BaseAnalysisModule, BaseComparisonModule, BaseVideoModule)):
                     continue
 
                 instance = item()
-                if isinstance(instance, BaseAnalysisModule):
-                    individual_modules[instance.name] = instance
+                if isinstance(instance, BaseVideoModule):
+                    video_modules[instance.name] = instance
                 elif isinstance(instance, BaseComparisonModule):
                     comparison_modules[instance.name] = instance
+                elif isinstance(instance, BaseAnalysisModule):
+                    individual_modules[instance.name] = instance
 
         except Exception as e:
             console.print(f"[red]加载模块 {module_name} 失败: {e}[/red]")
 
-    return dict(sorted(individual_modules.items())), dict(sorted(comparison_modules.items()))
+    return dict(sorted(individual_modules.items())), dict(sorted(comparison_modules.items())), dict(sorted(video_modules.items()))
 
 
 def _select_modules_from_list(module_dict: Dict[str, AnyModule]) -> List[AnyModule]:
@@ -124,8 +129,8 @@ def main():
     console.print("[bold inverse] WarpX 可扩展交互式分析框架 [/bold inverse]")
     setup_chinese_font()
 
-    # 1. 优先发现所有模块
-    individual_modules, comparison_modules = discover_modules()
+    # 1. 发现所有模块
+    individual_modules, comparison_modules, video_modules = discover_modules()
 
     if not individual_modules and not comparison_modules:
         console.print("[red]错误: 在 'analysis/modules/' 目录下未找到任何有效的分析模块。程序退出。[/red]")
@@ -138,12 +143,26 @@ def main():
         action='store_true',
         help="进入对比分析模式。如果未指定，则默认为单个分析模式。"
     )
+    parser.add_argument(
+        '-v', '--video',
+        action='store_true',
+        help="进入视频生成模式。"
+    )
     args = parser.parse_args()
 
     # 3. 根据模式选择工作流
-    mode_is_compare = args.compare
 
-    if mode_is_compare:
+    if args.video:
+        console.print("\n[bold]--- 运行在 [magenta]视频生成[/magenta] 模式 ---[/bold]")
+        if not video_modules:
+            console.print("[red]错误: 没有可用的视频生成模块。[/red]")
+            return
+
+        selected_dirs = select_directories()
+        if not selected_dirs: return
+        selected_mods = _select_modules_from_list(video_modules)
+
+    elif args.compare:
         console.print("\n[bold]--- 运行在 [magenta]对比分析[/magenta] 模式 ---[/bold]")
         if not comparison_modules:
             console.print("[red]错误: 没有可用的对比分析模块。请先创建对比模块。[/red]")
@@ -162,8 +181,8 @@ def main():
         console.print("\n[bold]--- 运行在 [magenta]独立分析[/magenta] 模式 (默认) ---[/bold]")
         if not individual_modules:
             console.print("[red]错误: 没有可用的独立分析模块。[/red]")
-            if comparison_modules:
-                console.print("[cyan]提示: 检测到有可用的对比分析模块，可以尝试使用 `--compare` 或 `-c` 标志运行。[/cyan]")
+            if comparison_modules: console.print("[cyan]提示: 检测到对比模块，可使用 `-c` 标志运行。[/cyan]")
+            if video_modules: console.print("[cyan]提示: 检测到视频模块，可使用 `-v` 标志运行。[/cyan]")
             return
 
         selected_dirs = select_directories()

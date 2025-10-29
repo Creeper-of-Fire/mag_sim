@@ -1,20 +1,20 @@
 # modules/field_slice_video.py
 import os
-
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
-import numpy as np
-from typing import List, Set, Tuple
-from pathlib import Path
 import shutil
+from pathlib import Path
+from typing import List, Set, Tuple
+
 import imageio
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
-from .base_module import BaseAnalysisModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
+from .base_module import BaseVideoModule
 # 注意：这个模块需要data_loader里的函数，但为了解耦，我们把它复制过来
 from ..core.data_loader import _center_field_3d
+from ..core.simulation import SimulationRun
+from ..core.utils import console
 
 # --- 用户可配置参数 ---
 SLICE_AXIS = 'z'
@@ -23,7 +23,7 @@ QUALITY = 9
 CMAP = 'plasma'
 
 
-class FieldSliceVideoModule(BaseAnalysisModule):
+class FieldSliceVideoModule(BaseVideoModule):
     @property
     def name(self) -> str:
         return "场切片视频生成"
