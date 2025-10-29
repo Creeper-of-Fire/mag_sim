@@ -150,7 +150,6 @@ def plot_parameter_table(ax: Axes, run: SimulationRun) -> mpl_Table:
     ax.set_title('模拟参数详情', fontsize=16, y=1.0, pad=20)
     table_data = _create_parameter_table_data(run)
     table = ax.table(
-        ax,
         cellText=table_data,
         colLabels=['参数', '值'],
         loc='center',
