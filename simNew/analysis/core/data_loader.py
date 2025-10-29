@@ -10,8 +10,9 @@
 #
 import glob
 import os
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Set, Optional, Tuple
+from typing import Set, Optional, Tuple, List, Callable, Any
 
 import dill
 import h5py
@@ -20,6 +21,69 @@ from scipy.constants import c, m_e, mu_0, e, epsilon_0
 
 from .simulation import (SimulationRun, EnergyEvolutionData, FieldEvolutionData, SpectrumData)
 from .utils import console
+
+
+# =============================================================================
+# 0. 缓存处理模块
+# =============================================================================
+
+# !!! 重要 !!!
+# 当你修改了任何核心数据结构 (如 EnergyEvolutionData) 或加载逻辑时，
+# 请手动增加此版本号 (例如 "v1.0" -> "v1.1")。
+# 这将使所有旧版本的缓存失效，强制重新计算。
+CACHE_API_VERSION = "v1.0"
+
+def _is_cache_valid(cache_path: Path, source_files: List[str]) -> bool:
+    """检查缓存文件是否有效 (存在且比所有源文件新)。"""
+    if not cache_path.exists():
+        return False
+    if not source_files:  # 如果没有源文件，只要缓存存在就认为有效
+        return True
+
+    try:
+        cache_mtime = cache_path.stat().st_mtime
+        # 获取所有源文件中最新的修改时间
+        max_source_mtime = max(os.path.getmtime(f) for f in source_files if os.path.exists(f))
+        return cache_mtime > max_source_mtime
+    except (FileNotFoundError, ValueError):
+        # 如果任何源文件丢失或列表为空，则缓存无效
+        return False
+
+
+def _cached_loader(
+        cache_path: Path,
+        source_files: List[str],
+        loader_func: Callable[..., Any],
+        loader_args: tuple
+) -> Any:
+    """
+    一个通用的缓存包装器。
+    检查缓存，如果有效则加载；否则调用原始加载函数并保存结果。
+    """
+    if _is_cache_valid(cache_path, source_files):
+        console.print(f"  [green]  -> ✓ [CACHE HIT] 从 {cache_path.name} 加载...[/green]")
+        try:
+            with open(cache_path, "rb") as f:
+                return dill.load(f)
+        except Exception as err:
+            console.print(f"  [yellow]  -> ⚠ 读取缓存 {cache_path.name} 失败: {err}。将重新计算。[/yellow]")
+
+    console.print(f"  [yellow]  -> ↳ [CACHE MISS] 正在计算并生成 {cache_path.name}...[/yellow]")
+
+    # 执行原始的加载/计算函数
+    result = loader_func(*loader_args)
+
+    # 如果成功计算出结果，则保存到缓存
+    if result is not None:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "wb") as f:
+                dill.dump(result, f)
+            console.print(f"  [blue]     -> ✓ 缓存已保存至 {cache_path}[/blue]")
+        except Exception as err:
+            console.print(f"  [red]     -> ✗ 保存缓存 {cache_path.name} 失败: {err}[/red]")
+
+    return result
 
 
 # =============================================================================
@@ -250,36 +314,58 @@ def load_run_data(dir_path: str, required_data: Set[str]) -> Optional[Simulation
 
     run = SimulationRun(path=dir_path, name=os.path.basename(dir_path), sim=sim_obj)
 
-    # --- 按需加载数据 ---
+    # --- 设置带版本号的缓存目录 ---
+    cache_dir = Path(dir_path) / f".analysis_cache_{CACHE_API_VERSION}"
+
+    # --- 按需加载数据 (通过缓存包装器) ---
+    # 无论模块是否请求，都获取文件列表，因为这非常快，并且在后续流程中很有用
     particle_files = sorted(glob.glob(os.path.join(dir_path, "diags/particle_states", "openpmd_*.h5")))
     run.particle_files = particle_files
 
+    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/fields", "fields_*.npz")))
+    run.field_files = field_files
+
+    # 基础依赖文件 (参数文件自身)
+    base_dependencies = [param_file]
+
     if 'initial_spectrum' in required_data and particle_files:
-        console.print("  [white]  -> 正在加载初始能谱...[/white]")
-        run.initial_spectrum = _load_spectrum_data(particle_files[0])
+        console.print("  [white]  -> 检查初始能谱...[/white]")
+        cache_path = cache_dir / "initial_spectrum.cache"
+        source_files = base_dependencies + [particle_files[0]]
+        run.initial_spectrum = _cached_loader(
+            cache_path, source_files, _load_spectrum_data, (particle_files[0],)
+        )
 
     if 'final_spectrum' in required_data and particle_files:
         if len(particle_files) > 1:
-            console.print("  [white]  -> 正在加载最终能谱...[/white]")
-            run.final_spectrum = _load_spectrum_data(particle_files[-1])
+            console.print("  [white]  -> 检查最终能谱...[/white]")
+            cache_path = cache_dir / "final_spectrum.cache"
+            source_files = base_dependencies + [particle_files[-1]]
+            run.final_spectrum = _cached_loader(
+                cache_path, source_files, _load_spectrum_data, (particle_files[-1],)
+            )
         else:
             console.print("  [yellow]  -> 只有一个粒子文件，最终能谱将与初始能谱相同。[/yellow]")
             run.final_spectrum = run.initial_spectrum
 
     if 'energy' in required_data:
-        console.print("  [white]  -> 正在加载能量演化数据...[/white]")
-        run.energy_data = _load_energy_evolution_data(dir_path, sim_obj)
+        console.print("  [white]  -> 检查能量演化数据...[/white]")
+        cache_path = cache_dir / "energy_data.cache"
+        source_files = base_dependencies + particle_files + field_files
+        run.energy_data = _cached_loader(
+            cache_path, source_files, _load_energy_evolution_data, (dir_path, sim_obj)
+        )
         if run.energy_data is None:
             console.print("  [yellow]  -> 未能加载能量演化数据。[/yellow]")
 
     if 'field' in required_data:
-        console.print("  [white]  -> 正在加载场演化数据...[/white]")
-        run.field_data = _load_field_evolution_data(dir_path, sim_obj)
+        console.print("  [white]  -> 检查场演化数据...[/white]")
+        cache_path = cache_dir / "field_data.cache"
+        source_files = base_dependencies + field_files
+        run.field_data = _cached_loader(
+            cache_path, source_files, _load_field_evolution_data, (dir_path, sim_obj)
+        )
         if run.field_data is None:
             console.print("  [yellow]  -> 未能加载场演化数据。[/yellow]")
-
-    # 视频模块可能只需要文件列表
-    if 'field_files' in required_data:
-        run.field_files = sorted(glob.glob(os.path.join(dir_path, "diags/fields", "fields_*.npz")))
 
     return run
