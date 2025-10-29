@@ -9,3 +9,4 @@ sim_parameters.dpkl
 Backtrace.*
 *.cache
 __pycache__/
+/sim_result/

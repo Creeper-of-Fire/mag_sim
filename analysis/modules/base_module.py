@@ -80,3 +80,31 @@ class BaseComparisonModule(ABC):
         绘制在同一张图上，以进行比较。
         """
         pass
+
+class BaseVideoModule(ABC):
+    """
+    所有【视频生成】模块的抽象基类。
+    接口与常规分析模块一致，但通过继承关系进行区分。
+    """
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """视频模块的名称。"""
+        pass
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """视频模块功能的简短描述。"""
+        pass
+
+    @property
+    @abstractmethod
+    def required_data(self) -> Set[str]:
+        """声明此模块运行所必需的数据类型。"""
+        pass
+
+    @abstractmethod
+    def run(self, loaded_runs: List['SimulationRun']):
+        """执行视频生成的核心方法。"""
+        pass
