@@ -36,6 +36,19 @@ class SimulationGUI(QMainWindow):
 
         self.setup_ui()
         self.load_default_parameters()  # 启动时加载默认参数
+        self.apply_stylesheet()
+
+    def apply_stylesheet(self):
+        """应用一个主题样式表。"""
+        style = """
+        /* 项目被选中时的样式 */
+        QListWidget::item:selected {
+            background-color: #0078d7; /* 醒目的蓝色，Windows常用选择色 */
+            color: white;              /* 白色文字，保证对比度 */
+            border-radius: 3px;
+        }
+        """
+        self.setStyleSheet(style)
 
     def setup_ui(self):
         # 主布局
@@ -103,14 +116,14 @@ class SimulationGUI(QMainWindow):
 
         # --- 队列执行操作按钮 ---
         button_layout = QHBoxLayout()
-        self.start_button = QPushButton("开始运行队列")
-        self.start_button.clicked.connect(self.start_simulation_queue)
+        self.start_stop_button = QPushButton("开始运行队列")
+        self.start_stop_button.clicked.connect(self.start_simulation_queue)
         delete_button = QPushButton("删除选中")
         delete_button.clicked.connect(self.delete_from_queue)
         clear_button = QPushButton("清空队列")
         clear_button.clicked.connect(self.clear_queue)
 
-        button_layout.addWidget(self.start_button)
+        button_layout.addWidget(self.start_stop_button)
         button_layout.addWidget(delete_button)
         button_layout.addWidget(clear_button)
         queue_layout.addLayout(button_layout)
@@ -304,10 +317,17 @@ class SimulationGUI(QMainWindow):
 
     # --- 任务执行逻辑 ---
     def on_queue_finished(self):
-        """当后台任务队列全部完成时调用的槽函数。"""
-        self.start_button.setEnabled(True)
-        self.start_button.setText("开始运行队列")
-        # 等待线程结束
+        """当后台任务队列全部完成或被中止时调用的槽函数。"""
+        # 恢复按钮状态
+        self.start_stop_button.setText("开始运行队列")
+        self.start_stop_button.setEnabled(True)
+        # 解除旧的连接（如果有），重新连接到 start 函数
+        try:
+            self.start_stop_button.clicked.disconnect(self.stop_simulation_queue)
+        except RuntimeError: # 如果连接不存在会抛出异常
+            pass
+        self.start_stop_button.clicked.connect(self.start_simulation_queue)
+
         if self.runner_thread:
             self.runner_thread.join()
         self.runner_thread = None
@@ -322,8 +342,12 @@ class SimulationGUI(QMainWindow):
             self.log("日志: 任务队列为空。\n")
             return
 
-        self.start_button.setEnabled(False)
-        self.start_button.setText("正在运行...")
+        # 切换按钮为“停止运行”状态
+        self.start_stop_button.setText("停止运行")
+        # 解除 start 连接，连接到 stop 函数
+        self.start_stop_button.clicked.disconnect(self.start_simulation_queue)
+        self.start_stop_button.clicked.connect(self.stop_simulation_queue)
+
 
         # 创建并启动后台任务线程
         self.runner = SimulationRunner(self.simulation_queue)
@@ -338,3 +362,13 @@ class SimulationGUI(QMainWindow):
         self.runner.signals.queue_finished.connect(self.on_queue_finished)
 
         self.runner_thread.start()
+
+    def stop_simulation_queue(self):
+        """请求停止正在运行的任务队列。"""
+        if self.runner:
+            self.log("日志: 正在发送停止信号...\n")
+            # 禁用按钮防止重复点击
+            self.start_stop_button.setEnabled(False)
+            self.runner.stop()
+        else:
+            self.log("日志: 没有正在运行的任务。\n")
