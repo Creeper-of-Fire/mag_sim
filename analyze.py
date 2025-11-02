@@ -23,6 +23,7 @@ from analysis.core.data_loader import load_run_data
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, setup_chinese_font, select_directories
 from analysis.modules.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
+from analysis.plotting.styles import StyleTheme, set_style
 
 # 定义模块类型别名
 AnyModule = Union[BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]
@@ -131,15 +132,22 @@ def main():
     console.print("[bold inverse] WarpX 可扩展交互式分析框架 [/bold inverse]")
     setup_chinese_font()
 
-    # 1. 发现所有模块
+    # 发现所有模块
     individual_modules, comparison_modules, video_modules = discover_modules()
 
     if not individual_modules and not comparison_modules:
         console.print("[red]错误: 在 'analysis/modules/' 目录下未找到任何有效的分析模块。程序退出。[/red]")
         return
 
-    # 2. 设置并解析命令行参数
+    # 设置并解析命令行参数
     parser = argparse.ArgumentParser(description="WarpX 交互式分析框架")
+    parser.add_argument(
+        '--style',
+        type=str,
+        default=StyleTheme.PRESENTATION.name, # 默认值
+        choices=[theme.name for theme in StyleTheme], # 从枚举自动生成选项
+        help="选择绘图样式。"
+    )
     parser.add_argument(
         '-c', '--compare',
         action='store_true',
@@ -158,12 +166,16 @@ def main():
     )
     args = parser.parse_args()
 
+    # --- 应用选择的样式 ---
+    selected_theme = StyleTheme[args.style] # 将字符串转换为枚举成员
+    set_style(selected_theme)
+
     config.output_dir = args.output
 
     os.makedirs(args.output, exist_ok=True)
     console.print(f"[green]✔ 所有分析结果将保存到 '{args.output}/' 目录。[/green]")
 
-    # 3. 根据模式选择工作流
+    # 根据模式选择工作流
 
     if args.video:
         console.print("\n[bold]--- 运行在 [magenta]视频生成[/magenta] 模式 ---[/bold]")

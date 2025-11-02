@@ -11,6 +11,7 @@ from ..core.simulation import SimulationRun
 from ..core.utils import console
 from ..plotting.layout import create_analysis_figure
 from ..plotting.spectrum_plotter import SpectrumComparisonPlotter
+from ..plotting.styles import get_style
 
 
 class BaselineSpectrumComparisonModule(BaseComparisonModule):
@@ -89,6 +90,18 @@ class BaselineSpectrumComparisonModule(BaseComparisonModule):
         x_lim = (common_bins[0], common_bins[-1])
         console.print(f"  -> [green]统一坐标轴范围已确定。[/green]")
 
+        # 获取当前激活的样式对象
+        style = get_style()
+
+        # 在这里定义此图表专属的、语义化的绘图参数。这些参数是基于样式基准的相对值
+        lw_base = style.lw_base
+        plot_params = {
+            'base_initial': {'ls': style.ls_secondary, 'color': style.color_baseline_secondary, 'lw': lw_base * 3.0, 'zorder': 10},
+            'base_final':   {'ls': style.ls_primary,   'color': style.color_baseline_primary,   'lw': lw_base * 2.5, 'zorder': 20},
+            'comp_initial': {'ls': style.ls_tertiary,  'color': style.color_comparison_secondary, 'lw': lw_base * 2.5, 'zorder': 30},
+            'comp_final':   {'ls': style.ls_primary,   'color': style.color_comparison_primary,   'lw': lw_base * 2.0, 'zorder': 40},
+        }
+
         # 3. 循环生成每一对的对比图
         for i, comp_run in enumerate(comparison_runs):
             console.print(f"\n  ({i + 1}/{len(comparison_runs)}) 正在生成对比图: [bold]{baseline_run.name}[/bold] vs [bold]{comp_run.name}[/bold]...")
@@ -112,23 +125,23 @@ class BaselineSpectrumComparisonModule(BaseComparisonModule):
                 counts_base_i, _ = np.histogram(baseline_run.initial_spectrum.energies_MeV, bins=common_bins, weights=baseline_run.initial_spectrum.weights)
                 dNdE_base_i = counts_base_i / common_widths
                 mask_base_i = dNdE_base_i > 0
-                ax_plot.plot(common_centers[mask_base_i], dNdE_base_i[mask_base_i], '--', color='gray', lw=3, label=f'{baseline_run.name} (初始)')
+                ax_plot.plot(common_centers[mask_base_i], dNdE_base_i[mask_base_i], label=f'{baseline_run.name} (初始)', **plot_params['base_initial'])
 
                 counts_base_f, _ = np.histogram(baseline_run.final_spectrum.energies_MeV, bins=common_bins, weights=baseline_run.final_spectrum.weights)
                 dNdE_base_f = counts_base_f / common_widths
                 mask_base_f = dNdE_base_f > 0
-                ax_plot.plot(common_centers[mask_base_f], dNdE_base_f[mask_base_f], '-', color='black', lw=2.5, label=f'{baseline_run.name} (最终)')
+                ax_plot.plot(common_centers[mask_base_f], dNdE_base_f[mask_base_f], label=f'{baseline_run.name} (最终)', **plot_params['base_final'])
 
                 # 对比模拟 (彩色)
                 counts_comp_i, _ = np.histogram(comp_run.initial_spectrum.energies_MeV, bins=common_bins, weights=comp_run.initial_spectrum.weights)
                 dNdE_comp_i = counts_comp_i / common_widths
                 mask_comp_i = dNdE_comp_i > 0
-                ax_plot.plot(common_centers[mask_comp_i], dNdE_comp_i[mask_comp_i], ':', color='C0', lw=2.5, label=f'{comp_run.name} (初始)')
+                ax_plot.plot(common_centers[mask_comp_i], dNdE_comp_i[mask_comp_i], label=f'{comp_run.name} (初始)', **plot_params['comp_initial'])
 
                 counts_comp_f, _ = np.histogram(comp_run.final_spectrum.energies_MeV, bins=common_bins, weights=comp_run.final_spectrum.weights)
                 dNdE_comp_f = counts_comp_f / common_widths
                 mask_comp_f = dNdE_comp_f > 0
-                ax_plot.plot(common_centers[mask_comp_f], dNdE_comp_f[mask_comp_f], '-', color='C0', lw=2, label=f'{comp_run.name} (最终)')
+                ax_plot.plot(common_centers[mask_comp_f], dNdE_comp_f[mask_comp_f], label=f'{comp_run.name} (最终)', **plot_params['comp_final'])
 
                 # --- 设置坐标轴 ---
                 ax_plot.set_title("初始与最终能谱对比", fontsize=16)
