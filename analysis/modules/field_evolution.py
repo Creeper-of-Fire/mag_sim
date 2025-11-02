@@ -8,6 +8,7 @@ from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
 from ..core.utils import console, plot_parameter_table, save_figure
 from ..plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
+from ..plotting.layout import create_analysis_figure
 
 
 class FieldEvolutionModule(BaseAnalysisModule):
@@ -42,26 +43,12 @@ class FieldEvolutionModule(BaseAnalysisModule):
         mean_plotter = FieldMeanPlotter()
         mag_plotter = FieldMagnitudePlotter()
 
-        fig, (ax_rms, ax_mean, ax_mag, ax_table) = plt.subplots(
-            4, 1, figsize=(12, 18),
-            gridspec_kw={'height_ratios': [3, 3, 3, 3]}, constrained_layout=True
-        )
-        fig.suptitle(f"磁场演化分析: {run.name}", fontsize=18, y=1.02)
+        with create_analysis_figure(run, "analysis_field_evolution", num_plots=3, figsize=(12, 15)) as (fig, (ax_rms, ax_mean, ax_mag)):
+            rms_plotter.plot(ax_rms, run, run.name)
+            rms_plotter.setup_axes(ax_rms)
 
-        # --- 使用绘图器 ---
-        # 子图1: RMS
-        rms_plotter.plot(ax_rms, run, run.name)
-        rms_plotter.setup_axes(ax_rms)
+            mean_plotter.plot(ax_mean, run, run.name)
+            mean_plotter.setup_axes(ax_mean)
 
-        # 子图2: 平均值
-        mean_plotter.plot(ax_mean, run, run.name)
-        mean_plotter.setup_axes(ax_mean)
-
-        # 子图3: 强度
-        mag_plotter.plot(ax_mag, run, run.name)
-        mag_plotter.setup_axes(ax_mag)
-
-        # 子图4: 参数表
-        plot_parameter_table(ax_table, run)
-
-        save_figure(fig, output_name)
+            mag_plotter.plot(ax_mag, run, run.name)
+            mag_plotter.setup_axes(ax_mag)

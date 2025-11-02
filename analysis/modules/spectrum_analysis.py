@@ -11,6 +11,7 @@ from scipy.special import kn as bessel_k  # 第二类修正贝塞尔函数 K_n
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
 from ..core.utils import console, plot_parameter_table, save_figure
+from ..plotting.layout import create_analysis_figure
 from ..plotting.spectrum_plotter import SpectrumPlotter
 
 # 为了清晰和效率，在模块级别定义常量
@@ -140,15 +141,8 @@ class SpectrumAnalysisModule(BaseAnalysisModule):
         # --- 实例化绘图器 ---
         spectrum_plotter = SpectrumPlotter()
 
-        fig, (ax_plot, ax_table) = plt.subplots(2, 1, figsize=(10, 14), gridspec_kw={'height_ratios': [3, 2]})
-        fig.suptitle(f"能谱分析: {run.name}", fontsize=20, y=0.98)
-
-        # --- 使用绘图器 ---
-        spectrum_plotter.plot(ax_plot, run, run.name)
-        spectrum_plotter.setup_axes(ax_plot)
-
-        # --- 参数表 ---
-        plot_parameter_table(ax_table, run)
-
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
-        save_figure(fig, output_name)
+        # 使用布局管理器
+        with create_analysis_figure(run, "analysis_spectrum", num_plots=1, figsize=(10, 6)) as (fig, ax_plot):
+            # --- 使用绘图器在 ax_plot 上绘图 ---
+            spectrum_plotter.plot(ax_plot, run, run.name)
+            spectrum_plotter.setup_axes(ax_plot)

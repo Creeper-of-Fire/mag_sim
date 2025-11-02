@@ -99,7 +99,7 @@ class FieldSliceVideoModule(BaseVideoModule):
             ax.set_aspect('equal')
 
             frame_filename = temp_dir / f"frame_{step:06d}.png"
-            save_figure(fig, frame_filename)
+            save_figure(fig, str(frame_filename))
             frame_paths.append(frame_filename)
 
         console.print(f"  [cyan]正在将 {len(frame_paths)} 帧合成为 '{output_name}'...[/cyan]")
