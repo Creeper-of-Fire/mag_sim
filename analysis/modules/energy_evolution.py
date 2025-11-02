@@ -8,6 +8,7 @@ from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
 from ..core.utils import console, plot_parameter_table, save_figure
 from ..plotting.energy_plotter import EnergyDensityPlotter, TotalEnergyPlotter
+from ..plotting.layout import create_analysis_figure
 
 
 class EnergyEvolutionModule(BaseAnalysisModule):
@@ -42,22 +43,9 @@ class EnergyEvolutionModule(BaseAnalysisModule):
         density_plotter = EnergyDensityPlotter()
         total_energy_plotter = TotalEnergyPlotter()
 
-        fig, (ax_density, ax_total, ax_table) = plt.subplots(
-            3, 1, figsize=(12, 18),
-            gridspec_kw={'height_ratios': [4, 4, 3]}, constrained_layout=True
-        )
-        fig.suptitle(f"能量演化分析: {run.name}", fontsize=18, y=1.02)
+        with create_analysis_figure(run, "analysis_energy_evolution", num_plots=2, figsize=(12, 10)) as (fig, (ax_density, ax_total)):
+            density_plotter.plot(ax_density, run, run.name)
+            density_plotter.setup_axes(ax_density)
 
-        # --- 使用绘图器 ---
-        # 子图1: 平均能量密度
-        density_plotter.plot(ax_density, run, run.name)
-        density_plotter.setup_axes(ax_density)
-
-        # 子图2: 总能量
-        total_energy_plotter.plot(ax_total, run, run.name)
-        total_energy_plotter.setup_axes(ax_total)
-
-        # 子图3: 参数表 (保持不变)
-        plot_parameter_table(ax_table, run)
-
-        save_figure(fig, output_name)
+            total_energy_plotter.plot(ax_total, run, run.name)
+            total_energy_plotter.setup_axes(ax_total)
