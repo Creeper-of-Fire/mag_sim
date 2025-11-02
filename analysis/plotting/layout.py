@@ -9,6 +9,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.transforms import Bbox
 
+from .styles import get_style
 from ..core.simulation import SimulationRun
 from ..core.utils import save_figure, plot_parameter_table, plot_comparison_parameter_table
 
@@ -62,14 +63,14 @@ def _get_table_actual_height_inch(
 
     return table_height
 
+
 @contextmanager
 def create_analysis_figure(
         run_or_runs: SimulationRun | List[SimulationRun],
         base_filename: str,
         num_plots: int,
         plot_ratios: List[int] = None,
-        table_ratio: int = 3,
-        figsize: Tuple[float, float] = (12, 16),
+        figsize: Optional[Tuple[float, float]] = None,
         override_filename: Optional[str] = None
 ) -> Generator[tuple[Any, Any] | tuple[Any, tuple[Any, ...]], Any, None]:
     """
@@ -121,8 +122,37 @@ def create_analysis_figure(
             output_name = f"{base_filename}_{run_or_runs.name}.png"
             title = f"分析: {base_filename.replace('_', ' ').title()} for: {run_or_runs.name}"
 
+    # --- 根据样式和传入的比例计算最终尺寸 ---
+
+    style = get_style()
+    base_width, base_height = style.figsize  # 获取样式的边界框
+
+    if figsize is None:
+        # 如果用户未提供figsize，则直接使用样式定义的标准尺寸
+        plot_figsize = (base_width, base_height)
+    else:
+        # 如果用户提供了figsize，将其作为宽高比来调整
+
+        # 避免除以零的错误
+        if figsize[0] <= 0 or figsize[1] <= 0:
+            raise ValueError("figsize 的宽高比必须为正数。")
+
+        requested_aspect = figsize[1] / figsize[0]
+        base_aspect = base_height / base_width
+
+        if requested_aspect > base_aspect:
+            # 请求的形状比边界框更“高”，因此高度是限制因素
+            final_plot_height = base_height
+            final_plot_width = final_plot_height / requested_aspect
+        else:
+            # 请求的形状比边界框更“宽”或比例相同，因此宽度是限制因素
+            final_plot_width = base_width
+            final_plot_height = final_plot_width * requested_aspect
+
+        plot_figsize = (final_plot_width, final_plot_height)
+
     # --- 1. 精确计算布局 ---
-    plot_width, plot_height = figsize
+    plot_width, plot_height = plot_figsize
 
     # a. 【核心】通过预渲染精确计算表格的实际高度
     actual_table_height = _get_table_actual_height_inch(run_or_runs, plot_width)
