@@ -96,10 +96,10 @@ class BaselineSpectrumComparisonModule(BaseComparisonModule):
         # 在这里定义此图表专属的、语义化的绘图参数。这些参数是基于样式基准的相对值
         lw_base = style.lw_base
         plot_params = {
-            'base_initial': {'ls': style.ls_secondary, 'color': style.color_baseline_secondary, 'lw': lw_base * 3.0, 'zorder': 10},
-            'base_final':   {'ls': style.ls_primary,   'color': style.color_baseline_primary,   'lw': lw_base * 2.5, 'zorder': 20},
-            'comp_initial': {'ls': style.ls_tertiary,  'color': style.color_comparison_secondary, 'lw': lw_base * 2.5, 'zorder': 30},
-            'comp_final':   {'ls': style.ls_primary,   'color': style.color_comparison_primary,   'lw': lw_base * 2.0, 'zorder': 40},
+            'base_initial': {'ls': style.ls_secondary, 'color': style.color_baseline_secondary, 'lw': lw_base * 1.25, 'zorder': 10},
+            'base_final':   {'ls': style.ls_primary,   'color': style.color_baseline_primary,   'lw': lw_base * 1., 'zorder': 20},
+            'comp_initial': {'ls': style.ls_tertiary,  'color': style.color_comparison_secondary, 'lw': lw_base * 1., 'zorder': 30},
+            'comp_final':   {'ls': style.ls_primary,   'color': style.color_comparison_primary,   'lw': lw_base * 0.8, 'zorder': 40},
         }
 
         # 3. 循环生成每一对的对比图
