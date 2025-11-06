@@ -62,7 +62,7 @@ PaperStyle = PlotStyle(
     color_baseline_primary='black',
     color_baseline_secondary='gray',
     color_comparison_primary='C0',
-    color_comparison_secondary='C0',
+    color_comparison_secondary='C1',
     # Matplotlib参数
     figsize=(7.0, 4.33),
     font_size_base=10,
@@ -83,7 +83,7 @@ PresentationStyle = PlotStyle(
     color_baseline_primary='black',
     color_baseline_secondary='gray',
     color_comparison_primary='C0',  # 可以为PPT换更亮的颜色
-    color_comparison_secondary='C0',
+    color_comparison_secondary='C3',
     # Matplotlib参数
     figsize=(10, 6.0),
     font_size_base=18,
@@ -103,7 +103,7 @@ class StyleTheme(Enum):
 
 
 # --- 全局状态管理器 ---
-_current_style: PlotStyle = PaperStyle  # 默认为论文样式
+_current_style: PlotStyle = PresentationStyle  # 默认为PPT样式
 
 
 def set_style(theme: StyleTheme):
