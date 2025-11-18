@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
-from ..core.utils import console, plot_parameter_table, save_figure
+from ..core.utils import console, save_figure
+from ..core.param_table import plot_parameter_table
 from ..plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
 from ..plotting.layout import create_analysis_figure
 

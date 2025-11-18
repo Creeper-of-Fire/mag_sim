@@ -11,7 +11,8 @@ from matplotlib.transforms import Bbox
 
 from .styles import get_style
 from ..core.simulation import SimulationRun
-from ..core.utils import save_figure, plot_parameter_table, plot_comparison_parameter_table
+from ..core.utils import save_figure
+from ..core.param_table import plot_parameter_table, plot_comparison_parameter_table
 
 
 def _get_table_actual_height_inch(

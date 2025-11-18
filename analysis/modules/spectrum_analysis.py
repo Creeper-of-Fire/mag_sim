@@ -10,7 +10,8 @@ from scipy.special import kn as bessel_k  # 第二类修正贝塞尔函数 K_n
 
 from .base_module import BaseAnalysisModule
 from ..core.simulation import SimulationRun
-from ..core.utils import console, plot_parameter_table, save_figure
+from ..core.utils import console, save_figure
+from ..core.param_table import plot_parameter_table
 from ..plotting.layout import create_analysis_figure
 from ..plotting.spectrum_plotter import SpectrumPlotter
 

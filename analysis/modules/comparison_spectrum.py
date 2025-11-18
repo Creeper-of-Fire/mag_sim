@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 from .base_module import BaseComparisonModule
 from ..core.simulation import SimulationRun
-from ..core.utils import console, save_figure, plot_comparison_parameter_table
+from ..core.utils import console, save_figure
+from ..core.param_table import plot_comparison_parameter_table
 from ..plotting.layout import create_analysis_figure
 from ..plotting.spectrum_plotter import SpectrumComparisonPlotter
 

@@ -4,6 +4,8 @@ import random
 import shutil
 import typing
 from pathlib import Path
+import sympy
+from sympy.parsing.sympy_parser import parse_expr
 
 import dill
 import numpy as np
@@ -229,62 +231,156 @@ class PlasmaReconnection(object):
         return collision_objects
 
     def _setup_magnetic_field(self):
-        """根据配置生成初始磁场表达式"""
+        """
+        根据配置生成初始磁场表达式。
+        此方法现在会并行创建两个版本：
+        1. self.Bx, self.By, self.Bz: 给 WarpX 使用的、代入数值的字符串。
+        2. self.Bx_sym_srepr, ...: 用于分析和存档的、可重建的 sympy 对象字符串表示。
+        """
+        # 注意: sympy 的引入会增加模拟环境的依赖
         if comm.rank == 0:
-            print(f"\n--- 设置初始磁场: 类型 = {self.B_field_type} ---")
+            print(f"\n--- 设置初始磁场 (使用 sympy 构建): 类型 = {self.B_field_type} ---")
+
+        # 定义 sympy 符号
+        x, y, z = sympy.symbols('x y z')
 
         if self.B_field_type == 'uniform':
-            self.Bx = f"{self.B0}"
-            self.By = f"{self.B0}"
-            self.Bz = f"{self.B0}"
+            # 创建符号表达式 (尽管这里只是常数)
+            Bx_expr = sympy.sympify(self.B0)
+            By_expr = sympy.sympify(self.B0)
+            Bz_expr = sympy.sympify(self.B0)
+
             if comm.rank == 0:
                 print(f"  - 创建均匀磁场 B = ({self.B0}, {self.B0}, {self.B0}) T")
 
         elif self.B_field_type in ['single_gaussian', 'multi_gaussian']:
             num_gaussians = 1 if self.B_field_type == 'single_gaussian' else self.num_gaussians
 
-            bx_terms, by_terms, bz_terms = [], [], []
+            # 初始化空的符号表达式
+            Bx_expr, By_expr, Bz_expr = sympy.sympify(0), sympy.sympify(0), sympy.sympify(0)
+
+            # 在循环之前，创建空的 Python 列表
+            bx_terms_list = []
+            by_terms_list = []
+            bz_terms_list = []
 
             # 计算高斯宽度 (物理单位)
             wx = self.gaussian_width_L_ratio * self.Lx
             wy = self.gaussian_width_L_ratio * self.Ly
             wz = self.gaussian_width_L_ratio * self.Lz
 
-            for i in range(num_gaussians):
-                # 随机生成高斯中心位置 (在模拟域内)
-                x0 = random.uniform(-self.Lx / 2.0, self.Lx / 2.0)
-                y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
-                z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
+            # 在 rank 0 上生成所有随机参数，然后广播
+            # 这确保所有 MPI 进程拥有完全相同的磁场定义
+            if comm.rank == 0:
+                params_list = []
+                for _ in range(num_gaussians):
+                    x0 = random.uniform(-self.Lx / 2.0, self.Lx / 2.0)
+                    y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
+                    z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
+                    rand_vec = np.array([random.uniform(-1, 1) for _ in range(3)])
+                    norm_vec = rand_vec / np.linalg.norm(rand_vec)
+                    b_peak_x, b_peak_y, b_peak_z = self.B0 * norm_vec
+                    params_list.append((x0, y0, z0, b_peak_x, b_peak_y, b_peak_z))
+            else:
+                params_list = None
 
-                # 随机生成磁场方向矢量并归一化
-                rand_vec = np.array([random.uniform(-1, 1) for _ in range(3)])
-                norm_vec = rand_vec / np.linalg.norm(rand_vec)
+            # 广播参数列表
+            params_list = comm.bcast(params_list, root=0)
 
-                # B0 作为每个高斯包的峰值幅度
-                b_peak_x, b_peak_y, b_peak_z = self.B0 * norm_vec
+            for i, params in enumerate(params_list):
+                x0, y0, z0, b_peak_x, b_peak_y, b_peak_z = params
 
-                # 创建高斯函数字符串
-                gaussian_str = f"exp(-(((x-({x0}))/{wx})**2 + ((y-({y0}))/{wy})**2 + ((z-({z0}))/{wz})**2))"
+                # 使用 sympy 创建符号化的高斯函数
+                # 注意：参数 (x0, wx 等) 是 Python 的浮点数，但变量 (x,y,z) 是 sympy 符号
+                gaussian_expr = sympy.exp(
+                    -(((x - x0) / wx) ** 2 + ((y - y0) / wy) ** 2 + ((z - z0) / wz) ** 2)
+                )
 
-                bx_terms.append(f"({b_peak_x}) * {gaussian_str}")
-                by_terms.append(f"({b_peak_y}) * {gaussian_str}")
-                bz_terms.append(f"({b_peak_z}) * {gaussian_str}")
+                # 将这个小表达式添加到列表中，而不是直接加到总表达式上
+                bx_terms_list.append(b_peak_x * gaussian_expr)
+                by_terms_list.append(b_peak_y * gaussian_expr)
+                bz_terms_list.append(b_peak_z * gaussian_expr)
 
                 if comm.rank == 0:
                     print(f"  - 添加第 {i + 1}/{num_gaussians} 个高斯场:")
                     print(f"    - 中心: ({x0:.2e}, {y0:.2e}, {z0:.2e}) m")
                     print(f"    - 峰值 B 矢量: ({b_peak_x:.2e}, {b_peak_y:.2e}, {b_peak_z:.2e}) T")
 
-            # 将所有高斯项连接成一个总表达式
-            self.Bx = " + ".join(bx_terms)
-            self.By = " + ".join(by_terms)
-            self.Bz = " + ".join(bz_terms)
+            # 循环结束后，一次性构建总表达式
+            Bx_expr = sympy.Add(*bx_terms_list, evaluate=False)
+            By_expr = sympy.Add(*by_terms_list, evaluate=False)
+            Bz_expr = sympy.Add(*bz_terms_list, evaluate=False)
 
+            # `evaluate=False` 参数建议在项数非常多时使用，
+            # 它可以阻止 sympy 尝试进行一些可能很慢的自动简化，
+            # 在我们的场景下，这通常是安全的，而且能进一步提速。
         else:
             raise ValueError(f"未知的磁场类型: {self.B_field_type}")
 
+        # 1. 为 WarpX 生成数值字符串
+        # sympy.sstr() 默认使用科学计数法，非常适合 WarpX 的解析器
+        self.Bx = sympy.sstr(Bx_expr, full_prec=True)
+        self.By = sympy.sstr(By_expr, full_prec=True)
+        self.Bz = sympy.sstr(Bz_expr, full_prec=True)
+
+        # 2. 为分析存档生成 srepr 字符串
+        # srepr 是一个可以被 eval() 或 parse_expr() 重建为 sympy 对象的表示
+        self.Bx_sym_srepr = sympy.srepr(Bx_expr)
+        self.By_sym_srepr = sympy.srepr(By_expr)
+        self.Bz_sym_srepr = sympy.srepr(Bz_expr)
+
         if comm.rank == 0:
             print("--- 磁场设置完毕 ---\n")
+            # ==================== [调试输出开始] ====================
+            print("\n" + "=" * 25)
+            print("   DEBUG: 检查生成的表达式   ")
+            print("=" * 25)
+
+            # 设置一个阈值，只有当高斯项较少时才打印完整表达式
+            DEBUG_PRINT_THRESHOLD = 10
+
+            # 确定要检查的项数 (对于 uniform 场，项数为1)
+            num_terms = 0
+            if 'gaussian' in self.B_field_type:
+                num_terms = num_gaussians
+            elif self.B_field_type == 'uniform':
+                num_terms = 1
+
+            # 根据项数决定输出的详细程度
+            if num_terms <= DEBUG_PRINT_THRESHOLD:
+                print(f"\n[1] 表达式项数 ({num_terms}) 小于等于阈值 ({DEBUG_PRINT_THRESHOLD})，显示完整内容。")
+                print("\n提供给 WarpX 的数值字符串 (以 Bx 为例):")
+                print("    这种格式是纯数字和基本函数，WarpX可以直接解析。")
+                print(f"    self.Bx = \"{self.Bx}\"")
+
+                print("\n用于分析存档的 srepr 字符串 (以 Bx 为例):")
+                print("    这种格式包含类型信息(如Float, Symbol), 可以精确地重建Sympy对象。")
+                print(f"    self.Bx_sym_srepr = \"{self.Bx_sym_srepr}\"")
+            else:
+                print(f"\n[1] 表达式项数 ({num_terms}) 大于阈值 ({DEBUG_PRINT_THRESHOLD})，仅显示摘要。")
+                print(f"    - WarpX 字符串 (Bx) 长度: {len(self.Bx)} 字符")
+                print(f"    - srepr 字符串 (Bx) 长度: {len(self.Bx_sym_srepr)} 字符")
+                print(f"    - WarpX 字符串开头预览: \"{self.Bx[:200]}...\"")
+                print(f"    - srepr 字符串开头预览: \"{self.Bx_sym_srepr[:200]}...\"")
+
+            # 验证步骤应该始终运行，因为它对于确保逻辑正确性至关重要
+            print("\n[2] 验证 srepr 和 WarpX 字符串的一致性...")
+            try:
+                rebuilt_expr = sympy.parsing.sympy_parser.parse_expr(self.Bx_sym_srepr)
+                rebuilt_sstr = sympy.sstr(rebuilt_expr, full_prec=True)
+
+                if rebuilt_sstr == self.Bx:
+                    print("    [验证成功] srepr 重建后的数值字符串与 WarpX 字符串完全一致。")
+                else:
+                    print("    [验证警告] srepr 重建后的数值字符串与 WarpX 字符串不一致！这是一个潜在的bug。")
+
+            except Exception as e:
+                print(f"    [验证失败] 无法从 srepr 重建表达式。错误: {e}")
+
+            print("=" * 25)
+            print("       调试结束       ")
+            print("=" * 25 + "\n")
+            # ===================== [调试输出结束] =====================
 
     def setup_run(self):
         """Setup simulation components."""
