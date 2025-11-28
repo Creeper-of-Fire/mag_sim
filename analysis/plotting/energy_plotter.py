@@ -16,7 +16,7 @@ class EnergyDensityPlotter(BasePlotter):
         data = run.energy_data
         J_PER_EV = e
 
-        label_suffix = f" ({label})"
+        label_suffix = f" ({label})" if label else ""
 
         # 动能
         ax.plot(data.time, data.mean_kin_energy_density / J_PER_EV,
@@ -53,7 +53,7 @@ class TotalEnergyPlotter(BasePlotter):
         data = run.energy_data
         J_PER_EV = e
 
-        label_suffix = f" ({label})"
+        label_suffix = f" ({label})" if label else ""
 
         total_kin_ev = data.total_kinetic_energy / J_PER_EV
         total_mag_ev = data.total_magnetic_energy / J_PER_EV

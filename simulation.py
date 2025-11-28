@@ -35,6 +35,8 @@ class PlasmaReconnection(object):
         self.num_gaussians = self.p.num_gaussians
         self.gaussian_width_L_ratio = self.p.gaussian_width_L_ratio
 
+        self._setup_magnetic_field()
+
         comm.Barrier()
 
         if comm.rank == 0:
@@ -107,7 +109,8 @@ class PlasmaReconnection(object):
         self.dt = self.DT / self.w_pe  # dt based on w_pe
 
         self.total_steps = int(self.LT / self.DT)
-        self.diag_steps = self.total_steps // 200  # 每200步输出一次诊断
+        self.diag_steps = self.total_steps // 2000  # 每200步输出一次诊断
+        self.diag_steps = max(1, self.diag_steps)
 
         self.Bx = f"{self.B0}"
         self.By = f"{self.B0}"
@@ -483,8 +486,6 @@ class PlasmaReconnection(object):
             cfl=0.999
         )
         simulation.solver = self.solver
-
-        self._setup_magnetic_field()
 
         B_ext = picmi.AnalyticInitialField(
             Bx_expression=self.Bx, By_expression=self.By, Bz_expression=self.Bz

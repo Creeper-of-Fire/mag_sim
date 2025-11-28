@@ -17,7 +17,7 @@ class Config:
     属性:
         output_dir (str): 所有输出文件（图片、视频等）应保存到的目录路径。
     """
-    output_dir: str = "analysis_results"
+    output_dir: str = "analysis_results1"
 
     # 未来可以轻松扩展，并提供类型安全：
     # plot_dpi: int = 200

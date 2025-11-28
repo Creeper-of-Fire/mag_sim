@@ -132,30 +132,32 @@ def create_analysis_figure(
         # 如果用户未提供figsize，则直接使用样式定义的标准尺寸
         plot_figsize = (base_width, base_height)
     else:
-        # 如果用户提供了figsize，将其作为宽高比来调整
+        # --- 取最大缩放比例 (Cover) ---
 
-        # 避免除以零的错误
-        if figsize[0] <= 0 or figsize[1] <= 0:
-            raise ValueError("figsize 的宽高比必须为正数。")
+        req_w, req_h = figsize
 
-        requested_aspect = figsize[1] / figsize[0]
-        base_aspect = base_height / base_width
+        # 计算两个维度的缩放因子
+        # 例如：基准是 10x6
+        # 情况1：请求 12x15。
+        #       scale_w = 10/12 ≈ 0.83
+        #       scale_h = 6/15 = 0.4
+        #       我们应该选 0.83 (让宽度撑满10，高度随之变成 12.5)，而不是选 0.4 (让高度缩到6，宽度变成4.8)
 
-        if requested_aspect > base_aspect:
-            # 请求的形状比边界框更“高”，因此高度是限制因素
-            final_plot_height = base_height
-            final_plot_width = final_plot_height / requested_aspect
-        else:
-            # 请求的形状比边界框更“宽”或比例相同，因此宽度是限制因素
-            final_plot_width = base_width
-            final_plot_height = final_plot_width * requested_aspect
+        scale_w = base_width / req_w
+        scale_h = base_height / req_h
+
+        # 取 max，保证图像足够大，至少有一边能撑满基准尺寸
+        scale = max(scale_w, scale_h)
+
+        final_plot_width = req_w * scale
+        final_plot_height = req_h * scale
 
         plot_figsize = (final_plot_width, final_plot_height)
 
     # --- 1. 精确计算布局 ---
     plot_width, plot_height = plot_figsize
 
-    # a. 【核心】通过预渲染精确计算表格的实际高度
+    # a. 通过预渲染精确计算表格的实际高度
     actual_table_height = _get_table_actual_height_inch(run_or_runs, plot_width)
 
     # b. 计算带表格时的总画布高度

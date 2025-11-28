@@ -12,7 +12,7 @@ class FieldRmsPlotter(BasePlotter):
 
     def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.field_data
-        label_suffix = f" ({label})"
+        label_suffix = f" ({label})" if label else ""
 
         ax.plot(data.time, data.b_rms_x_normalized, '-', label='RMS(Bx)' + label_suffix, **kwargs)
         ax.plot(data.time, data.b_rms_y_normalized, '--', label='RMS(By)' + label_suffix, **kwargs)
@@ -22,7 +22,7 @@ class FieldRmsPlotter(BasePlotter):
         ax.set_title('磁场分量RMS值演化 (湍流各向异性分析)', fontsize=14)
         ax.set_ylabel('分量RMS值 / B_norm')
         ax.set_yscale('log')
-        ax.legend()
+        ax.legend(loc='best', fontsize='small')
         ax.grid(True, which="both", ls="--", alpha=0.5)
 
 
@@ -31,7 +31,7 @@ class FieldMeanPlotter(BasePlotter):
 
     def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.field_data
-        label_suffix = f" ({label})"
+        label_suffix = f" ({label})" if label else ""
 
         ax.plot(data.time, data.b_mean_x_normalized, '-', label='<Bx>' + label_suffix, **kwargs)
         ax.plot(data.time, data.b_mean_y_normalized, '--', label='<By>' + label_suffix, **kwargs)
@@ -41,7 +41,7 @@ class FieldMeanPlotter(BasePlotter):
     def setup_axes(self, ax: Axes):
         ax.set_title('磁场分量平均值 <B> 演化 (宏观各向异性分析)', fontsize=14)
         ax.set_ylabel('平均磁场分量 <B_i> / B_norm')
-        ax.legend()
+        ax.legend(loc='best', fontsize='small')
         ax.grid(True, which="both", ls="--", alpha=0.5)
 
 
@@ -50,7 +50,7 @@ class FieldMagnitudePlotter(BasePlotter):
 
     def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         data = run.field_data
-        label_suffix = f" ({label})"
+        label_suffix = f" ({label})" if label else ""
 
         ax.plot(data.time, data.b_mean_abs_normalized, '-', label='<|B|>' + label_suffix, **kwargs)
         ax.plot(data.time, data.b_max_normalized, '--', alpha=0.9, label='Max|B|' + label_suffix, **kwargs)
@@ -60,5 +60,5 @@ class FieldMagnitudePlotter(BasePlotter):
         ax.set_xlabel('时间 (s)', fontsize=12)
         ax.set_ylabel('磁场强度 |B| / B_norm')
         ax.set_yscale('log')
-        ax.legend()
+        ax.legend(loc='best', fontsize='small')
         ax.grid(True, which="both", ls="--", alpha=0.5)
