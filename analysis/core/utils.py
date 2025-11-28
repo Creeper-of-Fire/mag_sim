@@ -1,6 +1,6 @@
 # core/utils.py
 
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # --- 通用工具模块 ---
@@ -11,25 +11,25 @@ import os
 from typing import List, Optional
 
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.table import Table as mpl_Table
-
 # --- Rich 库用于漂亮的命令行交互 ---
 from rich.console import Console
-from rich.table import Table
 from rich.prompt import Prompt
+from rich.table import Table
 
 from .config import config
+
 # --- 导入核心数据结构 ---
 
 # --- 全局常量和控制台 ---
 console = Console()
 from scipy import constants
+
 C = constants.c
 M_E = constants.m_e
 E = constants.e
 J_PER_MEV = E * 1e6
+
 
 # =============================================================================
 # 1. Matplotlib & 字体
@@ -38,7 +38,7 @@ J_PER_MEV = E * 1e6
 def setup_chinese_font():
     """自动查找并设置支持中文的字体。"""
     from matplotlib import font_manager as fm
-    chinese_fonts_priority = ['WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'SimHei', 'Microsoft YaHei']
+    chinese_fonts_priority = ['WenQuanYi Micro Hei', 'Source Han Sans SC', 'Noto Sans CJK SC', 'SimHei', 'Microsoft YaHei']
     found_font = next((font for font in chinese_fonts_priority if fm.findfont(font, fontext='ttf')), None)
     if found_font:
         plt.rcParams['font.sans-serif'] = [found_font]
@@ -46,6 +46,7 @@ def setup_chinese_font():
     else:
         console.print("[yellow]⚠ 警告：未能找到支持中文的字体。图表中的中文可能无法正常显示。[/yellow]")
     plt.rcParams['axes.unicode_minus'] = False
+
 
 # =============================================================================
 # 2. 交互式目录选择
@@ -89,6 +90,7 @@ def select_directories() -> List[str]:
                 console.print("[yellow]警告: 输入的索引超出范围，请重试。[/yellow]")
         except ValueError:
             console.print("[red]错误: 无效输入，请输入数字索引。[/red]")
+
 
 # =============================================================================
 # 绘图辅助函数

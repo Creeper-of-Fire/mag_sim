@@ -17,14 +17,25 @@ def run_notification_script():
     """
     try:
         # 假设 notify_me.sh 和 main.py 在同一个目录下
-        script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+        script_dir = os.getcwd()
         notification_script_path = os.path.join(script_dir, 'notify_me.sh')
 
+        print(f"计算的通知脚本路径：{notification_script_path}")
         if os.path.exists(notification_script_path):
             print("\n--- 模拟结束，正在发送桌面通知和播放音乐... ---")
             # 使用 Popen 可以在后台“即发即忘”地运行脚本，
             # 不会阻塞 Python 主程序的退出过程。
-            subprocess.Popen([notification_script_path])
+            result = subprocess.run(
+                [notification_script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            # 打印脚本输出（方便调试）
+            if result.stdout:
+                print(f"通知脚本输出: {result.stdout}")
+            if result.stderr:
+                print(f"通知脚本错误: {result.stderr}")
         else:
             print(f"\n--- 警告：未找到通知脚本 {notification_script_path} ---")
     except Exception as e:
