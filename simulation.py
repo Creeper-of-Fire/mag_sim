@@ -109,7 +109,7 @@ class PlasmaReconnection(object):
         self.dt = self.DT / self.w_pe  # dt based on w_pe
 
         self.total_steps = int(self.LT / self.DT)
-        self.diag_steps = self.total_steps // 2000  # 每200步输出一次诊断
+        self.diag_steps = self.total_steps // 50  # 每200步输出一次诊断
         self.diag_steps = max(1, self.diag_steps)
 
         self.Bx = f"{self.B0}"
@@ -247,6 +247,14 @@ class PlasmaReconnection(object):
         # 定义 sympy 符号
         x, y, z = sympy.symbols('x y z')
 
+        # 初始化为零，后续分支会填充
+        Bx_expr = sympy.sympify(0)
+        By_expr = sympy.sympify(0)
+        Bz_expr = sympy.sympify(0)
+
+        # ---------------------------------------------------------------------
+        # Case 1: 均匀场
+        # ---------------------------------------------------------------------
         if self.B_field_type == 'uniform':
             # 创建符号表达式 (尽管这里只是常数)
             Bx_expr = sympy.sympify(self.B0)
@@ -256,6 +264,58 @@ class PlasmaReconnection(object):
             if comm.rank == 0:
                 print(f"  - 创建均匀磁场 B = ({self.B0}, {self.B0}, {self.B0}) T")
 
+        # ---------------------------------------------------------------------
+        # Case 2: ABC Flow (Arnold-Beltrami-Childress)
+        # 这是产生3D磁流体湍流的经典不稳定初始场，能产生复杂的电流片结构
+        # ---------------------------------------------------------------------
+        elif self.B_field_type == 'abc':
+            # 定义波数，确保在模拟盒子里是周期的
+            # k = 2 * pi / L
+            kx = 2 * sympy.pi / self.Lx
+            ky = 2 * sympy.pi / self.Ly
+            kz = 2 * sympy.pi / self.Lz
+
+            # ABC 场标准形式 (A=B=C=1)
+            # Bx = B0 * (sin(kz*z) + cos(ky*y))
+            # By = B0 * (sin(kx*x) + cos(kz*z))
+            # Bz = B0 * (sin(ky*y) + cos(kx*x))
+
+            # 使用 self.B0 作为振幅基准
+            A, B, C = self.B0, self.B0, self.B0
+
+            Bx_expr = A * sympy.sin(kz * z) + C * sympy.cos(ky * y)
+            By_expr = B * sympy.sin(kx * x) + A * sympy.cos(kz * z)
+            Bz_expr = C * sympy.sin(ky * y) + B * sympy.cos(kx * x)
+
+            if comm.rank == 0:
+                print(f"  - 创建 ABC 场 (3D湍流种子):")
+                print(f"    - kx={float(kx):.2e}, ky={float(ky):.2e}, kz={float(kz):.2e}")
+                print(f"    - B0={self.B0:.2e} T")
+
+        # ---------------------------------------------------------------------
+        # Case 3: Orszag-Tang Vortex (经典MHD湍流测试)
+        # 通常是2D的，但这里扩展到3D (在z方向均匀)
+        # ---------------------------------------------------------------------
+        elif self.B_field_type == 'orszag_tang':
+            kx = 2 * sympy.pi / self.Lx
+            ky = 2 * sympy.pi / self.Ly
+
+            # 标准形式:
+            # Bx = -B0 * sin(ky * y)
+            # By =  B0 * sin(2 * kx * x)
+            # Bz = 0 (或者可以加一点微扰或引导场)
+
+            Bx_expr = -self.B0 * sympy.sin(ky * y)
+            By_expr = self.B0 * sympy.sin(2 * kx * x)
+            Bz_expr = sympy.sympify(0.0)  # 纯2D涡旋，无Z分量
+
+            if comm.rank == 0:
+                print(f"  - 创建 Orszag-Tang 涡旋 (2D湍流种子):")
+                print(f"    - B0={self.B0:.2e} T")
+
+        # ---------------------------------------------------------------------
+        # Case 4: 高斯包叠加
+        # ---------------------------------------------------------------------
         elif self.B_field_type in ['single_gaussian', 'multi_gaussian']:
             num_gaussians = 1 if self.B_field_type == 'single_gaussian' else self.num_gaussians
 

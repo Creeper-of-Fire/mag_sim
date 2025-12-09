@@ -1,4 +1,4 @@
-# modules/field_slice_video.py
+# analysis/modules/field_slice_video.py
 import os
 import shutil
 from pathlib import Path
@@ -11,10 +11,10 @@ from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
 from .base_module import BaseVideoModule
-# 注意：这个模块需要data_loader里的函数，但为了解耦，我们把它复制过来
 from ..core.data_loader import _center_field_3d
 from ..core.simulation import SimulationRun
-from ..core.utils import console, save_figure
+from ..core.utils import console
+from ..core.config import config  # 需要导入配置以获取输出目录
 
 # --- 用户可配置参数 ---
 SLICE_AXIS = 'z'
@@ -34,7 +34,6 @@ class FieldSliceVideoModule(BaseVideoModule):
 
     @property
     def required_data(self) -> Set[str]:
-        # 这个模块比较特殊，它只需要参数和文件列表，自己处理I/O
         return {'field_files'}
 
     def run(self, loaded_runs: List[SimulationRun]):
@@ -60,16 +59,23 @@ class FieldSliceVideoModule(BaseVideoModule):
     def _find_global_b_max(self, field_files: List[str], target_shape: tuple) -> float:
         console.print("  [cyan]预扫描数据以确定颜色条范围...[/cyan]")
         global_max = 0.0
-        for fpath in tqdm(field_files, desc="  预扫描", unit="file", leave=False):
+        # 为了速度，可以只抽样扫描，比如每隔 5 帧扫一次
+        for fpath in tqdm(field_files[::5], desc="  预扫描", unit="file", leave=False):
             Bx, By, Bz = self._get_centered_b_field(fpath, target_shape)
             global_max = max(global_max, np.max(np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)))
         console.print(f"  [green]扫描完成。全局最大 |B| / B_norm = {global_max:.3e}[/green]")
         return global_max
 
     def _generate_video_for_run(self, run: SimulationRun, output_name: str):
-        temp_dir = Path("./temp_video_frames")
-        if temp_dir.exists(): shutil.rmtree(temp_dir)
-        temp_dir.mkdir()
+        # 1. 将临时文件夹建在 config.output_dir 内部
+        # 这样既整洁，又避免了路径混乱
+        base_output_dir = Path(config.output_dir)
+        temp_dir = base_output_dir / "temp_video_frames"
+
+        # 确保清理旧的临时文件
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         target_shape = (run.sim.NX, run.sim.NY, run.sim.NZ)
         global_b_max = self._find_global_b_max(run.field_files, target_shape)
@@ -83,14 +89,24 @@ class FieldSliceVideoModule(BaseVideoModule):
             b_mag = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
 
             if SLICE_AXIS == 'z':
-                slice_idx, data_slice = run.sim.NZ // 2, b_mag[:, :, run.sim.NZ // 2]
+                # 取 Z 轴中间切片
+                slice_idx = run.sim.NZ // 2
+                data_slice = b_mag[:, :, slice_idx]
+                # extent = [xmin, xmax, ymin, ymax]
                 extent = [-run.sim.Lx / 2, run.sim.Lx / 2, -run.sim.Ly / 2, run.sim.Ly / 2]
-                xlabel, ylabel, title = "x (m)", "y (m)", f"|B| @ z=0, t = {time:.2e} s"
-            # ... (此处可添加 'x', 'y' 轴的逻辑)
+                xlabel, ylabel = "x (m)", "y (m)"
+                title = f"|B| @ z=0, t = {time:.2e} s"
+
+            # ... (如果需要扩展 x, y 切片逻辑可在此处添加) ...
 
             fig, ax = plt.subplots(figsize=(8, 6.5))
+
+            # 这里的 vmin 防止 log(0)
             norm = LogNorm(vmin=max(1e-4 * global_b_max, 1e-9), vmax=global_b_max)
+
+            # 注意 transpose (.T) 以匹配 matplotlib 的 imshow (row, col) -> (y, x) 约定
             im = ax.imshow(data_slice.T, origin='lower', extent=extent, cmap=CMAP, norm=norm)
+
             cbar = fig.colorbar(im, ax=ax)
             cbar.set_label('|B| / B_norm')
             ax.set_xlabel(xlabel)
@@ -98,14 +114,29 @@ class FieldSliceVideoModule(BaseVideoModule):
             ax.set_title(title)
             ax.set_aspect('equal')
 
+            # 2. 使用绝对路径直接保存，跳过 save_figure 的自动路径拼接
             frame_filename = temp_dir / f"frame_{step:06d}.png"
-            save_figure(fig, str(frame_filename))
+            fig.savefig(frame_filename, dpi=100)
+
+            # 3. 显式关闭图形以释放内存
+            plt.close(fig)
+
             frame_paths.append(frame_filename)
 
         console.print(f"  [cyan]正在将 {len(frame_paths)} 帧合成为 '{output_name}'...[/cyan]")
-        with imageio.get_writer(output_name, mode='I', fps=FPS, codec='libx264', quality=QUALITY, pixelformat='yuv420p') as writer:
-            for filename in tqdm(frame_paths, desc="  视频合成", unit="frame", leave=False):
-                writer.append_data(imageio.imread(filename))
 
-        shutil.rmtree(temp_dir)
-        console.print(f"  [bold green]✔ 视频已成功保存: {output_name}[/bold green]")
+        # 最终视频也保存到 output_dir 中
+        final_video_path = base_output_dir / output_name
+
+        try:
+            with imageio.get_writer(final_video_path, mode='I', fps=FPS, codec='libx264', quality=QUALITY, pixelformat='yuv420p') as writer:
+                for filename in tqdm(frame_paths, desc="  视频合成", unit="frame", leave=False):
+                    writer.append_data(imageio.imread(filename))
+
+            console.print(f"  [bold green]✔ 视频已成功保存: {final_video_path}[/bold green]")
+        except Exception as e:
+            console.print(f"  [red]✗ 视频合成失败: {e}[/red]")
+        finally:
+            # 清理临时文件
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
