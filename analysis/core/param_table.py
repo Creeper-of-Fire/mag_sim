@@ -234,7 +234,7 @@ def plot_parameter_table(ax: Axes, run: SimulationRun) -> mpl_Table:
             "磁场分布公式: " + expr_str
         )
 
-        ax.text(0.0, -0.15,  # 放在表格下方 (y < 0)
+        ax.text(0.0, -0.50,  # 放在表格下方 (y < 0)
                 display_text,
                 transform=ax.transAxes,
                 fontsize=style.font_size_base + 2,  # 公式稍微大一点
