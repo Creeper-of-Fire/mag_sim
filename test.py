@@ -1,81 +1,56 @@
-import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import io
 
-# --- 设置 ---
-# 使用中文显示
-plt.rcParams['font.sans-serif'] = ['Source Han Sans SC']  # 'SimHei' 是黑体
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+# 原始数据
+data = """
+    Temp         time         rhog        rhoe       rhone        rhob       phie       rhotot       H         Ne            Ng       nLamdg       LamdD        c/H
+ 8.617E+00   1.082E-02   8.418E+08   1.474E+09   2.210E+09   5.669E+01   6.488E-10   4.525E+09   5.029E+01   9.593E+34   6.323E+34   1.568E-11   5.583E-07   5.962E+08
+ 4.040E+00   4.617E-02   4.065E+07   7.110E+07   1.066E+08   5.835E+00   7.010E-10   2.184E+08   1.105E+01   9.874E+33   6.514E+33   1.523E-10   3.713E-06   2.714E+09
+ 1.687E+00   2.615E-01   1.237E+06   2.150E+06   3.219E+06   4.227E-01   8.239E-10   6.606E+06   1.921E+00   7.150E+32   4.744E+32   2.103E-09   3.309E-05   1.560E+10
+ 7.344E-01   1.398E+00   4.441E+04   7.485E+04   1.116E+05   3.396E-02   9.903E-10   2.308E+05   3.591E-01   5.718E+31   3.914E+31   2.630E-08   2.706E-04   8.347E+10
+ 3.929E-01   5.107E+00   3.637E+03   5.542E+03   8.251E+03   4.815E-03   1.152E-09   1.743E+04   9.869E-02   7.913E+30   5.992E+30   1.900E-07   1.388E-03   3.038E+11
+ 2.314E-01   1.629E+01   4.377E+02   5.097E+02   7.911E+02   8.296E-04   1.488E-09   1.738E+03   3.117E-02   1.236E+30   1.224E+30   1.217E-06   6.249E-03   9.619E+11
+ 1.480E-01   4.657E+01   7.321E+01   4.911E+01   9.309E+01   1.667E-04   2.455E-09   2.154E+02   1.097E-02   1.862E+29   3.202E+29   8.078E-06   2.713E-02   2.733E+12
+ 1.049E-01   1.066E+02   1.848E+01   5.556E+00   1.711E+01   4.680E-05   5.396E-09   4.114E+01   4.795E-03   2.971E+28   1.140E+29   5.061E-05   1.027E-01   6.252E+12
+ 8.448E-02   1.759E+02   7.778E+00   1.096E+00   6.157E+00   2.174E-05   1.207E-08   1.503E+01   2.898E-03   7.279E+27   5.959E+28   2.066E-04   2.670E-01   1.034E+13
+ 7.292E-02   2.433E+02   4.316E+00   3.136E-01   3.180E+00   1.325E-05   2.504E-08   7.810E+00   2.089E-03   2.413E+27   3.831E+28   6.232E-04   5.462E-01   1.435E+13
+ 5.865E-02   3.842E+02   1.807E+00   3.762E-02   1.259E+00   6.610E-06   9.975E-08   3.103E+00   1.317E-03   3.598E+26   1.994E+28   4.179E-03   1.782E+00   2.277E+13
+ 2.841E-02   1.641E+03   9.951E-02   9.826E-07   6.778E-02   7.389E-07   3.455E-04   1.673E-01   3.058E-04   1.940E+22   2.267E+27   7.752E+01   5.035E+02   9.805E+13
+ 1.223E-02   8.839E+03   3.415E-03   1.838E-11   2.326E-03   5.892E-08   1.498E+01   5.742E-03   5.664E-05   8.432E+17   1.808E+26   1.783E+06   1.774E+05   5.293E+14
+ 6.977E-03   2.714E+04   3.619E-04   0.000E+00   2.465E-04   1.094E-08   1.710E+01   6.084E-04   1.844E-05   0.000E+00   3.357E+25         INF         INF   1.626E+15
+ 3.818E-03   9.064E+04   3.244E-05   0.000E+00   2.209E-05   1.792E-09   1.710E+01   5.453E-05   5.520E-06   0.000E+00   5.499E+24         INF         INF   5.431E+15
+ 1.594E-03   5.199E+05   9.863E-07   0.000E+00   6.718E-07   1.305E-10   1.710E+01   1.658E-06   9.626E-07   0.000E+00   4.004E+23         INF         INF   3.114E+16
+ 8.403E-04   1.871E+06   7.612E-08   0.000E+00   5.185E-08   1.911E-11   1.710E+01   1.280E-07   2.674E-07   0.000E+00   5.863E+22         INF         INF   1.121E+17
+"""
 
-# 1. 定义数据范围 (对数空间)
-# 能量范围：0.01 到 100 (任意单位)
-E = np.logspace(-2, 2.2, 1000)
+# 读取数据，处理第一行作为表头，并处理分隔符
+# skiprows=1 因为数据第一行上面有个横线
+df = pd.read_csv(io.StringIO(data), sep='\s+', skiprows=1)
 
-# 2. 定义函数
-# T = 1 (特征温度)
-T = 1.0
+# 常数定义
+# 质子质量 (g)
+m_p = 1.6726219e-24
 
-# (A) 纯热平衡谱 (Maxwell-Boltzmann 核心形态: E^0.5 * e^(-E/T))
-# 为了画图好看，做了归一化处理
-f_thermal = E**0.5 * np.exp(-E/T)
-norm = np.max(f_thermal)
-f_thermal = f_thermal / norm
+# 计算重子数密度 Nb (cm^-3)
+# Nb = rhob (g/cm^3) / m_p (g)
+df['Nb'] = df['rhob'] / m_p
 
-# (B) 幂律尾巴 (Power Law: E^-alpha)
-# 我们需要它在某个能量点 (E_cross) 与热谱平滑/相交
-alpha = 2.5  # 幂律指数 (越小尾巴越平，越大尾巴越陡)
-E_cross = 8.0 # 衔接点 (你可以改这个数来决定尾巴从哪里开始翘起来)
+# 计算验证参数：重子光子比 (eta = Nb / Ng)
+# Ng 在数据中已经给出
+df['eta_check'] = df['Nb'] / df['Ng']
 
-# 计算系数 A，使得在该点 f_thermal(E_cross) == A * E_cross^-alpha
-A_factor = (E_cross**0.5 * np.exp(-E_cross/T) / norm) / (E_cross**(-alpha))
-f_powerlaw = A_factor * E**(-alpha)
+# 整理你需要的列
+output_df = df[['Temp', 'time', 'Ne', 'Nb', 'eta_check']]
 
-# (C) 组合谱 (取两者中的最大值，或者简单的平滑过渡)
-# 这里用 max 模拟 "非热部分盖过了热部分的指数衰减"
-f_combined = np.maximum(f_thermal, f_powerlaw)
+# 格式化输出函数
+pd.set_option('display.max_rows', None)
+pd.set_option('display.float_format', '{:.4E}'.format)
 
-# 3. 绘图
-plt.figure(figsize=(8, 6), dpi=150) # 高清图
+print("整理后的数据 (包含计算出的 Nb):")
+print(output_df)
 
-# 设置Log-Log坐标
-plt.xscale('log')
-plt.yscale('log')
-
-# -- 画原本的热谱向下延伸 (蓝色虚线) --
-# 只画 E_cross 之后的部分，或者画全长表示参照
-plt.plot(E, f_thermal, linestyle='--', color='blue', linewidth=2, alpha=0.6, label='Maxwellian (Thermal)')
-
-# -- 画主体热谱 (蓝色实线) --
-# 我们只画 E < E_cross 的部分，表示这是主要分布
-mask_thermal = E <= E_cross
-plt.plot(E[mask_thermal], f_thermal[mask_thermal], color='blue', linewidth=3)
-
-# -- 画非热尾巴 (红色实线) --
-# 画 E > E_cross 的部分
-mask_tail = E >= E_cross
-plt.plot(E[mask_tail], f_powerlaw[mask_tail], color='red', linewidth=3, label='Non-thermal Tail')
-
-# 4. 调整样式 (去刻度，加标签)
-plt.xlabel(r"Particle Kinetic Energy $\rightarrow$", fontsize=14)
-plt.ylabel(r"Particle Number Density ($dN/dE$) $\rightarrow$", fontsize=14)
-
-# 去掉具体的刻度数字，变成纯示意图
-plt.xticks([])
-plt.yticks([])
-
-# 加上文字说明 (可选，不想用代码加也可以PPT里自己加文本框)
-plt.text(0.02, 0.2, "Thermal Core\n(Bulk Plasma)", color='blue', fontsize=12, fontweight='bold')
-plt.text(15, 0.005, "Non-thermal\nHigh-E Tail", color='red', fontsize=12, fontweight='bold')
-
-# 限制一下Y轴范围，避免显示极小值
-plt.ylim(1e-4, 1.5)
-plt.xlim(1e-2, 150)
-
-# 加个边框
-plt.gca().spines['top'].set_visible(True)
-plt.gca().spines['right'].set_visible(True)
-
-plt.tight_layout()
-plt.show()
-
-# 如果想保存
-# plt.savefig("spectrum_schematic.png", transparent=True)
+# 简单的验证输出
+print("\n--- 交叉验证 ---")
+mean_eta = df['eta_check'].mean()
+print(f"平均重子光子比 (eta): {mean_eta:.4E}")
+print("如果 eta 保持在 10^-10 量级且相对稳定，则说明 rhob 单位为 g/cm^3 的假设是正确的。")
