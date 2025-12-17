@@ -35,7 +35,7 @@ def _get_theoretical_formula(sim: Any) -> str:
     # 1. 均匀场
     if b_type == 'uniform':
         # 显示 B = (B0, B0, B0)
-        val = getattr(sim, 'B0', 0)
+        val = getattr(sim, 'B_target_rms', 0)
         return rf"$\mathbf{{B}} = ({val}, {val}, {val}) \, \mathrm{{T}}$"
 
     # 2. 单高斯场
@@ -133,7 +133,7 @@ def _get_param_map(run: SimulationRun) -> ParamMap:
         mapping["高斯包数量 $N$"] = (lambda x: f"${getattr(x, 'num_gaussians', 1)}$", lambda x: f"{getattr(x, 'num_gaussians', 1)}")
         mapping["相对宽度 $w/L$"] = (lambda x: f"{getattr(x, 'gaussian_width_L_ratio', 'N/A'):.2f}",
                                      lambda x: f"{getattr(x, 'gaussian_width_L_ratio', 'N/A'):.2f}")
-        mapping["峰值场强 $B_0$ (T)"] = (lambda x: f"{x.B0:.2f}", lambda x: f"{x.B0:.2f}")
+        mapping["峰值场强 $B_0$ (T)"] = (lambda x: f"{x.B_target_rms:.2f}", lambda x: f"{x.B_target_rms:.2f}")
 
     # 使用特殊键名 "EXPR_HIDDEN" 标记它，这样我们在生成主表格数据时可以识别并跳过它
     mapping["EXPR_HIDDEN"] = (_get_theoretical_formula, _get_theoretical_formula)
