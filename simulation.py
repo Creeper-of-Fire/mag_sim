@@ -4,11 +4,10 @@ import random
 import shutil
 import typing
 from pathlib import Path
-import sympy
-from sympy.parsing.sympy_parser import parse_expr
 
 import dill
 import numpy as np
+import sympy
 from mpi4py import MPI as mpi
 from pywarpx import callbacks, fields, libwarpx, picmi
 from scipy.constants import e, m_e, c
@@ -155,27 +154,52 @@ class PlasmaReconnection(object):
     def get_plasma_quantities(self):
         """
         为电子-正电子对等离子体计算派生参数。
+        并确定目标磁场强度。
         """
-        # Plasma frequency (rad/s) for electrons (positrons have the same)
+        # Plasma frequency (rad/s)
         self.w_pe = np.sqrt(self.n_plasma * constants.q_e ** 2 / (constants.m_e * constants.ep0))
-
-        # Electron skin depth (m) - the new natural length scale
         self.d_e = constants.c / self.w_pe
 
         # Plasma temperature in Joules
         self.T_plasma_J = self.T_plasma * constants.q_e
 
-        # Relativistic thermal parameter Theta = kT / (m_e * c^2)
+        # Relativistic thermal parameter Theta
         self.theta = self.T_plasma_J / (constants.m_e * constants.c ** 2)
 
-        # Magnetization parameter (sigma)
-        # Ratio of magnetic energy density to total plasma enthalpy density
-        # For a pair plasma, enthalpy density is 2 * n * (kT + m_e*c^2)
-        # Assuming gamma=4/3 for a relativistic gas, enthalpy is ~ 2 * n * 4kT
-        # Here we use a more general form with rest mass energy.
-        total_energy_density = 2 * self.n_plasma * (self.T_plasma_J + constants.m_e * constants.c ** 2)
-        magnetic_energy_density = self.B0 ** 2 / (2.0 * constants.mu0)
-        self.sigma = magnetic_energy_density / total_energy_density
+        # --- 能量密度计算 (Energy Density Design) ---
+
+        # 1. 粒子热焓密度 (Particle Enthalpy Density)
+        # 对于相对论对等离子体，能量密度 U ~ 2 * n * (m_e*c^2 + \hat{\gamma} * T / (gamma - 1))
+        # 这里做一个简化估算：包含静止质量能和热能
+        # Enthalpy Density w = U + P. 在 sigma 定义中通常使用 w.
+        # 对于相对论气体 (gamma=4/3), w = 4 * P = 4 * n * kT.
+        # 对于非相对论 (gamma=5/3), w = n * m * c^2 + 5/2 n * kT.
+        # 我们这里采用包含静止质量的通用形式:
+        self.particle_energy_density = 2 * self.n_plasma * (constants.m_e * constants.c ** 2 + 3.0 * self.T_plasma_J)
+
+        # 2. 确定目标磁化率 (Target Sigma)
+        # 如果 config 中定义了 target_sigma，则优先使用；否则根据 B0 计算当前的 sigma
+        # 假设我们在 SimulationParameters (self.p) 中添加了 target_sigma
+        # 如果没有，我们默认使用 B0 对应的 sigma 作为目标
+        if hasattr(self.p, 'target_sigma') and self.p.target_sigma > 0:
+            self.target_sigma = self.p.target_sigma
+            # 倒推需要的 B_rms
+            target_magnetic_energy = self.target_sigma * self.particle_energy_density
+            self.B_target_rms = np.sqrt(2 * constants.mu0 * target_magnetic_energy)
+            if comm.rank == 0:
+                print(f"--- Energy Design: Target Sigma = {self.target_sigma} ---")
+                print(f"    -> Required B_rms = {self.B_target_rms:.4f} T")
+        else:
+            # Fallback: 用户指定了 B0，我们将其视为目标 B_rms
+            self.B_target_rms = self.B0
+            target_magnetic_energy = self.B_target_rms ** 2 / (2 * constants.mu0)
+            self.target_sigma = target_magnetic_energy / self.particle_energy_density
+            if comm.rank == 0:
+                print(f"--- Energy Design: Fixed B0 input ---")
+                print(f"    -> Target B_rms = {self.B_target_rms:.4f} T")
+                print(f"    -> Resulting Sigma = {self.target_sigma:.4f}")
+
+        self.sigma = self.target_sigma
 
     def check_fields(self):
         """回调函数，用于在每个诊断步保存场数据。"""
@@ -233,6 +257,100 @@ class PlasmaReconnection(object):
 
         return collision_objects
 
+    def _calculate_normalization_factor_monte_carlo(self, params_list, num_samples=50000):
+        """
+        使用蒙特卡洛积分计算叠加场的均方根 (RMS) 值。
+        用于将随机场的能量归一化到全局设定值。
+
+        Args:
+            params_list: List of (x0, y0, z0, bx, by, bz)
+            num_samples: 采样点数量，越多越准，50000对于1000个高斯包通常足够且秒级完成。
+
+        Returns:
+            scaling_factor: 用于乘以峰值磁场的系数
+        """
+        import time
+        t0 = time.time()
+
+        # 1. 在模拟域内随机采样点
+        # shape: (num_samples, 3)
+        pts = np.random.rand(num_samples, 3)
+        pts[:, 0] = pts[:, 0] * self.Lx - self.Lx / 2.0
+        pts[:, 1] = pts[:, 1] * self.Ly - self.Ly / 2.0
+        pts[:, 2] = pts[:, 2] * self.Lz - self.Lz / 2.0
+
+        # 高斯宽度
+        wx = self.gaussian_width_L_ratio * self.Lx
+        wy = self.gaussian_width_L_ratio * self.Ly
+        wz = self.gaussian_width_L_ratio * self.Lz
+
+        # 初始化累计磁场
+        Bx_tot = np.zeros(num_samples)
+        By_tot = np.zeros(num_samples)
+        Bz_tot = np.zeros(num_samples)
+
+        # 2. 向量化计算所有高斯包的贡献
+        # 为了避免内存溢出 (如果 params_list 很大)，可以分批处理
+        # 将 params 转换为 numpy 数组以便广播
+        # params_arr shape: (N_gaussians, 6) -> x0, y0, z0, bx, by, bz
+        params_arr = np.array(params_list)
+
+        centers = params_arr[:, 0:3]  # (N_g, 3)
+        b_vecs = params_arr[:, 3:6]  # (N_g, 3)
+
+        # 分块处理高斯包，防止构建 (50000, 1000, 3) 的大矩阵撑爆内存
+        chunk_size = 100  # 每次处理100个高斯包
+        num_gaussians = len(params_list)
+
+        for i in range(0, num_gaussians, chunk_size):
+            end = min(i + chunk_size, num_gaussians)
+
+            # 当前批次的中心和向量
+            # shape: (batch_size, 3)
+            c_batch = centers[i:end]
+            b_batch = b_vecs[i:end]
+
+            # 利用广播计算距离: (num_samples, 1, 3) - (1, batch_size, 3)
+            # diff shape: (num_samples, batch_size, 3)
+            diff = pts[:, np.newaxis, :] - c_batch[np.newaxis, :, :]
+
+            # 处理周期性边界条件 (Periodic BCs)
+            # 如果点和中心跨越了边界，距离应该取最短路径
+            # dx = dx - L * round(dx/L)
+            diff[:, :, 0] -= self.Lx * np.round(diff[:, :, 0] / self.Lx)
+            diff[:, :, 1] -= self.Ly * np.round(diff[:, :, 1] / self.Ly)
+            diff[:, :, 2] -= self.Lz * np.round(diff[:, :, 2] / self.Lz)
+
+            # 计算高斯包络
+            # arg shape: (num_samples, batch_size)
+            arg = (diff[:, :, 0] / wx) ** 2 + (diff[:, :, 1] / wy) ** 2 + (diff[:, :, 2] / wz) ** 2
+            envelope = np.exp(-arg)
+
+            # 累加磁场
+            # b_batch shape (batch_size, 3)
+            # envelope shape (num_samples, batch_size)
+            # result increments shape (num_samples)
+            Bx_tot += np.dot(envelope, b_batch[:, 0])
+            By_tot += np.dot(envelope, b_batch[:, 1])
+            Bz_tot += np.dot(envelope, b_batch[:, 2])
+
+        # 3. 计算均方值 B^2_avg
+        B2_samples = Bx_tot ** 2 + By_tot ** 2 + Bz_tot ** 2
+        B2_avg = np.mean(B2_samples)
+        B_rms_calculated = np.sqrt(B2_avg)
+
+        # 4. 计算缩放因子
+        # 我们希望 B_rms_calculated * scale = B_target_rms
+        scaling_factor = self.B_target_rms / (B_rms_calculated + 1e-30)
+
+        t1 = time.time()
+        print(f"  [蒙特卡洛] 为 {num_gaussians} 个高斯包采样了 {num_samples} 个点。")
+        print(f"  [蒙特卡洛] 原始均方根磁场 B = {B_rms_calculated:.4e} T。")
+        print(f"  [蒙特卡洛] 目标均方根磁场 B = {self.B_target_rms:.4e} T。")
+        print(f"  [蒙特卡洛] 计算得到的缩放因子 = {scaling_factor:.6f} (耗时: {t1 - t0:.3f}秒)")
+
+        return scaling_factor
+
     def _setup_magnetic_field(self):
         """
         根据配置生成初始磁场表达式。
@@ -248,21 +366,19 @@ class PlasmaReconnection(object):
         x, y, z = sympy.symbols('x y z')
 
         # 初始化为零，后续分支会填充
-        Bx_expr = sympy.sympify(0)
-        By_expr = sympy.sympify(0)
-        Bz_expr = sympy.sympify(0)
+        Bx_expr, By_expr, Bz_expr = sympy.sympify(0), sympy.sympify(0), sympy.sympify(0)
 
         # ---------------------------------------------------------------------
         # Case 1: 均匀场
         # ---------------------------------------------------------------------
         if self.B_field_type == 'uniform':
             # 创建符号表达式 (尽管这里只是常数)
-            Bx_expr = sympy.sympify(self.B0)
-            By_expr = sympy.sympify(self.B0)
-            Bz_expr = sympy.sympify(self.B0)
+            Bx_expr = sympy.sympify(self.B_target_rms)
+            By_expr = sympy.sympify(self.B_target_rms)
+            Bz_expr = sympy.sympify(self.B_target_rms)
 
             if comm.rank == 0:
-                print(f"  - 创建均匀磁场 B = ({self.B0}, {self.B0}, {self.B0}) T")
+                print(f"  - 创建均匀磁场 B = ({self.B_target_rms}, {self.B_target_rms}, {self.B_target_rms}) T")
 
         # ---------------------------------------------------------------------
         # Case 2: ABC Flow (Arnold-Beltrami-Childress)
@@ -280,8 +396,8 @@ class PlasmaReconnection(object):
             # By = B0 * (sin(kx*x) + cos(kz*z))
             # Bz = B0 * (sin(ky*y) + cos(kx*x))
 
-            # 使用 self.B0 作为振幅基准
-            A, B, C = self.B0, self.B0, self.B0
+            # 使用 self.B_target_rms 作为振幅基准
+            A, B, C = self.B_target_rms, self.B_target_rms, self.B_target_rms
 
             Bx_expr = A * sympy.sin(kz * z) + C * sympy.cos(ky * y)
             By_expr = B * sympy.sin(kx * x) + A * sympy.cos(kz * z)
@@ -290,7 +406,7 @@ class PlasmaReconnection(object):
             if comm.rank == 0:
                 print(f"  - 创建 ABC 场 (3D湍流种子):")
                 print(f"    - kx={float(kx):.2e}, ky={float(ky):.2e}, kz={float(kz):.2e}")
-                print(f"    - B0={self.B0:.2e} T")
+                print(f"    - B0={self.B_target_rms:.2e} T")
 
         # ---------------------------------------------------------------------
         # Case 3: Orszag-Tang Vortex (经典MHD湍流测试)
@@ -305,13 +421,13 @@ class PlasmaReconnection(object):
             # By =  B0 * sin(2 * kx * x)
             # Bz = 0 (或者可以加一点微扰或引导场)
 
-            Bx_expr = -self.B0 * sympy.sin(ky * y)
-            By_expr = self.B0 * sympy.sin(2 * kx * x)
+            Bx_expr = -self.B_target_rms * sympy.sin(ky * y)
+            By_expr = self.B_target_rms * sympy.sin(2 * kx * x)
             Bz_expr = sympy.sympify(0.0)  # 纯2D涡旋，无Z分量
 
             if comm.rank == 0:
                 print(f"  - 创建 Orszag-Tang 涡旋 (2D湍流种子):")
-                print(f"    - B0={self.B0:.2e} T")
+                print(f"    - B0={self.B_target_rms:.2e} T")
 
         # ---------------------------------------------------------------------
         # Case 4: 高斯包叠加
@@ -319,8 +435,6 @@ class PlasmaReconnection(object):
         elif self.B_field_type in ['single_gaussian', 'multi_gaussian']:
             num_gaussians = 1 if self.B_field_type == 'single_gaussian' else self.num_gaussians
 
-            # 初始化空的符号表达式
-            Bx_expr, By_expr, Bz_expr = sympy.sympify(0), sympy.sympify(0), sympy.sympify(0)
 
             # 在循环之前，创建空的 Python 列表
             bx_terms_list = []
@@ -332,29 +446,48 @@ class PlasmaReconnection(object):
             wy = self.gaussian_width_L_ratio * self.Ly
             wz = self.gaussian_width_L_ratio * self.Lz
 
-            # 在 rank 0 上生成所有随机参数，然后广播
-            # 这确保所有 MPI 进程拥有完全相同的磁场定义
+            # 1. Rank 0 生成随机参数
             if comm.rank == 0:
-                params_list = []
+                raw_params_list = []
                 for _ in range(num_gaussians):
                     x0 = random.uniform(-self.Lx / 2.0, self.Lx / 2.0)
                     y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
                     z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
+                    # 初始生成时，峰值设为 1.0 (方向随机)
                     rand_vec = np.array([random.uniform(-1, 1) for _ in range(3)])
-                    norm_vec = rand_vec / np.linalg.norm(rand_vec)
-                    b_peak_x, b_peak_y, b_peak_z = self.B0 * norm_vec
-                    params_list.append((x0, y0, z0, b_peak_x, b_peak_y, b_peak_z))
+                    norm_vec = rand_vec / (np.linalg.norm(rand_vec) + 1e-30)
+                    # 先暂时用 1.0 作为幅度，后面统一缩放
+                    b_peak_x, b_peak_y, b_peak_z = norm_vec
+                    raw_params_list.append((x0, y0, z0, b_peak_x, b_peak_y, b_peak_z))
+
+                # 2. Rank 0 进行蒙特卡洛积分计算归一化系数
+                print(f"  - 正在计算 {num_gaussians} 个叠加高斯包的全局能量归一化系数...")
+                scaling_factor = self._calculate_normalization_factor_monte_carlo(raw_params_list)
+
+                # 3. 应用缩放因子
+                final_params_list = []
+                for p in raw_params_list:
+                    final_params_list.append((
+                        p[0], p[1], p[2],
+                        p[3] * scaling_factor,
+                        p[4] * scaling_factor,
+                        p[5] * scaling_factor
+                    ))
             else:
-                params_list = None
+                final_params_list = None
 
-            # 广播参数列表
-            params_list = comm.bcast(params_list, root=0)
+            # 4. 广播最终确定的参数
+            final_params_list = comm.bcast(final_params_list, root=0)
 
-            for i, params in enumerate(params_list):
+            # 5. 构建 SymPy 表达式
+            for i, params in enumerate(final_params_list):
                 x0, y0, z0, b_peak_x, b_peak_y, b_peak_z = params
 
-                # 使用 sympy 创建符号化的高斯函数
-                # 注意：参数 (x0, wx 等) 是 Python 的浮点数，但变量 (x,y,z) 是 sympy 符号
+                # 构建高斯函数字符串，注意处理周期性边界的数学表达比较复杂
+                # 这里为了简化，假设高斯包远小于盒子，或者只构建非周期形式
+                # 如果必须严格周期，sympy 表达式会变得非常长 (sum over neighbor cells)
+                # WarpX 解析器处理 exp 很快
+
                 gaussian_expr = sympy.exp(
                     -(((x - x0) / wx) ** 2 + ((y - y0) / wy) ** 2 + ((z - z0) / wz) ** 2)
                 )
@@ -601,7 +734,7 @@ class PlasmaReconnection(object):
             diag_type="FieldProbe",
             name="plane",
             period=self.diag_steps,
-            path=str(self.diags_output_dir)+"/",
+            path=str(self.diags_output_dir) + "/",
             extension="dat",
             probe_geometry="Plane",
             resolution=60,
