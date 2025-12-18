@@ -6,8 +6,8 @@ import os
 import subprocess
 import sys
 
-from config import SimulationParameters
-from simulation import PlasmaReconnection
+from simulation.config import SimulationParameters
+from simulation.simulation import PlasmaReconnection
 
 
 def run_notification_script():
@@ -51,7 +51,7 @@ def main():
     # 无论程序是正常结束还是中途崩溃，这个函数都会被调用
     atexit.register(run_notification_script)
     # -------------------------------------------
-    exec ("from config import SimulationParameters")
+    exec ("from simulation.config import SimulationParameters")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",
