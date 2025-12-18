@@ -3,12 +3,11 @@
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import sys
 import os
 import json
 import threading
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QLineEdit, QLabel, QPushButton, QListWidget,
     QTextEdit, QSplitter, QGroupBox, QListWidgetItem, QMessageBox,
     QFileDialog
@@ -17,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 
 # 从项目根目录的 config.py 导入
-from config import SimulationParameters
+from simulation.config import SimulationParameters
 # 从同级目录的 simulation_runner.py 导入
 from .simulation_runner import SimulationRunner, STATUS_PENDING, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED
 
