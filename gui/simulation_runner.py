@@ -4,10 +4,10 @@ import subprocess
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import sys
-import os
 import json
 from PySide6.QtCore import QObject, Signal, QProcess
+
+from gui.utils.notifications import run_notification_script
 
 # --- 任务状态常量 ---
 STATUS_PENDING = "待运行"
@@ -154,6 +154,9 @@ class SimulationRunner(QObject):
                 self.signals.task_update.emit()
 
         self.signals.log_message.emit("\n\n****** 所有队列任务已执行完毕或被中止。 ******\n")
+        # 在所有任务结束后，执行通知脚本
+        notification_log = run_notification_script()
+        self.signals.log_message.emit(notification_log)
         # 发送队列完成信号
         self.signals.queue_finished.emit()
 

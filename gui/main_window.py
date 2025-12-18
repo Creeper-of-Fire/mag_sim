@@ -3,20 +3,22 @@
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
 import json
+import os
 import threading
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QLineEdit, QLabel, QPushButton, QListWidget,
     QTextEdit, QSplitter, QGroupBox, QListWidgetItem, QMessageBox,
     QFileDialog
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
 
 # 从项目根目录的 config.py 导入
 from simulation.config import SimulationParameters
+from .app_config import DATA_DIR
 # 从同级目录的 simulation_runner.py 导入
 from .simulation_runner import SimulationRunner, STATUS_PENDING, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED
 
@@ -31,7 +33,10 @@ class SimulationGUI(QMainWindow):
         self.param_entries = {}
         self.runner_thread = None
         self.runner = None
-        self.default_params_file = "default_params.json"
+
+        # 确保数据目录存在
+        os.makedirs(DATA_DIR, exist_ok=True)
+        self.default_params_file = os.path.join(DATA_DIR, "default_params.json")
 
         self.setup_ui()
         self.load_default_parameters()  # 启动时加载默认参数
@@ -252,14 +257,14 @@ class SimulationGUI(QMainWindow):
             self.update_queue_listbox()
             self.log("日志: 任务队列已清空。\n")
 
-    # --- 新增文件操作 ---
+    # --- 文件操作 ---
     def save_queue(self):
         """保存当前队列到 JSON 文件。"""
         if not self.simulation_queue:
             QMessageBox.information(self, "提示", "队列为空，无需保存。")
             return
 
-        filePath, _ = QFileDialog.getSaveFileName(self, "保存队列", "", "JSON Files (*.json);;All Files (*)")
+        filePath, _ = QFileDialog.getSaveFileName(self, "保存队列", DATA_DIR, "JSON Files (*.json);;All Files (*)")
         if filePath:
             try:
                 with open(filePath, 'w', encoding='utf-8') as f:
@@ -271,7 +276,7 @@ class SimulationGUI(QMainWindow):
 
     def load_queue(self):
         """从 JSON 文件加载队列。"""
-        filePath, _ = QFileDialog.getOpenFileName(self, "加载队列", "", "JSON Files (*.json);;All Files (*)")
+        filePath, _ = QFileDialog.getOpenFileName(self, "加载队列", DATA_DIR, "JSON Files (*.json);;All Files (*)")
         if filePath:
             try:
                 with open(filePath, 'r', encoding='utf-8') as f:
@@ -323,7 +328,7 @@ class SimulationGUI(QMainWindow):
         # 解除旧的连接（如果有），重新连接到 start 函数
         try:
             self.start_stop_button.clicked.disconnect(self.stop_simulation_queue)
-        except RuntimeError: # 如果连接不存在会抛出异常
+        except RuntimeError:  # 如果连接不存在会抛出异常
             pass
         self.start_stop_button.clicked.connect(self.start_simulation_queue)
 
@@ -346,7 +351,6 @@ class SimulationGUI(QMainWindow):
         # 解除 start 连接，连接到 stop 函数
         self.start_stop_button.clicked.disconnect(self.start_simulation_queue)
         self.start_stop_button.clicked.connect(self.stop_simulation_queue)
-
 
         # 创建并启动后台任务线程
         self.runner = SimulationRunner(self.simulation_queue)
