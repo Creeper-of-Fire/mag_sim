@@ -12,7 +12,7 @@ import glob
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Set, Optional, Tuple, List, Callable, Any
+from typing import Set, Optional, List, Callable, Any
 
 import dill
 import h5py
@@ -22,7 +22,6 @@ from scipy.constants import c, m_e, mu_0, e, epsilon_0
 from .simulation import (SimulationRun, EnergyEvolutionData, FieldEvolutionData, SpectrumData)
 from .utils import console
 
-
 # =============================================================================
 # 0. 缓存处理模块
 # =============================================================================
@@ -31,7 +30,8 @@ from .utils import console
 # 当你修改了任何核心数据结构 (如 EnergyEvolutionData) 或加载逻辑时，
 # 请手动增加此版本号 (例如 "v1.0" -> "v1.1")。
 # 这将使所有旧版本的缓存失效，强制重新计算。
-CACHE_API_VERSION = "v1.0"
+CACHE_API_VERSION = "v1.1"
+
 
 def _is_cache_valid(cache_path: Path, source_files: List[str]) -> bool:
     """检查缓存文件是否有效 (存在且比所有源文件新)。"""
@@ -102,7 +102,7 @@ def _get_h5_dataset(h5_item: h5py.Group, component_path: str) -> np.ndarray:
         # 情况2：路径指向一个组 (需要进一步探查)
 
         # 如果组是空的，说明这个物种在该时刻没有粒子，返回空数组
-        if not item: # 在 h5py 中，空组的布尔值为 False
+        if not item:  # 在 h5py 中，空组的布尔值为 False
             return np.array([])
 
         if len(item) <= 0:
@@ -124,6 +124,7 @@ def _get_h5_dataset(h5_item: h5py.Group, component_path: str) -> np.ndarray:
         raise KeyError(f"在组 '{item.name}' 中无法找到预期的数据集。组内成员: {list(item.keys())}")
     else:
         raise TypeError(f"HDF5 对象 '{item.name}' 的类型无法识别。")
+
 
 def _get_step_from_filename(filename: str) -> Optional[int]:
     """从 WarpX 诊断文件名中稳健地提取步数。"""
@@ -191,10 +192,10 @@ def _load_spectrum_data(h5_filepath: str) -> Optional[SpectrumData]:
 
 
 def _load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldEvolutionData]:
-    """从 .npz 文件序列中加载磁场演化数据 (3D版本)。"""
-    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/fields", "fields_*.npz")))
+    """从 OpenPMD/HDF5 文件序列中加载磁场演化数据。"""
+    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/field_states", "*.h5")))
     if not field_files:
-        console.print(f"  [yellow]⚠ 在 'diags/fields/' 目录下找不到任何 .npz 文件。[/yellow]")
+        console.print(f"  [yellow]⚠ 在 'diags/field_states/' 目录下找不到任何 .h5 文件。[/yellow]")
         return None
 
     times, b_max_vals = [], []
@@ -208,12 +209,16 @@ def _load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[Field
             step = _get_step_from_filename(fpath)
             if step is None: continue
 
-            with np.load(fpath) as data:
-                Bx_s, By_s, Bz_s = data['Bx'], data['By'], data['Bz']
+            with h5py.File(fpath, 'r') as f:
+                # 读取SI单位的原始场数据
+                base_path = f"/data/{step}/fields/"
+                Bx_raw = f[base_path + 'B/x'][:]
+                By_raw = f[base_path + 'B/y'][:]
+                Bz_raw = f[base_path + 'B/z'][:]
 
-            Bx = _center_field_3d(Bx_s, target_shape)
-            By = _center_field_3d(By_s, target_shape)
-            Bz = _center_field_3d(Bz_s, target_shape)
+            Bx_norm, By_norm, Bz_norm = Bx_raw / sim_obj.B_norm, By_raw / sim_obj.B_norm, Bz_raw / sim_obj.B_norm
+
+            Bx, By, Bz = Bx_norm, By_norm, Bz_norm
 
             b_mean_x_vals.append(np.mean(Bx))
             b_mean_y_vals.append(np.mean(By))
@@ -240,10 +245,12 @@ def _load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[Field
 
 
 def _load_energy_evolution_data(dir_path: str, sim_obj: object) -> Optional[EnergyEvolutionData]:
-    """从 .npz 和 .h5 文件序列中加载磁能、电能和动能演化数据。"""
-    field_dir = os.path.join(dir_path, "diags/fields")
+    """从 OpenPMD/HDF5 文件序列中加载磁能、电能和动能演化数据。"""
+    # 路径改变：不再是 diags/fields，而是 diags/field_states
+    field_dir = os.path.join(dir_path, "diags/field_states")
     particle_dir = os.path.join(dir_path, "diags/particle_states")
-    field_files = {s: f for f in glob.glob(os.path.join(field_dir, "*.npz")) if (s := _get_step_from_filename(f)) is not None}
+    # 文件类型改变：不再是 .npz，而是 .h5
+    field_files = {s: f for f in glob.glob(os.path.join(field_dir, "*.h5")) if (s := _get_step_from_filename(f)) is not None}
     particle_files = {s: f for f in glob.glob(os.path.join(particle_dir, "*.h5")) if (s := _get_step_from_filename(f)) is not None}
 
     common_steps = sorted(list(set(field_files.keys()) & set(particle_files.keys())))
@@ -265,16 +272,18 @@ def _load_energy_evolution_data(dir_path: str, sim_obj: object) -> Optional[Ener
     for step in common_steps:
         times.append(step * sim_obj.dt)
 
-        # 场能
-        with np.load(field_files[step]) as data:
-            B_norm = data['B_norm']
-            Bx = _center_field_3d(data['Bx'] * B_norm, target_shape)
-            By = _center_field_3d(data['By'] * B_norm, target_shape)
-            Bz = _center_field_3d(data['Bz'] * B_norm, target_shape)
-            Ex = _center_field_3d(data['Ex'], target_shape)
-            Ey = _center_field_3d(data['Ey'], target_shape)
-            Ez = _center_field_3d(data['Ez'], target_shape)
+        # 场能 (从 HDF5 读取)
+        with h5py.File(field_files[step], 'r') as f:
+            # 直接读取SI单位的原始场数据
+            base_path = f"/data/{step}/fields/"
+            Bx = f[base_path + 'B/x'][:]
+            By = f[base_path + 'B/y'][:]
+            Bz = f[base_path + 'B/z'][:]
+            Ex = f[base_path + 'E/x'][:]
+            Ey = f[base_path + 'E/y'][:]
+            Ez = f[base_path + 'E/z'][:]
 
+        # 使用SI单位计算能量密度，无需任何归一化因子
         mag_ed_x, mag_ed_y, mag_ed_z = (Bx ** 2) / (2 * mu_0), (By ** 2) / (2 * mu_0), (Bz ** 2) / (2 * mu_0)
         elec_ed_x, elec_ed_y, elec_ed_z = (epsilon_0 * Ex ** 2) / 2, (epsilon_0 * Ey ** 2) / 2, (epsilon_0 * Ez ** 2) / 2
 
@@ -367,7 +376,7 @@ def load_run_data(dir_path: str, required_data: Set[str]) -> Optional[Simulation
     particle_files = sorted(glob.glob(os.path.join(dir_path, "diags/particle_states", "openpmd_*.h5")))
     run.particle_files = particle_files
 
-    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/fields", "fields_*.npz")))
+    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/field_states", "*.h5")))
     run.field_files = field_files
 
     # 基础依赖文件 (参数文件自身)

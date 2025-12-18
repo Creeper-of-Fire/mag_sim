@@ -122,33 +122,33 @@ class PlasmaReconnection(object):
     def _print_summary(self):
         # 打印更新后的等离子体参数
         if comm.rank == 0:
-            print("--- Normalization Scales ---")
-            print(f"\tB_norm (Equipartition Field) = {self.B_norm:.3e} T")
-            print(f"\tJ_norm (Thermal Current)   = {self.J_norm:.3e} A/m^2")
-            print("--- Independent Input Parameters ---")
+            print("--- 归一化尺度 ---")
+            print(f"\tB_norm (能量均分磁场) = {self.B_norm:.3e} T")
+            print(f"\tJ_norm (热电流)   = {self.J_norm:.3e} A/m^2")
+            print("--- 独立输入参数 ---")
             print(
                 f"\tB0 = {self.B0:.2f} T\n"
-                f"\tn0 = {self.n_plasma:.2e} m^-3 (per species)\n"
+                f"\tn0 = {self.n_plasma:.2e} m^-3 (每种粒子)\n"
                 f"\tT = {self.T_plasma * 1e-6:.2f} MeV\n"
-                f"\tBeam Fraction = {self.beam_fraction * 100:.1f}%\n"
-                f"\tBeam Kinetic Energy = {self.beam_energy_eV * 1e-6:.2f} MeV\n"
-                f"\tBeam u_drift = {self.beam_u_drift:.2f}\n"
+                f"\t电子束占比 = {self.beam_fraction * 100:.1f}%\n"
+                f"\t电子束动能 = {self.beam_energy_eV * 1e-6:.2f} MeV\n"
+                f"\t电子束漂移动量 = {self.beam_u_drift:.2f}\n"
             )
-            print("--- Derived Plasma Parameters ---")
+            print("--- 派生等离子体参数 ---")
             print(
-                f"\td_e = {self.d_e:.3e} m (Electron Skin Depth)\n"
-                f"\t1/w_pe = {1.0 / self.w_pe:.3e} s (Plasma Period)\n"
-                f"\tMagnetization sigma = {self.sigma:.3f}\n"
-                f"\tRelativistic Theta = {self.theta:.3f}\n"
+                f"\td_e = {self.d_e:.3e} m (电子趋肤深度)\n"
+                f"\t1/w_pe = {1.0 / self.w_pe:.3e} s (等离子体周期)\n"
+                f"\t磁化强度 sigma = {self.sigma:.3f}\n"
+                f"\t相对论Theta参数 = {self.theta:.3f}\n"
             )
-            print("--- Numerical Parameters ---")
+            print("--- 数值参数 ---")
             print(
-                f"\tDomain = {self.Lx:.3e}m x {self.Ly:.3e}m x {self.Lz:.3e}m "
+                f"\t计算域 = {self.Lx:.3e}m x {self.Ly:.3e}m x {self.Lz:.3e}m "
                 f"({self.LX:.0f} d_e x {self.LY:.0f} d_e x {self.LZ:.0f} d_e)\n"
-                f"\tGrid = {self.NX} x {self.NY} x {self.NZ}\n"
+                f"\t网格 = {self.NX} x {self.NY} x {self.NZ}\n"
                 f"\tdx = {self.Lx / self.NX:.3e} m, dy = {self.Ly / self.NY:.3e} m, dz = {self.Lz / self.NZ:.3e} m\n"
-                f"\tdt = {self.dt:.3e} s ({self.DT:.2e} / w_pe)\n"
-                f"\tTotal steps = {self.total_steps:d} (runtime = {self.total_steps * self.dt:.3e} s)\n"
+                f"\t时间步长 = {self.dt:.3e} s ({self.DT:.2e} / w_pe)\n"
+                f"\t总步数 = {self.total_steps:d} (运行时间 = {self.total_steps * self.dt:.3e} s)\n"
             )
 
     def get_plasma_quantities(self):
@@ -187,46 +187,19 @@ class PlasmaReconnection(object):
             target_magnetic_energy = self.target_sigma * self.particle_energy_density
             self.B_target_rms = np.sqrt(2 * constants.mu0 * target_magnetic_energy)
             if comm.rank == 0:
-                print(f"--- Energy Design: Target Sigma = {self.target_sigma} ---")
-                print(f"    -> Required B_rms = {self.B_target_rms:.4f} T")
+                print(f"--- 能量设计: 目标 Sigma = {self.target_sigma} ---")
+                print(f"    -> 所需 B_rms = {self.B_target_rms:.4f} T")
         else:
             # Fallback: 用户指定了 B0，我们将其视为目标 B_rms
             self.B_target_rms = self.B0
             target_magnetic_energy = self.B_target_rms ** 2 / (2 * constants.mu0)
             self.target_sigma = target_magnetic_energy / self.particle_energy_density
             if comm.rank == 0:
-                print(f"--- Energy Design: Fixed B0 input ---")
-                print(f"    -> Target B_rms = {self.B_target_rms:.4f} T")
-                print(f"    -> Resulting Sigma = {self.target_sigma:.4f}")
+                print(f"--- 能量设计: 固定 B0 输入 ---")
+                print(f"    -> 目标 B_rms = {self.B_target_rms:.4f} T")
+                print(f"    -> 结果 Sigma = {self.target_sigma:.4f}")
 
         self.sigma = self.target_sigma
-
-    def check_fields(self):
-        """回调函数，用于在每个诊断步保存场数据。"""
-        step = self.simulation.extension.warpx.getistep(lev=0) - 1
-
-        if not (step == 1 or step % self.diag_steps == 0):
-            return
-
-        # 获取场数据
-        Ex = fields.ExFPWrapper()[...]
-        Ey = fields.EyFPWrapper()[...]
-        Ez = fields.EzFPWrapper()[...]
-
-        # 使用归一化尺度
-        Jey = fields.JyFPWrapper()[...] / self.J_norm
-        Jy = fields.JyFPWrapper()[...] / self.J_norm
-        Bx = fields.BxFPWrapper()[...] / self.B_norm
-        By = fields.ByFPWrapper()[...] / self.B_norm
-        Bz = fields.BzFPWrapper()[...] / self.B_norm
-
-        if libwarpx.amr.ParallelDescriptor.MyProc() != 0:
-            return
-
-        # 将场数据保存到文件
-        with open(self.diags_output_dir / f"fields/fields_{step:06d}.npz", "wb") as f:
-            np.savez(f, Ex=Ex, Ey=Ey, Ez=Ez, Jey=Jey, Jy=Jy, Bx=Bx, By=By, Bz=Bz,
-                     J_norm=self.J_norm, B_norm=self.B_norm)
 
     def create_collision_pairs(self, species_list: list, ndt: int, coulomb_log: float = None) -> list:
         """
@@ -721,8 +694,6 @@ class PlasmaReconnection(object):
         #######################################################################
         # 添加诊断
         #######################################################################
-
-        callbacks.installafterEsolve(self.check_fields)
 
         # Update diagnostics to include all new species
         all_particle_species_for_diags = [
