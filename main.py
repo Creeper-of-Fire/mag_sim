@@ -1,17 +1,10 @@
 # main.py
 import argparse
-import atexit
 import json
-import os
-import subprocess
 import sys
 
 from simulation.config import SimulationParameters
 from simulation.simulation import PlasmaReconnection
-
-
-
-
 
 def main():
     """
