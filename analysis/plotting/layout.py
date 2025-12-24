@@ -117,10 +117,10 @@ def create_analysis_figure(
                 raise ValueError("对比分析至少需要一个 SimulationRun 实例。")
             run_names = tuple(sorted([r.name for r in run_or_runs]))
             short_hash = hex(abs(hash(run_names)))[2:8]
-            output_name = f"{base_filename}_{short_hash}.png"
+            output_name = f"{short_hash}_{base_filename}.png"
             title = f"对比分析: {base_filename.replace('_', ' ').title()}"
         else:
-            output_name = f"{base_filename}_{run_or_runs.name}.png"
+            output_name = f"{run_or_runs.name}_{base_filename}.png"
             title = f"分析: {base_filename.replace('_', ' ').title()} for: {run_or_runs.name}"
 
     # --- 根据样式和传入的比例计算最终尺寸 ---

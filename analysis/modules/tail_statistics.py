@@ -170,14 +170,14 @@ class TailStatisticsModule(BaseAnalysisModule):
 
         # --- 开始绘图 (3子图) ---
         # 覆盖文件名以避免哈希
-        filename_override = f"analysis_tail_stats_{run.name}"
+        filename_override = f"{run.name}_analysis_tail_stats"
 
         is_reliable = counts_raw >= STAT_THRESHOLD
         is_significant_deviation = (deviation > 3 * rel_err)
         significant_mask = is_reliable & is_significant_deviation
 
         # 我们需要自定义比例：主图大一点，下面两个小一点
-        with create_analysis_figure(run, "tail_stats", num_plots=3,
+        with create_analysis_figure(run, "analysis_tail_stats", num_plots=3,
                                     plot_ratios=[3, 1, 1], figsize=(10, 12),
                                     override_filename=filename_override) as (fig, axes):
             (ax_main, ax_count, ax_dev) = axes

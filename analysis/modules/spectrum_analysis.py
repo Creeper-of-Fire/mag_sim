@@ -134,7 +134,7 @@ class SpectrumAnalysisModule(BaseAnalysisModule):
 
         # --- 循环绘制每个模拟的结果 ---
         for i, run in enumerate(valid_runs):
-            output_name = f"analysis_spectrum_{run.name}.png"
+            output_name = f"{run.name}_analysis_spectrum.png"
             console.print(f"  ({i + 1}/{len(valid_runs)}) 正在绘制 [bold]{run.name}[/bold]...")
             self._generate_single_run_plot(run, output_name)
 

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
+import h5py
 
 from .base_module import BaseVideoModule
 from ..core.data_loader import _center_field_3d
@@ -46,24 +47,44 @@ class FieldSliceVideoModule(BaseVideoModule):
 
         for i, run in enumerate(valid_runs):
             console.print(f"\n--- ({i + 1}/{len(valid_runs)}) 正在处理视频 [bold]{run.name}[/bold] ---")
-            output_name = f"video_field_slice_{run.name}.mp4"
+            output_name = f"{run.name}_video_field_slice.mp4"
             self._generate_video_for_run(run, output_name)
 
-    def _get_centered_b_field(self, fpath: str, target_shape: tuple) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        with np.load(fpath) as data:
-            Bx = _center_field_3d(data.get('Bx', np.zeros(target_shape)), target_shape)
-            By = _center_field_3d(data.get('By', np.zeros(target_shape)), target_shape)
-            Bz = _center_field_3d(data.get('Bz', np.zeros(target_shape)), target_shape)
-            return Bx, By, Bz
+    def _get_centered_b_field(self, fpath: str, target_shape: tuple, B_norm: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """从 HDF5 文件中读取、归一化并居中场分量"""
+        step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
+        with h5py.File(fpath, 'r') as f:
+            base_path = f"/data/{step}/fields/"
+            Bx_raw = f[base_path + 'B/x'][:]
+            By_raw = f[base_path + 'B/y'][:]
+            Bz_raw = f[base_path + 'B/z'][:]
 
-    def _find_global_b_max(self, field_files: List[str], target_shape: tuple) -> float:
-        console.print("  [cyan]预扫描数据以确定颜色条范围...[/cyan]")
+        # 归一化
+        Bx = Bx_raw / B_norm
+        By = By_raw / B_norm
+        Bz = Bz_raw / B_norm
+
+        return Bx, By, Bz
+
+    def _find_global_b_max(self, run: SimulationRun, target_shape: tuple) -> float:
+        console.print("  [cyan]预扫描 HDF5 数据以确定颜色条范围...[/cyan]")
         global_max = 0.0
-        # 为了速度，可以只抽样扫描，比如每隔 5 帧扫一次
-        for fpath in tqdm(field_files[::5], desc="  预扫描", unit="file", leave=False):
-            Bx, By, Bz = self._get_centered_b_field(fpath, target_shape)
-            global_max = max(global_max, np.max(np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)))
-        console.print(f"  [green]扫描完成。全局最大 |B| / B_norm = {global_max:.3e}[/green]")
+        # 为了速度，可以只抽样扫描
+        sample_files = run.field_files[::5] if len(run.field_files) > 5 else run.field_files
+
+        for fpath in tqdm(sample_files, desc="  预扫描", unit="file", leave=False):
+            # 注意：现在需要传入 B_norm
+            Bx, By, Bz = self._get_centered_b_field(fpath, target_shape, run.sim.B_norm)
+            b_mag = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
+            if b_mag.size > 0:
+                global_max = max(global_max, np.max(b_mag))
+
+        # 如果扫描后最大值为0，给一个小的默认值防止 LogNorm 出错
+        if global_max == 0.0:
+            global_max = 1.0
+            console.print("  [yellow]警告: 全局最大场强为0，使用默认值 1.0[/yellow]")
+        else:
+            console.print(f"  [green]扫描完成。全局最大 |B| / B_norm = {global_max:.3e}[/green]")
         return global_max
 
     def _generate_video_for_run(self, run: SimulationRun, output_name: str):
@@ -78,14 +99,14 @@ class FieldSliceVideoModule(BaseVideoModule):
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         target_shape = (run.sim.NX, run.sim.NY, run.sim.NZ)
-        global_b_max = self._find_global_b_max(run.field_files, target_shape)
+        global_b_max = self._find_global_b_max(run, target_shape)
         frame_paths = []
 
         console.print("  [cyan]开始生成视频帧...[/cyan]")
         for fpath in tqdm(run.field_files, desc="  帧生成", unit="file", leave=False):
             step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
             time = step * run.sim.dt
-            Bx, By, Bz = self._get_centered_b_field(fpath, target_shape)
+            Bx, By, Bz = self._get_centered_b_field(fpath, target_shape, run.sim.B_norm)
             b_mag = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
 
             if SLICE_AXIS == 'z':
