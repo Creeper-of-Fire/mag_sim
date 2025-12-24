@@ -4,7 +4,7 @@ import typing
 
 import numpy as np
 from mpi4py import MPI as mpi
-from pywarpx import picmi
+from pywarpx import picmi, warpx
 from scipy.constants import e, m_e, c
 
 import itertools
@@ -100,6 +100,7 @@ class PlasmaReconnection(object):
     def __init__(self, params: 'SimulationParameters', verbose: bool):
         self.p = params
         self.verbose = verbose
+        self.enable_qed = self.p.enable_qed
         self.io = IOManager(self.p.output_dir)
 
         self._calculate_derived_parameters()
@@ -311,20 +312,81 @@ class PlasmaReconnection(object):
         theta_plasma = (self.T_plasma * e) / (m_e * c ** 2)
         u_drift = self.beam_u_drift
 
-        # 定义通用的热分布 Bucket 参数
+        # ======================================================================
+        # QED 参数
+        # ======================================================================
+        # 定义 QED 相关的 bucket 参数
+        # 我们将为所有电子/正电子物种启用 Quantum Synchrotron (QS)
+        # 它们都会产生光子，这些光子将被收集到名为 "photons" 的物种中
+
+        # QED 参数
+        qed_electron_params = Bunch()
+        qed_positron_params = Bunch()
+        qed_photon_params = Bunch()
+
+        if self.enable_qed:
+            qed_electron_params = Bunch(
+                do_qed_quantum_sync=1,
+                qed_quantum_sync_phot_product_species="photons"
+            )
+            qed_positron_params = Bunch(
+                do_qed_quantum_sync=1,
+                qed_quantum_sync_phot_product_species="photons"
+            )
+            # 为光子物种定义 Breit-Wheeler (BW) 参数
+            # 它们会产生电子-正电子对，但这里我们需要决定这些新产生的粒子去哪里。
+            # 一个常见的做法是，将它们添加到 "热" 的组分中。
+            qed_photon_params = Bunch(
+                do_qed_breit_wheeler=1,
+                qed_breit_wheeler_ele_product_species="electrons_thermal",
+                qed_breit_wheeler_pos_product_species="positrons_thermal"
+            )
+
+
+
+        # 定义通用的热分布 Bucket 参数, 并合并 QED 参数
         bucket_thermal = Bunch(
             momentum_distribution_type="maxwell_juttner",
-            theta=theta_plasma
+            theta=theta_plasma,
         )
 
-        # 定义 Beam 的 Bucket 参数
+        # 定义beam参数
         bucket_beam_e = Bunch(
             momentum_distribution_type="constant",
-            ux=0.0, uy=0.0, uz=u_drift
+            ux=0.0, uy=0.0, uz=u_drift,
         )
         bucket_beam_p = Bunch(
             momentum_distribution_type="constant",
-            ux=0.0, uy=0.0, uz=-u_drift
+            ux=0.0, uy=0.0, uz=u_drift,
+        )
+
+        # 合并，得到各个组分的参数
+        bucket_thermal_electron = Bunch(
+            species_type="electron",
+            **bucket_thermal,
+            **qed_electron_params,
+        )
+        bucket_thermal_positron = Bunch(
+            species_type="positron",
+            **bucket_thermal,
+            **qed_positron_params,
+        )
+
+        bucket_beam_electron = Bunch(
+            species_type="electron",
+            **bucket_beam_e,
+            **qed_electron_params,
+        )
+        bucket_beam_positron = Bunch(
+            species_type="positron",
+            **bucket_beam_p,
+            **qed_positron_params,
+        )
+
+        bucket_photon = Bunch(
+            species_type="photon",
+            injection_style="none",
+            # **qed_photon_params
         )
 
         # --- 使用 lambda 定义布局工厂 ---
@@ -341,53 +403,43 @@ class PlasmaReconnection(object):
         # --- 电子 (热) ---
         species_wrappers.append(SpeciesWrapper(
             name="electrons_thermal",
-            charge="-q_e", mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_thermal),
             method='LLRK4',
             layout_config=thermal_layout_factory,
-            bucket_params=bucket_thermal
-        ))
-
-        # --- 电子 (束流) ---
-        species_wrappers.append(SpeciesWrapper(
-            name="electrons_beam",
-            charge="-q_e", mass="m_e",
-            initial_distribution=picmi.UniformDistribution(density=n_beam),
-            method='LLRK4',
-            layout_config=thermal_layout_factory,
-            bucket_params=bucket_beam_e
+            bucket_params=bucket_thermal_electron
         ))
 
         # --- 正电子 (热) ---
         species_wrappers.append(SpeciesWrapper(
             name="positrons_thermal",
-            charge="q_e", mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_thermal),
             method='LLRK4',
+            layout_config=thermal_layout_factory,
+            bucket_params=bucket_thermal_positron
+        ))
+
+        # --- 电子 (束流) ---
+        species_wrappers.append(SpeciesWrapper(
+            name="electrons_beam",
+            initial_distribution=picmi.UniformDistribution(density=n_beam),
+            method='LLRK4',
             layout_config=beam_layout_factory,
-            bucket_params=bucket_thermal
+            bucket_params=bucket_beam_electron
         ))
 
         # --- 正电子 (束流) ---
         species_wrappers.append(SpeciesWrapper(
             name="positrons_beam",
-            charge="q_e", mass="m_e",
             initial_distribution=picmi.UniformDistribution(density=n_beam),
             method='LLRK4',
             layout_config=beam_layout_factory,
-            bucket_params=bucket_beam_p
+            bucket_params=bucket_beam_positron
         ))
 
-        # --- 光子 (无 Bucket 参数) ---
-        # TODO 在这里，我们没有为光子创建它的初始能量，包括电子也只是设置了初始速度……因为picmi没有实现这个功能，我再查查看怎么做。
+        # --- 光子 ---
         species_wrappers.append(SpeciesWrapper(
             name="photons",
-            charge=0, mass=0,
-            # layout_config=lambda grid: picmi.PseudoRandomLayout(
-            #             grid=grid, n_macroparticles_per_cell=self.NPPC
-            #         ),
-            # TODO 目前，光子和其他粒子没有相互作用，如果有相互作用，它通常会通过电子对产生、康普顿散射之类的效应来提供“热化”或“阻力”，阻碍磁重联。同时，我们也并没有加入初始光子到模拟中。
-            # bucket_params 留空
+            bucket_params=bucket_photon
         ))
 
         return species_wrappers
@@ -453,6 +505,7 @@ class PlasmaReconnection(object):
             warpx_serialize_initial_conditions=True,
             verbose=0,
             warpx_collisions=all_collisions,  # 传递包含多个碰撞对象的列表
+            warpx_particle_pusher_algo="boris",
             warpx_reduced_diags_path=str(self.io.diags_dir),
             warpx_used_inputs_file=str(self.io.output_dir / "warpx_used_inputs")
         )
@@ -512,7 +565,9 @@ class PlasmaReconnection(object):
         #######################################################################
 
         # 添加所有粒子
-        all_particle_species_for_diags = all_charged_species
+        all_particle_species_for_diags = [
+            w.instance for w in species_wrappers
+        ]
 
         # 探测平面诊断
         plane = picmi.ReducedDiagnostic(
@@ -572,10 +627,38 @@ class PlasmaReconnection(object):
         在初始化模拟输入之后，初始化WarpX模拟之前，通过bucket操作准备移交给WarpX的数据。
         """
         print(f"\n--- 正在应用低层级 Bucket 属性 ---")
+
+        if self.enable_qed:
+            # ======================================================================
+            # QED 参数
+            # ======================================================================
+            print(f"  -> 正在配置全局 QED 模块...")
+
+            # 1. 配置 Quantum Synchrotron (QS) 模块
+            qed_qs_bucket = warpx.get_bucket("qed_qs")
+            qed_qs_bucket.add_new_attr("lookup_table_mode", "builtin")
+            # （可选）可以设置最小的 chi 参数，低于此值不进行量子计算
+            qed_qs_bucket.add_new_attr("chi_min", 1.e-3)  # 根据样例添加
+
+            # 2. 配置 Breit-Wheeler (BW) 模块
+            qed_bw_bucket = warpx.get_bucket("qed_bw")
+            qed_bw_bucket.add_new_attr("lookup_table_mode", "builtin")
+            # （可选）设置最小 chi
+            qed_bw_bucket.add_new_attr("chi_min", 1.e-2)  # 根据样例添加
+
+            print(f"     - qed_qs.lookup_table_mode = 'builtin'")
+            print(f"     - qed_bw.lookup_table_mode = 'builtin'")
+
+        # 全部粒子
         for wrapper in self.species_wrappers:
             # 只有定义了 bucket_params 的 wrapper 才会执行实际操作
             wrapper.apply_bucket_attributes()
         print(f"--------------------------------------------\n")
+
+        # 打印所有物种的 bucket 内容
+        for wrapper in self.species_wrappers:
+            if wrapper.instance and wrapper.instance.species:
+                print(f"{wrapper.name} bucket:", wrapper.instance.species.attrlist())
 
     def run_simulation(self):
         """执行模拟的时间步进循环。"""

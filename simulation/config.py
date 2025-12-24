@@ -6,6 +6,9 @@ class SimulationParameters:
 .
     通过修改这里的数值，您可以独立地控制模拟的各个方面。
     """
+
+    enable_qed = True
+
     # --- 1. 基础物理参数 (Independent Physical Parameters) ---
     # 这些参数现在描述一个相对论性的电子-正电子对等离子体
 
