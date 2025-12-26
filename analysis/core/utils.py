@@ -55,6 +55,7 @@ def setup_chinese_font():
 def select_directories() -> List[str]:
     """扫描并让用户选择要分析的目录。"""
     console.print("\n[bold]扫描当前目录下的有效模拟文件夹...[/bold]")
+    base_dir = './sim_result'
     # 获取所有条目对象
     # os.scandir 返回的是迭代器，顺序依赖于文件系统(Hash顺序)，因此是乱序的
     entries = [d for d in os.scandir(base_dir) if
