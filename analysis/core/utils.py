@@ -55,8 +55,17 @@ def setup_chinese_font():
 def select_directories() -> List[str]:
     """扫描并让用户选择要分析的目录。"""
     console.print("\n[bold]扫描当前目录下的有效模拟文件夹...[/bold]")
-    valid_dirs = [d.path for d in os.scandir('./sim_result') if
+    # 获取所有条目对象
+    # os.scandir 返回的是迭代器，顺序依赖于文件系统(Hash顺序)，因此是乱序的
+    entries = [d for d in os.scandir(base_dir) if
                   d.is_dir() and os.path.exists(os.path.join(d.path, 'sim_parameters.dpkl'))]
+
+    # 显式排序：按文件夹名称排序
+    # 这样可以保证每次运行顺序一致，且符合命名习惯（如 run_01, run_02 或 2025-01...）
+    entries.sort(key=lambda e: e.name)
+
+    # 提取完整路径
+    valid_dirs = [e.path for e in entries]
 
     if not valid_dirs:
         console.print("[red]错误: 未找到任何包含 'sim_parameters.dpkl' 的子目录。[/red]")
@@ -85,7 +94,10 @@ def select_directories() -> List[str]:
             choices = [int(i) for i in indices_str]
 
             if all(0 <= c < len(valid_dirs) for c in choices):
-                return [valid_dirs[c] for c in choices]
+                # 按照用户输入的顺序返回，还是按照原始顺序返回？
+                # 通常按照原始列表的排序返回更符合直觉（方便绘图时图例的顺序一致性）
+                selected = sorted(list(set(choices)))
+                return [valid_dirs[c] for c in selected]
             else:
                 console.print("[yellow]警告: 输入的索引超出范围，请重试。[/yellow]")
         except ValueError:
