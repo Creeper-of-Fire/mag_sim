@@ -11,12 +11,15 @@
 # 5. 依次执行所选的分析模块。
 #
 import argparse
+import glob
 import importlib
 import os
+import shutil
 from pathlib import Path
 from typing import List, Dict, Union
 
-from rich.prompt import Prompt
+from rich.prompt import Prompt, Confirm
+from tqdm import tqdm
 
 from analysis.core.config import config
 from analysis.core.data_loader import load_run_data
@@ -127,6 +130,25 @@ def _run_analysis_workflow(selected_modules: List[AnyModule], selected_dirs: Lis
             console.print(traceback.format_exc())
 
 
+def _run_tool_workflow(tool_name: str, selected_dirs: List[str]):
+    """执行预处理工具的工作流。"""
+    if not selected_dirs:
+        return
+
+    if tool_name == 'slimmer':
+        try:
+            # 动态导入，避免如果不使用工具时的额外开销
+            from analysis.tools import slimmer
+        except ImportError:
+            console.print("[red]错误: 无法导入 'slimmer' 工具。请确保 'analysis/tools/slimmer.py' 文件存在。[/red]")
+            return
+
+        # 所有的逻辑（UI、并行、确认、移动）都封装在这里面
+        slimmer.run_interactive_workflow(selected_dirs)
+
+    else:
+        console.print(f"[red]错误: 未知的工具名称 '{tool_name}'[/red]")
+
 def main():
     """主执行函数"""
     console.print("[bold inverse] WarpX 可扩展交互式分析框架 [/bold inverse]")
@@ -149,21 +171,31 @@ def main():
         help="选择绘图样式。"
     )
     parser.add_argument(
-        '-c', '--compare',
-        action='store_true',
-        help="进入对比分析模式。如果未指定，则默认为单个分析模式。"
-    )
-    parser.add_argument(
-        '-v', '--video',
-        action='store_true',
-        help="进入视频生成模式。"
-    )
-    parser.add_argument(
         '-o', '--output',
         type=str,
         default='analysis_results',
         help="指定保存分析结果（图片、视频等）的目录。"
     )
+
+    # --- 模式选择：使用互斥组确保一次只运行一种模式 ---
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        '-c', '--compare',
+        action='store_true',
+        help="进入对比分析模式。"
+    )
+    mode_group.add_argument(
+        '-v', '--video',
+        action='store_true',
+        help="进入视频生成模式。"
+    )
+    mode_group.add_argument(
+        '-t', '--tool',
+        type=str,
+        choices=['slimmer'],
+        help="进入工具模式。可用工具: 'slimmer' (粒子数据瘦身)。"
+    )
+
     args = parser.parse_args()
 
     # --- 应用选择的样式 ---
@@ -176,8 +208,15 @@ def main():
     console.print(f"[green]✔ 所有分析结果将保存到 '{args.output}/' 目录。[/green]")
 
     # 根据模式选择工作流
+    if args.tool:
+        console.print(f"\n[bold]--- 运行在 [magenta]工具[/magenta] 模式 ({args.tool}) ---[/bold]")
+        selected_dirs = select_directories()
+        _run_tool_workflow(args.tool, selected_dirs)
+        # 工具模式下，工作流已完成，直接退出
+        console.print("\n[bold]工具任务已完成。[/bold]")
+        return
 
-    if args.video:
+    elif args.video:
         console.print("\n[bold]--- 运行在 [magenta]视频生成[/magenta] 模式 ---[/bold]")
         if not video_modules:
             console.print("[red]错误: 没有可用的视频生成模块。[/red]")
