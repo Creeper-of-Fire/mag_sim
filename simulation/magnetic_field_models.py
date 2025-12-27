@@ -180,98 +180,44 @@ class GaussianField(InitialMagneticField):
         self.gaussian_width_L_ratio = gaussian_width_L_ratio
         super().__init__(Lx, Ly, Lz, B_target_rms)
 
-    def _monte_carlo_normalization(self, params_list, num_samples=50000):
+    def _analytical_normalization(self) -> float:
         """
-        使用蒙特卡洛积分计算叠加场的均方根 (RMS) 值。
-        用于将随机场的能量归一化到全局设定值。
-
-        Args:
-            params_list: List of (x0, y0, z0, bx, by, bz)
-            num_samples: 采样点数量，越多越准，50000对于1000个高斯包通常足够且秒级完成。
+        使用解析方法计算单个高斯包所需的峰值振幅 (B_peak)。
+        该方法基于统计假设：N个不相关源的总能量约等于N倍的单个源的能量。
+        这避免了蒙特卡洛方法中由于随机破坏性干涉导致的归一化因子过大的问题。
 
         Returns:
-            scaling_factor: 用于乘以峰值磁场的系数
+            float: 单个高斯包应有的峰值磁场振幅 B_peak。
         """
-        t0 = time.time()
-
-        # 1. 在模拟域内随机采样点
-        # shape: (num_samples, 3)
-        pts = np.random.rand(num_samples, 3)
-        pts[:, 0] = pts[:, 0] * self.Lx - self.Lx / 2.0
-        pts[:, 1] = pts[:, 1] * self.Ly - self.Ly / 2.0
-        pts[:, 2] = pts[:, 2] * self.Lz - self.Lz / 2.0
-
-        # 高斯宽度
+        # 物理参数
         wx = self.gaussian_width_L_ratio * self.Lx
         wy = self.gaussian_width_L_ratio * self.Ly
         wz = self.gaussian_width_L_ratio * self.Lz
+        V = self.Lx * self.Ly * self.Lz
 
-        # 初始化累计磁场
-        Bx_tot = np.zeros(num_samples)
-        By_tot = np.zeros(num_samples)
-        Bz_tot = np.zeros(num_samples)
+        # 计算单个单位峰值高斯包对 B_rms^2 的贡献
+        # B_rms_single^2 = (1/V) * ∫ B_peak^2 * exp(-2*(...)) dV
+        # 当 B_peak=1 时, ∫ exp(-2*[(x/wx)^2 + (y/wy)^2 + (z/wz)^2]) dV
+        # = ∫ exp(-2x^2/wx^2)dx * ∫ exp(-2y^2/wy^2)dy * ∫ exp(-2z^2/wz^2)dz
+        # = sqrt(π*wx^2/2) * sqrt(π*wy^2/2) * sqrt(π*wz^2/2)
+        # = (π/2)^(3/2) * wx * wy * wz
+        integral_B2_unit = (np.pi / 2.0) ** 1.5 * wx * wy * wz
+        B_rms_single_sq_unit = integral_B2_unit / V
 
-        # 2. 向量化计算所有高斯包的贡献
-        # 为了避免内存溢出 (如果 params_list 很大)，可以分批处理
-        # 将 params 转换为 numpy 数组以便广播
-        # params_arr shape: (N_gaussians, 6) -> x0, y0, z0, bx, by, bz
-        params_arr = np.array(params_list)
+        # 总 B_rms^2 是 N 个高斯包贡献之和 (假设不相关)
+        # B_target_rms^2 = N * B_rms_single^2 = N * B_peak^2 * B_rms_single_sq_unit
+        # 从此式求解 B_peak
+        if self.num_gaussians == 0:
+            return 0.0
 
-        centers = params_arr[:, 0:3]  # (N_g, 3)
-        b_vecs = params_arr[:, 3:6]  # (N_g, 3)
+        B_peak_sq = self.B_target_rms ** 2 / (self.num_gaussians * B_rms_single_sq_unit)
+        B_peak = np.sqrt(B_peak_sq)
 
-        # 分块处理高斯包，防止构建 (50000, 1000, 3) 的大矩阵撑爆内存
-        chunk_size = 100  # 每次处理100个高斯包
-        num_gaussians = len(params_list)
+        print(f"  [分析归一化] 为 {self.num_gaussians} 个高斯包计算峰值振幅。")
+        print(f"  [分析归一化] 目标均方根磁场 B_rms = {self.B_target_rms:.4e} T。")
+        print(f"  [分析归一化] 计算得到的每个高斯包的峰值振幅 B_peak = {B_peak:.6f} T。")
 
-        for i in range(0, num_gaussians, chunk_size):
-            end = min(i + chunk_size, num_gaussians)
-
-            # 当前批次的中心和向量
-            # shape: (batch_size, 3)
-            c_batch = centers[i:end]
-            b_batch = b_vecs[i:end]
-
-            # 利用广播计算距离: (num_samples, 1, 3) - (1, batch_size, 3)
-            # diff shape: (num_samples, batch_size, 3)
-            diff = pts[:, np.newaxis, :] - c_batch[np.newaxis, :, :]
-
-            # 处理周期性边界条件 (Periodic BCs)
-            # 如果点和中心跨越了边界，距离应该取最短路径
-            # dx = dx - L * round(dx/L)
-            diff[:, :, 0] -= self.Lx * np.round(diff[:, :, 0] / self.Lx)
-            diff[:, :, 1] -= self.Ly * np.round(diff[:, :, 1] / self.Ly)
-            diff[:, :, 2] -= self.Lz * np.round(diff[:, :, 2] / self.Lz)
-
-            # 计算高斯包络
-            # arg shape: (num_samples, batch_size)
-            arg = (diff[:, :, 0] / wx) ** 2 + (diff[:, :, 1] / wy) ** 2 + (diff[:, :, 2] / wz) ** 2
-            envelope = np.exp(-arg)
-
-            # 累加磁场
-            # b_batch shape (batch_size, 3)
-            # envelope shape (num_samples, batch_size)
-            # result increments shape (num_samples)
-            Bx_tot += np.dot(envelope, b_batch[:, 0])
-            By_tot += np.dot(envelope, b_batch[:, 1])
-            Bz_tot += np.dot(envelope, b_batch[:, 2])
-
-        # 3. 计算均方值 B^2_avg
-        B2_samples = Bx_tot ** 2 + By_tot ** 2 + Bz_tot ** 2
-        B2_avg = np.mean(B2_samples)
-        B_rms_calculated = np.sqrt(B2_avg)
-
-        # 4. 计算缩放因子
-        # 我们希望 B_rms_calculated * scale = B_target_rms
-        scaling_factor = self.B_target_rms / (B_rms_calculated + 1e-30)
-
-        t1 = time.time()
-        print(f"  [蒙特卡洛] 为 {num_gaussians} 个高斯包采样了 {num_samples} 个点。")
-        print(f"  [蒙特卡洛] 原始均方根磁场 B = {B_rms_calculated:.4e} T。")
-        print(f"  [蒙特卡洛] 目标均方根磁场 B = {self.B_target_rms:.4e} T。")
-        print(f"  [蒙特卡洛] 计算得到的缩放因子 = {scaling_factor:.6f} (耗时: {t1 - t0:.3f}秒)")
-
-        return scaling_factor
+        return B_peak
 
     def _build_expressions(self):
         # 物理参数
@@ -279,29 +225,34 @@ class GaussianField(InitialMagneticField):
         wy = self.gaussian_width_L_ratio * self.Ly
         wz = self.gaussian_width_L_ratio * self.Lz
 
-        final_params_list = None
+        final_params_list  = None
         if comm.rank == 0:
-            # 1. Rank 0 生成随机参数
-            raw_params_list = []
+            # 1. Rank 0 计算确定的峰值振幅
+            B_peak = self._analytical_normalization()
+
+            # 2. Rank 0 生成随机参数 (位置和方向)
+            final_params_list = []
             for _ in range(self.num_gaussians):
                 x0 = random.uniform(-self.Lx / 2.0, self.Lx / 2.0)
                 y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
                 z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
-                rand_vec = np.array([random.uniform(-1, 1) for _ in range(3)])
-                norm_vec = rand_vec / (np.linalg.norm(rand_vec) + 1e-30)
-                raw_params_list.append((x0, y0, z0, *norm_vec))
+                # 生成单位方向向量
+                rand_vec = np.array([random.gauss(0, 1) for _ in range(3)]) # 使用高斯分布更均匀
+                norm = np.linalg.norm(rand_vec)
+                if norm < 1e-30:
+                    norm_vec = np.array([1.0, 0.0, 0.0])  # 避免除以零
+                else:
+                    norm_vec = rand_vec / norm
 
-            # 2. Rank 0 计算归一化系数
-            print(f"  - 正在计算 {self.num_gaussians} 个叠加高斯包的全局能量归一化系数...")
-            scaling_factor = self._monte_carlo_normalization(raw_params_list)
+                # 最终的峰值磁场向量
+                b_vec = B_peak * norm_vec
 
-            # 3. 应用缩放因子
-            final_params_list = [(p[0], p[1], p[2], p[3] * scaling_factor, p[4] * scaling_factor, p[5] * scaling_factor) for p in raw_params_list]
+                final_params_list.append((x0, y0, z0, *b_vec))
 
-        # 4. 广播最终参数
+        # 3. 广播最终参数
         final_params_list = comm.bcast(final_params_list, root=0)
 
-        # 5. 构建 SymPy 表达式
+        # 4. 构建 SymPy 表达式
         bx_terms, by_terms, bz_terms = [], [], []
         for i, params in enumerate(final_params_list):
             x0, y0, z0, b_peak_x, b_peak_y, b_peak_z = params
