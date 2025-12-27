@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QLineEdit, QLabel, QPushButton, QListWidget,
     QTextEdit, QSplitter, QGroupBox, QListWidgetItem, QMessageBox,
-    QFileDialog
+    QFileDialog, QCheckBox
 )
 
 # 从项目根目录的 config.py 导入
@@ -76,9 +76,18 @@ class SimulationGUI(QMainWindow):
         default_params_instance = SimulationParameters()
         self.attributes_order = [a for a in dir(default_params_instance) if not a.startswith('__') and not callable(getattr(default_params_instance, a))]
 
+        # 根据参数类型创建不同控件 ---
         for attr_name in self.attributes_order:
             default_value = getattr(default_params_instance, attr_name)
-            entry = QLineEdit(str(default_value))
+
+            # 如果参数是布尔类型，使用 QCheckBox
+            if isinstance(default_value, bool):
+                entry = QCheckBox()
+                entry.setChecked(default_value)
+            # 否则，继续使用 QLineEdit
+            else:
+                entry = QLineEdit(str(default_value))
+
             param_layout.addRow(QLabel(f"{attr_name}:"), entry)
             self.param_entries[attr_name] = entry
 
@@ -154,19 +163,27 @@ class SimulationGUI(QMainWindow):
         self.log_text.append(message.strip())
 
     def get_params_from_entries(self):
-        """从界面上的输入框读取参数并进行类型转换。"""
+        """从界面上的输入框或复选框读取参数并进行类型转换。"""
         params = {}
         default_instance = SimulationParameters()
-        for name, entry in self.param_entries.items():
-            value_str = entry.text()
-            # 获取原始数据类型（int, float, str等）
+        for name, widget in self.param_entries.items():
             original_type = type(getattr(default_instance, name))
+
             try:
-                # 尝试转换为原始类型
-                params[name] = original_type(value_str)
+                # 如果是 QCheckBox，获取其选中状态
+                if isinstance(widget, QCheckBox):
+                    params[name] = widget.isChecked()
+                # 如果是 QLineEdit，进行类型转换
+                elif isinstance(widget, QLineEdit):
+                    value_str = widget.text()
+                    params[name] = original_type(value_str)
+                # 为未来可能的其他控件类型留出扩展空间
+                else:
+                    # 跳过未知类型的控件
+                    continue
             except ValueError:
-                self.log(f"错误: 参数 '{name}' 的值 '{value_str}' 无法转换为 {original_type.__name__} 类型。\n")
-                QMessageBox.warning(self, "参数错误", f"参数 '{name}' 的值 '{value_str}' 格式不正确。")
+                self.log(f"错误: 参数 '{name}' 的值 '{widget.text()}' 无法转换为 {original_type.__name__} 类型。\n")
+                QMessageBox.warning(self, "参数错误", f"参数 '{name}' 的值 '{widget.text()}' 格式不正确。")
                 return None
         return params
 
@@ -214,7 +231,14 @@ class SimulationGUI(QMainWindow):
             task_params = self.simulation_queue[selected_row]['params']
             for name, value in task_params.items():
                 if name in self.param_entries:
-                    self.param_entries[name].setText(str(value))
+                    widget = self.param_entries[name]
+                    # 如果是 QCheckBox，设置其选中状态
+                    if isinstance(widget, QCheckBox):
+                        widget.setChecked(bool(value))
+                    # 如果是 QLineEdit，设置其文本
+                    elif isinstance(widget, QLineEdit):
+                        widget.setText(str(value))
+
             self.update_button.setEnabled(True)
         else:
             self.update_button.setEnabled(False)
@@ -314,7 +338,11 @@ class SimulationGUI(QMainWindow):
 
             for name, value in params.items():
                 if name in self.param_entries:
-                    self.param_entries[name].setText(str(value))
+                    widget = self.param_entries[name]
+                    if isinstance(widget, QCheckBox):
+                        widget.setChecked(bool(value))
+                    elif isinstance(widget, QLineEdit):
+                        widget.setText(str(value))
             self.log(f"日志: 已从 {self.default_params_file} 加载默认参数。\n")
         except Exception as e:
             self.log(f"错误: 加载默认参数失败: {e}\n")
