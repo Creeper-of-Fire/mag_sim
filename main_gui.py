@@ -10,7 +10,7 @@
 import os
 import sys
 from PySide6.QtWidgets import QApplication
-from gui.main_window import SimulationGUI
+from gui.main_window import SimulationControllerGUI
 
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 if __name__ == "__main__":
@@ -18,7 +18,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     # 创建并显示主窗口
-    window = SimulationGUI()
+    window = SimulationControllerGUI()
     window.show()
 
     # 启动应用程序的事件循环，并等待退出

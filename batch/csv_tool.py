@@ -108,7 +108,7 @@ def handle_generate_template(args):
     output_path = args.output
 
     try:
-        with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        with open(output_path, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
             headers = [TASK_NAME_COLUMN] + param_order
             writer.writerow(headers)
@@ -141,7 +141,7 @@ def handle_convert(args):
 
     tasks_to_write = []
     try:
-        with open(input_csv_path, 'r', newline='', encoding='utf-8') as f:
+        with open(input_csv_path, 'r', newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
                 line_num = i + 2  # +1 for zero-based index, +1 for header
