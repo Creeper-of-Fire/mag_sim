@@ -6,7 +6,7 @@ class SimulationParameters:
     通过修改这里的数值，您可以独立地控制模拟的各个方面。
     """
 
-    enable_qed = True
+    enable_qed = False
 
     # --- 1. 基础物理参数 (Independent Physical Parameters) ---
     # 这些参数现在描述一个相对论性的电子-正电子对等离子体
@@ -20,7 +20,7 @@ class SimulationParameters:
     #   1.0 : 磁能占总能量的 50%。能量均分。
     #   10.0: 磁能占总能量的 ~91%。磁能主导 (Low Beta)，利于相对论性加速。
     #   -1.0: (不使用能量比) 强制使用下方指定的 B0 绝对值。
-    target_sigma = 0.1
+    target_sigma = 0.01
 
     # 设置一个与等效热能磁场 B_norm (根据先前模拟约 2.2e4 T) 可比拟的非零初始磁场
     # 作用: 仅当 target_sigma <= 0 时生效。
@@ -54,7 +54,7 @@ class SimulationParameters:
     beam_energy_eV = 8.4e4  # 束流粒子的动能 (eV)。例如 1.0e6 表示 1 MeV。
 
     # --- 5. 输出和诊断 ---
-    output_dir = "sim_result/测试4"  # 默认输出目录
+    output_dir = "sim_job/测试1/4"  # 默认输出目录
 
     # --- 6. 磁场配置 ---
     # 在这里，您可以选择背景磁场的类型
@@ -68,4 +68,4 @@ class SimulationParameters:
 
     # 高斯包的宽度，以相应方向的模拟域尺寸 (Lx, Ly, Lz) 的分数表示。
     # 例如，0.1 表示宽度为 0.1 * Lx。较小的值产生更集中的磁场结构。
-    gaussian_width_L_ratio = 0.15
+    gaussian_width_L_ratio = 0.015
