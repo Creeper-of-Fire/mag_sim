@@ -20,6 +20,9 @@ except ImportError as e:
     print(f"详细错误: {e}", file=sys.stderr)
     sys.exit(1)
 
+# --- 定义用于输出目录的特殊列名 ---
+TASK_NAME_COLUMN = '任务名'
+
 
 # --- 辅助函数 ---
 
@@ -107,9 +110,9 @@ def handle_generate_template(args):
     try:
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            headers = param_order
+            headers = [TASK_NAME_COLUMN] + param_order
             writer.writerow(headers)
-            default_row = [params_info[name]['default'] for name in headers]
+            default_row = ['example_run_1'] + [params_info[name]['default'] for name in param_order]
             writer.writerow(default_row)
 
         print(f"✅ 成功生成 CSV 模板文件: '{output_path}'")
@@ -128,17 +131,30 @@ def handle_convert(args):
         print(f"❌ 错误: 输入的 CSV 文件不存在: '{input_csv_path}'", file=sys.stderr)
         sys.exit(1)
 
-    # 默认输出文件在输入文件旁边
-    output_jsonl_path = args.output or input_csv_path.parent / 'queue.jsonl'
+    # 确定输出路径并获取其绝对父目录（默认输出文件在输入文件旁边）
+    output_jsonl_path = Path(args.output or input_csv_path.parent / 'queue.jsonl').resolve()
+
+    # output_base_dir 将是所有模拟输出的根目录，例如 /xxx/sim_project/sim_jobs/job1
+    output_base_dir = output_jsonl_path.parent
 
     params_info, _ = get_simulation_params_info()
 
-    tasks = []
+    tasks_to_write = []
     try:
         with open(input_csv_path, 'r', newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
                 line_num = i + 2  # +1 for zero-based index, +1 for header
+
+                task_name = row.pop(TASK_NAME_COLUMN, '').strip()
+                if not task_name:
+                    print(f"警告: 第 {line_num} 行的 '{TASK_NAME_COLUMN}' 为空，已跳过此任务。")
+                    continue
+
+                sim_output_dir = output_base_dir / task_name
+                # 转换为WSL可以使用的字符串格式
+                wsl_path_str = str(sim_output_dir).replace('\\', '/')
+
                 task_params = {}
                 for param_name, value_str in row.items():
                     if param_name not in params_info:
@@ -151,18 +167,24 @@ def handle_convert(args):
                     # 只有非空值才被添加到任务参数中
                     if converted_value is not None:
                         task_params[param_name] = converted_value
-                tasks.append(task_params)
+
+                wrapped_task = {
+                    "params": task_params,
+                    "output_dir": wsl_path_str
+                }
+                tasks_to_write.append(wrapped_task)
     except Exception as e:
         print(f"❌ 错误: 读取或解析 CSV 文件失败。错误: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
+        output_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_jsonl_path, 'w', encoding='utf-8') as f:
-            for task in tasks:
+            for task in tasks_to_write:
                 f.write(json.dumps(task) + '\n')
         print(f"✅ 成功将 '{input_csv_path.name}' 转换为 '{output_jsonl_path.name}'")
-        print(f"   共转换了 {len(tasks)} 个任务。")
-        print(f"   现在你可以使用 batch_runner.py 来运行这个队列了。")
+        print(f"   共转换了 {len(tasks_to_write)} 个任务。")
+        print(f"   输出目录将基于 '{output_jsonl_path.parent}'。")
     except Exception as e:
         print(f"❌ 错误: 写入 queue.jsonl 文件失败。错误: {e}", file=sys.stderr)
         sys.exit(1)
