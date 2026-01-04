@@ -231,7 +231,8 @@ class PlasmaReconnection(object):
 
         # 诊断频率
         self.total_steps = int(self.LT / self.DT)
-        self.diag_steps = self.total_steps // 50  # 每200步输出一次诊断
+        TOTAL_STEP = 2
+        self.diag_steps = self.total_steps // TOTAL_STEP
         self.diag_steps = max(1, self.diag_steps)
 
     def _print_summary(self):

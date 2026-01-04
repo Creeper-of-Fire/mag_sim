@@ -8,5 +8,7 @@ warpx_used_inputs
 sim_parameters.dpkl
 Backtrace.*
 *.cache
+*.jsonl
 __pycache__/
 /sim_result/
+*.log
