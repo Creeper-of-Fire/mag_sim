@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+
 from dotenv import load_dotenv
 
 # --- 从 .env 文件加载配置 ---
@@ -114,7 +115,15 @@ def run_batch(work_dir: str):
             for i, line in enumerate(f):
                 line_num = i + 1
                 try:
-                    task_params = json.loads(line)
+                    task_definition = json.loads(line)
+                    # 验证任务定义格式
+                    if 'params' not in task_definition or 'output_dir' not in task_definition:
+                        log_system_message(log_file_handle, f"错误: 第 {line_num} 行任务定义缺少 'params' 或 'output_dir' 键，已跳过。")
+                        continue
+
+                    task_params = task_definition['params']
+                    output_dir = task_definition['output_dir']
+
                 except json.JSONDecodeError:
                     log_system_message(log_file_handle, f"错误: 第 {line_num} 行JSON格式错误，已跳过。")
                     continue
@@ -127,7 +136,10 @@ def run_batch(work_dir: str):
                     continue
 
                 # --- 5. 执行任务 ---
-                log_system_message(log_file_handle, f"开始执行任务 {line_num} (Hash: {task_hash[:8]}...)")
+                log_system_message(log_file_handle, f"开始执行任务 {line_num} (Hash: {task_hash[:8]}...) -> 输出到 '{output_dir}'")
+
+                # 记录开始时间
+                started_at = datetime.datetime.now().isoformat()
 
                 config_json_str = json.dumps(task_params)
 
@@ -135,7 +147,7 @@ def run_batch(work_dir: str):
                 command_in_wsl = (
                     f"source {CONDA_INIT_PATH} && "
                     f"conda activate {CONDA_ENV_NAME} && "
-                    f"exec python {MAIN_SCRIPT_PATH} -c '{config_json_str}'"
+                    f"exec python {MAIN_SCRIPT_PATH} -o '{output_dir}' -c '{config_json_str}'"
                 )
 
                 # 使用 Popen 启动子进程以实时获取输出
@@ -166,8 +178,10 @@ def run_batch(work_dir: str):
                 history_entry = {
                     "hash": task_hash,
                     "params": task_params,
+                    "output_dir": output_dir, # 记录本次运行的输出目录
                     "status": status,
                     "return_code": return_code,
+                    "started_at": started_at,
                     "completed_at": datetime.datetime.now().isoformat()
                 }
                 with open(history_file, 'a', encoding='utf-8') as hf:

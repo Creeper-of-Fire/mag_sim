@@ -53,10 +53,7 @@ class SimulationParameters:
     beam_fraction = 0.  # 非热束流粒子占总数的比例 (e.g., 20%)
     beam_energy_eV = 8.4e4  # 束流粒子的动能 (eV)。例如 1.0e6 表示 1 MeV。
 
-    # --- 5. 输出和诊断 ---
-    output_dir = "sim_job/测试1/4"  # 默认输出目录
-
-    # --- 6. 磁场配置 ---
+    # --- 5. 磁场配置 ---
     # 在这里，您可以选择背景磁场的类型
     # 'uniform': 均匀磁场 (原始行为)
     # 'single_gaussian': 单个随机位置、随机方向的高斯磁场

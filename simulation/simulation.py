@@ -97,11 +97,12 @@ class SpeciesWrapper:
 
 
 class PlasmaReconnection(object):
-    def __init__(self, params: 'SimulationParameters', verbose: bool):
+    def __init__(self, params: 'SimulationParameters', output_dir: str, verbose: bool):
         self.p = params
+        self.output_dir = output_dir
         self.verbose = verbose
         self.enable_qed = self.p.enable_qed
-        self.io = IOManager(self.p.output_dir)
+        self.io = IOManager(self.output_dir)
 
         self._calculate_derived_parameters()
 
