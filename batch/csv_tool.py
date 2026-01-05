@@ -151,7 +151,7 @@ def handle_convert(args):
                     print(f"警告: 第 {line_num} 行的 '{TASK_NAME_COLUMN}' 为空，已跳过此任务。")
                     continue
 
-                sim_output_dir = output_base_dir / task_name
+                sim_output_dir = output_base_dir / "sim_results" / task_name
                 # 转换为WSL可以使用的字符串格式
                 wsl_path_str = str(sim_output_dir).replace('\\', '/')
 
