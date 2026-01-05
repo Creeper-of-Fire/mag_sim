@@ -585,7 +585,8 @@ class SimulationControllerGUI(QMainWindow):
 
         self.batch_process.terminate()  # 尝试优雅终止
         self.batch_process.waitForFinished(1000)  # 等待1秒
-        self.batch_process.kill()  # 强制终止
+        if self.batch_process:
+            self.batch_process.kill()  # 强制终止
 
     def on_batch_finished(self):
         self.log(f"\n{'=' * 20} 批处理任务已结束 {'=' * 20}")

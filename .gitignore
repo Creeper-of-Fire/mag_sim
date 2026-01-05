@@ -12,3 +12,4 @@ Backtrace.*
 __pycache__/
 /sim_result/
 *.log
+/sim_jobs/
