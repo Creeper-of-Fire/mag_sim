@@ -13,3 +13,4 @@ __pycache__/
 /sim_result/
 *.log
 /sim_jobs/
+/plasma_simulation.egg-info/

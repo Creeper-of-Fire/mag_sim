@@ -6,11 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-# --- 动态路径设置，以便能导入项目中的其他模块 ---
-# __file__ 是 '.../Plasma_Simulation/batch/csv_tool.py'
-# PROJECT_ROOT 是 '.../Plasma_Simulation'
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
+from utils.project_config import COLUMN_TASK_NAME, PROJECT_ROOT
 
 try:
     # 尝试从 simulation 模块导入参数类
@@ -19,9 +15,6 @@ except ImportError as e:
     print(f"错误: 无法导入 'SimulationParameters'。请确保 '{PROJECT_ROOT / 'simulation' / 'config.py'}' 文件存在且无误。", file=sys.stderr)
     print(f"详细错误: {e}", file=sys.stderr)
     sys.exit(1)
-
-# --- 定义用于输出目录的特殊列名 ---
-TASK_NAME_COLUMN = '任务名'
 
 
 # --- 辅助函数 ---
@@ -110,7 +103,7 @@ def handle_generate_template(args):
     try:
         with open(output_path, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
-            headers = [TASK_NAME_COLUMN] + param_order
+            headers = [COLUMN_TASK_NAME] + param_order
             writer.writerow(headers)
             default_row = ['example_run_1'] + [params_info[name]['default'] for name in param_order]
             writer.writerow(default_row)
@@ -146,9 +139,9 @@ def handle_convert(args):
             for i, row in enumerate(reader):
                 line_num = i + 2  # +1 for zero-based index, +1 for header
 
-                task_name = row.pop(TASK_NAME_COLUMN, '').strip()
+                task_name = row.pop(COLUMN_TASK_NAME, '').strip()
                 if not task_name:
-                    print(f"警告: 第 {line_num} 行的 '{TASK_NAME_COLUMN}' 为空，已跳过此任务。")
+                    print(f"警告: 第 {line_num} 行的 '{COLUMN_TASK_NAME}' 为空，已跳过此任务。")
                     continue
 
                 sim_output_dir = output_base_dir / "sim_results" / task_name
