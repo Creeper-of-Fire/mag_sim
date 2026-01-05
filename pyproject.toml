@@ -1,0 +1,15 @@
+[build-system]
+# 告诉 pip 使用 setuptools 来构建项目（这是必需的配置部分）
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# 项目的基本信息
+name = "plasma_simulation"
+version = "0.1.0"
+description = "用于等离子体模拟。"
+
+[tool.setuptools]
+# 自动查找项目中的所有 Python 包（包含 __init__.py 的文件夹）
+# 这是替代 setup.py 中 find_packages() 的现代方式。
+packages = { find = {} }

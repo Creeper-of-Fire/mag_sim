@@ -137,7 +137,10 @@ def _get_step_from_filename(filename: str) -> Optional[int]:
 
 
 def _center_field_3d(field: np.ndarray, target_shape: tuple) -> np.ndarray:
-    """将3D交错网格场分量稳健地插值到单元中心。"""
+    """
+    将3D交错网格场分量稳健地插值到单元中心。
+    目前没有使用，因为我们目前已经插值好了。
+    """
     if field.shape == target_shape:
         return field
     nx, ny, nz = target_shape
