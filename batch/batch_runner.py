@@ -6,29 +6,7 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
-
-from dotenv import load_dotenv
-
-# --- 从 .env 文件加载配置 ---
-# 通过从此脚本位置向上两级目录来找到项目根目录
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENV_FILE_PATH = os.path.join(PROJECT_ROOT, '.env.warpx')
-
-if not load_dotenv(ENV_FILE_PATH):
-    print(f"错误: 未找到 .env.warpx 文件于 '{ENV_FILE_PATH}'。程序退出。", file=sys.stderr)
-    sys.exit(1)
-
-# --- 从环境变量获取常量 ---
-PROJECT_ROOT_WSL = os.getenv('PROJECT_ROOT_WSL')
-MAIN_SCRIPT_PATH = os.path.join(PROJECT_ROOT_WSL, 'main.py')
-CONDA_INIT_PATH = os.getenv('CONDA_INIT_PATH')
-CONDA_ENV_NAME = os.getenv('CONDA_ENV_NAME')
-
-# --- 验证关键路径是否已加载 ---
-if not all([PROJECT_ROOT_WSL, CONDA_INIT_PATH, CONDA_ENV_NAME]):
-    print("错误: .env.warpx 文件中缺少一个或多个必要的变量 (PROJECT_ROOT_WSL, CONDA_INIT_PATH, CONDA_ENV_NAME)。", file=sys.stderr)
-    sys.exit(1)
+from utils.project_config import DIRNAME_LOGS, FILENAME_QUEUE, FILENAME_HISTORY, MAIN_SCRIPT_PATH, get_conda_activation_command
 
 
 # --- 系统日志格式化 ---
@@ -84,9 +62,9 @@ def run_batch(work_dir: str):
     """
     # --- 1. 设置路径和文件 ---
     work_dir = os.path.abspath(work_dir)
-    queue_file = os.path.join(work_dir, 'queue.jsonl')
-    history_file = os.path.join(work_dir, 'history.jsonl')
-    logs_dir = os.path.join(work_dir, 'logs')
+    queue_file = os.path.join(work_dir, FILENAME_QUEUE)
+    history_file = os.path.join(work_dir, FILENAME_HISTORY)
+    logs_dir = os.path.join(work_dir, DIRNAME_LOGS)
 
     os.makedirs(logs_dir, exist_ok=True)
 
@@ -103,7 +81,7 @@ def run_batch(work_dir: str):
         log_system_message(log_file_handle, f"日志输出到: {log_file_path}")
 
         if not os.path.exists(queue_file):
-            log_system_message(log_file_handle, "错误: 队列文件 'queue.jsonl' 不存在。正在退出。")
+            log_system_message(log_file_handle, f"错误: 队列文件 '{FILENAME_QUEUE}' 不存在。正在退出。")
             return
 
         # --- 2. 加载历史记录 ---
@@ -144,9 +122,9 @@ def run_batch(work_dir: str):
                 config_json_str = json.dumps(task_params)
 
                 # 构建在 WSL 内部执行的完整命令
+                conda_cmd = get_conda_activation_command()
                 command_in_wsl = (
-                    f"source {CONDA_INIT_PATH} && "
-                    f"conda activate {CONDA_ENV_NAME} && "
+                    f"{conda_cmd} && "
                     f"exec python {MAIN_SCRIPT_PATH} -o '{output_dir}' -c '{config_json_str}'"
                 )
 
@@ -178,7 +156,7 @@ def run_batch(work_dir: str):
                 history_entry = {
                     "hash": task_hash,
                     "params": task_params,
-                    "output_dir": output_dir, # 记录本次运行的输出目录
+                    "output_dir": output_dir,  # 记录本次运行的输出目录
                     "status": status,
                     "return_code": return_code,
                     "started_at": started_at,

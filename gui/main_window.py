@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
 
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QColor, QFont
@@ -17,31 +16,11 @@ from PySide6.QtWidgets import (
     QFileDialog, QCheckBox
 )
 
-# --- 动态路径，以便能找到项目中的模块和脚本 ---
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
-
-# --- 加载环境配置 ---
-ENV_FILE_PATH = PROJECT_ROOT / ".env.warpx"
-if not load_dotenv(ENV_FILE_PATH):
-    # 这里我们不用 sys.exit，而是记录日志，防止 GUI 没配置就直接闪退
-    print(f"警告: 未找到配置文件 {ENV_FILE_PATH}")
-
-# 从环境变量获取 WSL 侧需要的路径
-CONDA_INIT_PATH = os.getenv('CONDA_INIT_PATH')
-CONDA_ENV_NAME = os.getenv('CONDA_ENV_NAME')
-PROJECT_ROOT_WSL = os.getenv('PROJECT_ROOT_WSL')
-
-from simulation.config import SimulationParameters
 from gui.app_config import DATA_DIR  # DATA_DIR 仍然可以用于存储GUI本身的状态，如默认参数
-
-# 定义CSV中的特殊列名
-TASK_NAME_COLUMN = '任务名'
-
-# --- 任务状态常量 (现在用于UI显示) ---
-STATUS_COMPLETED = "已完成"
-STATUS_FAILED = "失败"
-STATUS_PENDING = "待运行"
+from simulation.config import SimulationParameters
+from utils.project_config import PROJECT_ROOT, FILENAME_HISTORY, get_conda_activation_command, \
+    PROJECT_ROOT_WSL, FILENAME_DEFAULT_PARAMS, FILENAME_TASKS_CSV, COLUMN_TASK_NAME, STATUS_FAILED, STATUS_COMPLETED, \
+    STATUS_PENDING, get_wsl_path
 
 
 class SimulationControllerGUI(QMainWindow):
@@ -64,7 +43,7 @@ class SimulationControllerGUI(QMainWindow):
         self.batch_runner_script = str(PROJECT_ROOT / "batch" / "batch_runner.py")
 
         self.param_entries = {}
-        self.default_params_file = os.path.join(DATA_DIR, "default_params.json")
+        self.default_params_file = os.path.join(DATA_DIR, FILENAME_DEFAULT_PARAMS)
         os.makedirs(DATA_DIR, exist_ok=True)
 
         self.setup_ui()
@@ -120,7 +99,7 @@ class SimulationControllerGUI(QMainWindow):
 
         # 为任务名添加一个输入框
         self.task_name_entry = QLineEdit()
-        param_layout.addRow(QLabel(f"{TASK_NAME_COLUMN}:"), self.task_name_entry)
+        param_layout.addRow(QLabel(f"{COLUMN_TASK_NAME}:"), self.task_name_entry)
 
         for attr_name in self.attributes_order:
             default_value = getattr(default_params, attr_name)
@@ -145,7 +124,7 @@ class SimulationControllerGUI(QMainWindow):
         left_layout.addWidget(param_group)
 
         # 3. 任务队列
-        queue_group = QGroupBox("3. 任务列表 (tasks.csv)")
+        queue_group = QGroupBox(f"3. 任务列表 ('{FILENAME_TASKS_CSV}')")
         queue_layout = QVBoxLayout()
         self.task_list_widget = QListWidget()
         self.task_list_widget.itemSelectionChanged.connect(self.on_task_item_selected)
@@ -208,7 +187,7 @@ class SimulationControllerGUI(QMainWindow):
 
         self.current_job_dir = Path(dir_path)
         self.job_dir_entry.setText(str(self.current_job_dir))
-        self.current_csv_path = self.current_job_dir / "tasks.csv"
+        self.current_csv_path = self.current_job_dir / FILENAME_TASKS_CSV
         self.log(f"日志: 已设置工作目录为 '{self.current_job_dir}'")
 
         # 同时启用所有依赖于工作目录的按钮
@@ -277,7 +256,7 @@ class SimulationControllerGUI(QMainWindow):
     def load_history_data(self):
         """从 history.jsonl 加载已完成任务的状态。"""
         self.history_hashes.clear()
-        history_file = self.current_job_dir / "history.jsonl"
+        history_file = self.current_job_dir / FILENAME_HISTORY
         if not history_file.exists():
             return
 
@@ -319,7 +298,7 @@ class SimulationControllerGUI(QMainWindow):
             return
 
         try:
-            headers = [TASK_NAME_COLUMN] + self.attributes_order
+            headers = [COLUMN_TASK_NAME] + self.attributes_order
             with open(self.current_csv_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.DictWriter(f, fieldnames=headers)
                 writer.writeheader()
@@ -341,10 +320,10 @@ class SimulationControllerGUI(QMainWindow):
         history_map = {h[0]: h[1] for h in self.history_hashes}
 
         for task in self.tasks_from_csv:
-            task_name = task.get(TASK_NAME_COLUMN, "未命名任务")
+            task_name = task.get(COLUMN_TASK_NAME, "未命名任务")
 
             # 计算参数哈希以确定状态
-            params_only = {k: v for k, v in task.items() if k != TASK_NAME_COLUMN}
+            params_only = {k: v for k, v in task.items() if k != COLUMN_TASK_NAME}
             param_str = json.dumps(params_only, sort_keys=True, separators=(',', ':'))
             task_hash = __import__('hashlib').sha256(param_str.encode('utf-8')).hexdigest()
 
@@ -362,9 +341,9 @@ class SimulationControllerGUI(QMainWindow):
         if include_task_name:
             task_name = self.task_name_entry.text().strip()
             if not task_name:
-                QMessageBox.warning(self, "输入错误", f"'{TASK_NAME_COLUMN}' 不能为空。")
+                QMessageBox.warning(self, "输入错误", f"'{COLUMN_TASK_NAME}' 不能为空。")
                 return None
-            params[TASK_NAME_COLUMN] = task_name
+            params[COLUMN_TASK_NAME] = task_name
 
         for name, widget in self.param_entries.items():
             value = widget.isChecked() if isinstance(widget, QCheckBox) else widget.text()
@@ -414,7 +393,7 @@ class SimulationControllerGUI(QMainWindow):
         selected_row = self.task_list_widget.currentRow()
         if 0 <= selected_row < len(self.tasks_from_csv):
             task_data = self.tasks_from_csv[selected_row]
-            self.task_name_entry.setText(task_data.get(TASK_NAME_COLUMN, ""))
+            self.task_name_entry.setText(task_data.get(COLUMN_TASK_NAME, ""))
             for name, value in task_data.items():
                 if name in self.param_entries:
                     widget = self.param_entries[name]
@@ -462,56 +441,31 @@ class SimulationControllerGUI(QMainWindow):
             QMessageBox.information(self, "提示", "批处理任务已在运行中。")
             return
 
-        # 检查必要的环境变量
-        if not all([CONDA_INIT_PATH, CONDA_ENV_NAME, PROJECT_ROOT_WSL]):
-            QMessageBox.critical(self, "配置错误",
-                                 f"无法从 {ENV_FILE_PATH.name} 读取必要配置。\n"
-                                 "请检查 PROJECT_ROOT_WSL, CONDA_INIT_PATH, CONDA_ENV_NAME 是否已定义。")
-            return
-
-        # 1. 保存当前CSV的任何更改
+        # 保存当前CSV的任何更改
         self.save_csv_data()
 
-        # 将 Windows 路径转换为 WSL 路径的辅助逻辑
-        def to_wsl_path(win_path):
-            # 1. 统一转为正斜杠，并处理可能的 Path 对象
-            p = str(Path(win_path).resolve()).replace('\\', '/')
+        # 路径转换 (调用 config 中的工具)
+        wsl_csv = get_wsl_path(self.current_csv_path)
+        wsl_job_dir = get_wsl_path(self.current_job_dir)
 
-            # 2. 处理通过网络邻居访问的 WSL 路径
-            # 格式示例: //wsl.localhost/Ubuntu/home/cof/sim
-            # 或者老版本的: //wsl$/Ubuntu/home/cof/sim
-            if p.startswith('//wsl.localhost/') or p.startswith('//wsl$/'):
-                parts = p.split('/')
-                # parts[0,1] 是空, parts[2] 是 wsl.localhost, parts[3] 是分发版名(如Ubuntu)
-                # 我们需要的是从 parts[4] 开始的部分
-                if len(parts) > 4:
-                    return '/' + '/'.join(parts[4:])
+        # 脚本在 WSL 中的路径 (基于配置文件中的 PROJECT_ROOT_WSL)
+        wsl_csv_tool = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/csv_tool.py"
+        wsl_runner = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/batch_runner.py"
 
-            # 3. 处理 Windows 物理硬盘路径 (C:/..., D:/...)
-            if ':' in p:
-                drive, path = p.split(':', 1)
-                return f"/mnt/{drive.lower()}{path}"
-
-            return p
-
-        # 转换关键路径
-        wsl_csv_path = to_wsl_path(self.current_csv_path)
-        wsl_csv_tool_path = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/csv_tool.py"
-        wsl_runner_path = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/batch_runner.py"
-        wsl_job_dir = to_wsl_path(self.current_job_dir)
+        # 构造命令 (使用 config 中的生成器)
+        conda_cmd = get_conda_activation_command()
 
         # --- 步骤 1: 在 WSL 中进行转换 ---
         self.log(f"\n{'=' * 20} 步骤 1: 转换CSV (在WSL中) {'=' * 20}")
 
         # 构建 WSL 转换命令
-        convert_cmd_in_wsl = (
-            f"source {CONDA_INIT_PATH} && "
-            f"conda activate {CONDA_ENV_NAME} && "
-            f"python {wsl_csv_tool_path} convert {wsl_csv_path}"
+        cmd_convert = (
+            f"{conda_cmd} && "
+            f"python {wsl_csv_tool} convert {wsl_csv}"
         )
 
         convert_result = subprocess.run(
-            ["wsl.exe", "-e", "bash", "-c", convert_cmd_in_wsl],
+            ["wsl.exe", "-e", "bash", "-c", cmd_convert],
             capture_output=True, text=True, encoding='utf-8'
         )
 
@@ -527,15 +481,14 @@ class SimulationControllerGUI(QMainWindow):
         self.wsl_pid = None
         self.pid_capture_buffer = ""
 
-        batch_cmd_in_wsl = (
+        cmd_runner = (
             f"export TERM=dumb && "
-            f"source {CONDA_INIT_PATH} && "
-            f"conda activate {CONDA_ENV_NAME} && "
+            f"{conda_cmd} &&"
             f"echo \"PID:$$\"; "
-            f"exec python {wsl_runner_path} '{wsl_job_dir}'"
+            f"exec python {wsl_runner} '{wsl_job_dir}'"
         )
 
-        wsl_cmd = ["wsl.exe", "-e", "bash", "-c", batch_cmd_in_wsl]
+        wsl_cmd = ["wsl.exe", "-e", "bash", "-c", cmd_runner]
 
         self.batch_process = QProcess()
         self.batch_process.setProcessChannelMode(QProcess.MergedChannels)
