@@ -8,16 +8,20 @@
 # 包含共享的、与具体物理计算无关的辅助函数。
 #
 import os
+from pathlib import Path
 from typing import List, Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-# --- Rich 库用于漂亮的命令行交互 ---
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
+from rich.tree import Tree
+from rich import box
 
 from .config import config
+
+from utils.project_config import PROJECT_ROOT
 
 # --- 导入核心数据结构 ---
 
@@ -52,57 +56,222 @@ def setup_chinese_font():
 # 2. 交互式目录选择
 # =============================================================================
 
-def select_directories() -> List[str]:
-    """扫描并让用户选择要分析的目录。"""
-    console.print("\n[bold]扫描当前目录下的有效模拟文件夹...[/bold]")
-    base_dir = './sim_result'
-    # 获取所有条目对象
-    # os.scandir 返回的是迭代器，顺序依赖于文件系统(Hash顺序)，因此是乱序的
-    entries = [d for d in os.scandir(base_dir) if
-                  d.is_dir() and os.path.exists(os.path.join(d.path, 'sim_parameters.dpkl'))]
-
-    # 显式排序：按文件夹名称排序
-    # 这样可以保证每次运行顺序一致，且符合命名习惯（如 run_01, run_02 或 2025-01...）
-    entries.sort(key=lambda e: e.name)
-
-    # 提取完整路径
-    valid_dirs = [e.path for e in entries]
-
-    if not valid_dirs:
-        console.print("[red]错误: 未找到任何包含 'sim_parameters.dpkl' 的子目录。[/red]")
+def get_valid_simulation_runs(root_path: Path) -> List[Path]:
+    """
+    递归查找包含 'sim_parameters.dpkl' 的目录。
+    现在的结构通常是: JobDir -> sim_results -> TaskDir -> .dpkl
+    """
+    valid_runs = []
+    if not root_path.exists():
         return []
 
-    table = Table(title="可用的模拟运行")
-    table.add_column("索引", justify="right", style="cyan")
-    table.add_column("文件夹名称", style="magenta")
-    for i, dir_name in enumerate(valid_dirs):
-        table.add_row(str(i), os.path.basename(dir_name))
-    console.print(table)
+    # 使用 rglob 可以在 sim_results 下查找，适配可能存在的不同层级深度
+    for path in root_path.rglob('sim_parameters.dpkl'):
+        valid_runs.append(path.parent)
+    return sorted(valid_runs)
 
+
+def select_directories() -> List[str]:
+    """
+    两级选择逻辑：
+    1. 选择 Job (位于 sim_jobs/)，并显示每个 Job 下的 Task 数量。
+    2. 选择具体的 Task (位于 sim_jobs/<Job>/sim_results/)。
+    支持输入格式：单选(1)、多选(1,3)、范围(1-5) 以及混合(1-3, 5, 7-9)。
+    """
+
+    # --- 辅助函数：解析范围输入 ---
+    def parse_indices(input_str: str, max_len: int) -> List[int]:
+        """
+        将 "1, 3-5, 8" 这样的字符串解析为 [1, 3, 4, 5, 8]
+        并检查是否越界。
+        """
+        selected_indices = set()
+        # 将中文逗号替换为英文逗号，并按逗号或空格分割
+        parts = input_str.replace('，', ',').replace(',', ' ').split()
+
+        for part in parts:
+            if '-' in part:
+                # 处理范围，例如 "1-5"
+                try:
+                    start_s, end_s = part.split('-')
+                    start, end = int(start_s), int(end_s)
+                    # 容错：如果用户输入 5-1，自动调整为 1-5
+                    if start > end:
+                        start, end = end, start
+                    # Python range 是左闭右开，所以 end + 1
+                    selected_indices.update(range(start, end + 1))
+                except ValueError:
+                    raise ValueError(f"范围格式无效: {part}")
+            else:
+                # 处理单个数字
+                selected_indices.add(int(part))
+
+        # 转换为列表并排序
+        result = sorted(list(selected_indices))
+
+        # 检查越界
+        if any(x < 0 or x >= max_len for x in result):
+            raise IndexError("索引超出范围")
+
+        return result
+
+    # --- 主逻辑开始 ---
+    jobs_root = PROJECT_ROOT / "sim_jobs"
+
+    if not jobs_root.exists():
+        console.print(f"[red]错误: 找不到 Jobs 根目录: {jobs_root}[/red]")
+        return []
+
+    # --- 第一阶段：选择 Jobs ---
+    available_jobs = [d for d in jobs_root.iterdir() if d.is_dir()]
+    available_jobs.sort(key=lambda x: x.name)
+
+    if not available_jobs:
+        console.print("[red]错误: 'sim_jobs' 目录下没有找到任何 Job 文件夹。[/red]")
+        return []
+
+    console.print("\n[bold cyan]--- 步骤 1/2: 选择 Job 目录 ---[/bold cyan]")
+
+    # 初始化表格
+    job_table = Table(box=box.SIMPLE)
+    job_table.add_column("ID", justify="right", style="cyan", no_wrap=True)
+    job_table.add_column("Job 名称", style="magenta")
+    job_table.add_column("包含模拟数", justify="right", style="green")
+    job_table.add_column("路径", style="dim")
+
+    # 预扫描并填充数据
+    job_candidates = []
+
+    with console.status("[bold green]正在扫描 Job 统计信息...[/bold green]"):
+        for i, job_dir in enumerate(available_jobs):
+            # 确定搜索范围：优先搜索 sim_results 子目录
+            search_scope = job_dir / "sim_results"
+            if not search_scope.exists():
+                search_scope = job_dir
+
+            # 获取该 Job 下所有的有效运行
+            runs_in_job = get_valid_simulation_runs(search_scope)
+            count = len(runs_in_job)
+
+            job_candidates.append({
+                "dir": job_dir,
+                "count": count,
+                "runs_cache": runs_in_job
+            })
+
+            count_str = str(count) if count > 0 else f"[red]{count}[/red]"
+
+            job_table.add_row(
+                str(i),
+                job_dir.name,
+                count_str,
+                str(job_dir.relative_to(PROJECT_ROOT))
+            )
+
+    console.print(job_table)
+
+    selected_jobs_indices = []
     while True:
+        choice = Prompt.ask(
+            "[bold]请输入 Job ID (支持范围如 1-3，回车全选)[/bold]",
+            default="all"
+        )
+
+        if choice.lower() == 'all':
+            # 过滤掉 count=0 的
+            selected_jobs_indices = [i for i, c in enumerate(job_candidates) if c['count'] > 0]
+            if not selected_jobs_indices:
+                console.print("[yellow]警告: 所有 Job 目录似乎都是空的 (Count=0)。[/yellow]")
+                return []
+            break
+
         try:
-            prompt_text = "[bold]请输入要分析的模拟索引 (用逗号/空格分隔, [cyan]直接回车则全选[/cyan])[/bold]"
-            choice_str = Prompt.ask(prompt_text, default="all")
+            indices = parse_indices(choice, len(job_candidates))
 
-            if choice_str.strip().lower() == "all":
-                console.print(f"[green]已选择全部 {len(valid_dirs)} 个模拟。[/green]")
-                return valid_dirs
+            # 二次确认：如果选中了空的 Job，给个提示但允许通过，或者自动过滤
+            valid_indices = [i for i in indices if job_candidates[i]['count'] > 0]
+            if len(valid_indices) < len(indices):
+                console.print("[yellow]提示: 已自动忽略部分不包含模拟数据的 Job。[/yellow]")
 
-            indices_str = choice_str.replace(',', ' ').split()
-            if not indices_str:
+            if not valid_indices:
+                console.print("[red]所选的 Job 均不包含数据，请重新选择。[/red]")
                 continue
 
-            choices = [int(i) for i in indices_str]
+            selected_jobs_indices = valid_indices
+            break
 
-            if all(0 <= c < len(valid_dirs) for c in choices):
-                # 按照用户输入的顺序返回，还是按照原始顺序返回？
-                # 通常按照原始列表的排序返回更符合直觉（方便绘图时图例的顺序一致性）
-                selected = sorted(list(set(choices)))
-                return [valid_dirs[c] for c in selected]
-            else:
-                console.print("[yellow]警告: 输入的索引超出范围，请重试。[/yellow]")
         except ValueError:
-            console.print("[red]错误: 无效输入，请输入数字索引。[/red]")
+            console.print("[red]输入无效，请输入数字或范围(如 0-5)。[/red]")
+        except IndexError:
+            console.print("[red]索引超出范围，请检查 ID 是否正确。[/red]")
+
+    if not selected_jobs_indices:
+        return []
+
+    # --- 第二阶段：收集并选择具体的 Tasks ---
+    console.print("\n[bold cyan]--- 步骤 2/2: 选择具体 Simulation Run ---[/bold cyan]")
+
+    all_task_candidates = []
+
+    for idx in selected_jobs_indices:
+        job_info = job_candidates[idx]
+        job_dir = job_info['dir']
+        runs = job_info['runs_cache']
+
+        if not runs:
+            continue
+
+        for run_path in runs:
+            try:
+                rel_name = run_path.relative_to(job_dir / "sim_results")
+            except ValueError:
+                rel_name = run_path.relative_to(job_dir)
+
+            all_task_candidates.append({
+                "path": run_path,
+                "job": job_dir.name,
+                "name": str(rel_name)
+            })
+
+    if not all_task_candidates:
+        console.print("[red]所选 Job 中没有包含有效的模拟数据。[/red]")
+        return []
+
+    # 展示候选 Run
+    run_table = Table(title=f"已选 Job 中的任务列表 (共 {len(all_task_candidates)} 个)", box=box.ROUNDED)
+    run_table.add_column("ID", justify="right", style="cyan")
+    run_table.add_column("所属 Job", style="blue")
+    run_table.add_column("Task/Run 名称", style="green")
+
+    for i, item in enumerate(all_task_candidates):
+        run_table.add_row(str(i), item['job'], item['name'])
+
+    console.print(run_table)
+
+    # 选择最终结果
+    final_paths = []
+    while True:
+        choice = Prompt.ask(
+            "[bold]请输入 Run ID 进行分析 (支持范围如 10-20，回车全选)[/bold]",
+            default="all"
+        )
+
+        if choice.lower() == 'all':
+            final_paths = [str(c['path']) for c in all_task_candidates]
+            break
+
+        try:
+            indices = parse_indices(choice, len(all_task_candidates))
+            final_paths = [str(all_task_candidates[x]['path']) for x in indices]
+            break
+
+        except ValueError:
+            console.print("[red]输入无效，请输入数字或范围(如 0-5)。[/red]")
+        except IndexError:
+            console.print("[red]索引超出范围，请检查 ID 是否正确。[/red]")
+
+    console.print(f"[green]✔ 已选中 {len(final_paths)} 个模拟数据目录。[/green]")
+    return final_paths
 
 
 # =============================================================================
