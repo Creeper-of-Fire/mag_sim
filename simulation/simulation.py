@@ -231,9 +231,12 @@ class PlasmaReconnection(object):
 
         # 诊断频率
         self.total_steps = int(self.LT / self.DT)
-        TOTAL_STEP = 2
-        self.diag_steps = self.total_steps // TOTAL_STEP
-        self.diag_steps = max(1, self.diag_steps)
+        FIELD_TOTAL_STEP = 10
+        self.field_diag_steps = self.total_steps // FIELD_TOTAL_STEP
+        self.field_diag_steps = max(1, self.field_diag_steps)
+        PARTICLE_TOTAL_STEP = 2
+        self.particle_diag_steps = self.total_steps // PARTICLE_TOTAL_STEP
+        self.particle_diag_steps = max(1, self.particle_diag_steps)
 
     def _print_summary(self):
         # 打印更新后的等离子体参数
@@ -575,7 +578,7 @@ class PlasmaReconnection(object):
         plane = picmi.ReducedDiagnostic(
             diag_type="FieldProbe",
             name="plane",
-            period=self.diag_steps,
+            period=self.field_diag_steps,
             path=str(self.io.diags_dir) + "/",
             extension="dat",
             probe_geometry="Plane",
@@ -593,7 +596,7 @@ class PlasmaReconnection(object):
         # 粒子状态快照 (OpenPMD格式)
         particle_state_diag = picmi.ParticleDiagnostic(
             name="particle_states",
-            period=self.diag_steps,
+            period=self.field_diag_steps,
             species=all_particle_species_for_diags,
             data_list=["ux", "uy", "uz", "x", "y", "z", "weighting"],
             warpx_format='openpmd',
@@ -606,7 +609,7 @@ class PlasmaReconnection(object):
         field_state_diag = picmi.FieldDiagnostic(
             name="field_states",
             grid=self.grid,
-            period=self.diag_steps,
+            period=self.particle_diag_steps,
             data_list=["Bx", "By", "Bz", "Ex", "Ey", "Ez", "Jx", "Jy", "Jz"],
             warpx_format='openpmd',
             warpx_openpmd_backend='h5',

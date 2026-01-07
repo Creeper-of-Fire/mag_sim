@@ -8,6 +8,7 @@
 # 包含共享的、与具体物理计算无关的辅助函数。
 #
 import os
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -56,6 +57,30 @@ def setup_chinese_font():
 # 2. 交互式目录选择
 # =============================================================================
 
+def natural_sort_key(s):
+    """
+    自然排序键函数，用于处理包含数字和字母的字符串排序。
+    数字部分按数值大小排序，而非按字符串排序，例如: task1, task2, task10 而不是 task1, task10, task2。
+    """
+    # 匹配浮点数或整数
+    pattern = r'(\d+\.\d+|\d+)'
+    parts = re.split(pattern, str(s))
+
+    result = []
+    for part in parts:
+        if not part:
+            continue
+        try:
+            val = float(part)
+            # 数字类型权重设为 0
+            # 元组结构: (类型标识, 数值)
+            result.append((0, val))
+        except ValueError:
+            # 字符串类型权重设为 1
+            # 元组结构: (类型标识, 字符串值)
+            result.append((1, part.lower()))
+    return result
+
 def get_valid_simulation_runs(root_path: Path) -> List[Path]:
     """
     递归查找包含 'sim_parameters.dpkl' 的目录。
@@ -68,7 +93,9 @@ def get_valid_simulation_runs(root_path: Path) -> List[Path]:
     # 使用 rglob 可以在 sim_results 下查找，适配可能存在的不同层级深度
     for path in root_path.rglob('sim_parameters.dpkl'):
         valid_runs.append(path.parent)
-    return sorted(valid_runs)
+
+    # 使用 natural_sort_key 排序
+    return sorted(valid_runs, key=lambda x: natural_sort_key(x.name))
 
 
 def select_directories() -> List[str]:
@@ -124,7 +151,7 @@ def select_directories() -> List[str]:
 
     # --- 第一阶段：选择 Jobs ---
     available_jobs = [d for d in jobs_root.iterdir() if d.is_dir()]
-    available_jobs.sort(key=lambda x: x.name)
+    available_jobs.sort(key=lambda x: natural_sort_key(x.name))
 
     if not available_jobs:
         console.print("[red]错误: 'sim_jobs' 目录下没有找到任何 Job 文件夹。[/red]")
