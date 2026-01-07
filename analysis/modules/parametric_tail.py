@@ -1,22 +1,22 @@
 # analysis/modules/parametric_tail.py
 
+import hashlib
 import json
 from pathlib import Path
-from typing import List, Set, Dict, Any, Tuple, Optional
+from typing import List, Set, Dict, Any, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-from mpmath import quad
+from rich.prompt import Prompt
 from scipy.constants import k as kB, c, m_e, e
-from scipy.special import kn as bessel_k
 from scipy.optimize import root_scalar
+from scipy.special import kn as bessel_k
 
 from utils.project_config import FILENAME_HISTORY
 from .base_module import BaseComparisonModule
 from ..core.simulation import SimulationRun
 from ..core.utils import console
 from ..plotting.layout import create_analysis_figure
-from ..plotting.styles import get_style
 
 # --- 物理常量 ---
 ME_C2_J = m_e * c ** 2
@@ -62,82 +62,75 @@ class ParametricTailModule(BaseComparisonModule):
         except:
             return 0.0
 
-    def _integrate_theoretical_energy(self, T_keV: float, E_cut_MeV: float, total_weight: float) -> float:
-        """
-        对 Maxwell-Juttner 分布进行数值积分，计算 E > E_cut 部分的理论总能量。
-        """
-        if T_keV <= 0: return 0.0
-
+    def _calculate_mj_pdf(self, E_MeV: np.ndarray, T_keV: float) -> np.ndarray:
+        """计算 Maxwell-Juttner 概率密度 f(E)"""
+        if T_keV <= 0: return np.zeros_like(E_MeV)
         T_J = T_keV * 1e3 * e
         theta = T_J / ME_C2_J
 
-        # MJ PDF (Normalized to 1)
-        # f(E) = A * gamma * p * exp(-gamma/theta)
-        # 我们这里直接写被积函数: E * f(E)
-        norm_factor = 1.0 / (ME_C2_J * theta * bessel_k(2, 1.0 / theta))
+        # 归一化系数
+        norm = 1.0 / (ME_C2_J * theta * bessel_k(2, 1.0 / theta))
 
-        def integrand(E_MeV):
-            E_J = E_MeV * J_PER_MEV
-            gamma = 1.0 + E_J / ME_C2_J
-            pc_J = np.sqrt(E_J * (E_J + 2 * ME_C2_J))
-            # f(E) part:
-            pdf_val = norm_factor * (pc_J / ME_C2_J) * gamma * np.exp(-gamma / theta) * J_PER_MEV  # Jacobian
-            # Return E * f(E)
-            return E_MeV * pdf_val
+        E_J = E_MeV * J_PER_MEV
+        gamma = 1.0 + E_J / ME_C2_J
+        pc_J = np.sqrt(E_J * (E_J + 2 * ME_C2_J))
 
-        # 积分范围: [E_cut, Infinity]
-        try:
-            integral, _ = quad(integrand, E_cut_MeV, np.inf)
-            return integral * total_weight  # 乘以总粒子数得到总能量 (MeV)
-        except Exception:
-            return 0.0
+        # PDF (per Joule) -> 需要乘以 J_PER_MEV 转为 per MeV
+        pdf = norm * (pc_J / ME_C2_J) * gamma * np.exp(-gamma / theta) * J_PER_MEV
+        return pdf
 
-    def _calculate_non_thermal_metrics(self, run: SimulationRun) -> Dict[str, float]:
+    def _calculate_excess_energy(self, run: SimulationRun) -> Dict[str, float]:
         """
-        核心逻辑：模拟值 - 理论值
+        核心算法改进：
+        1. 建立对数分箱。
+        2. 计算每个箱内的 模拟粒子数 N_sim 和 理论粒子数 N_th。
+        3. 计算差值 ΔN = max(0, N_sim - N_th)。
+        4. 加权求和：Sum( ΔN * E_center )。
         """
         spec = run.final_spectrum
         if spec is None or spec.weights.size == 0:
-            return {'T_keV': 0.0, 'non_thermal_fraction': 0.0, 'amplification': 1.0}
+            return {'T_keV': 0.0, 'excess_ratio': 0.0, 'total_excess_MeV': 0.0}
 
-        # 1. 基础统计
+        # 1. 基础统计与温度拟合
         total_energy_MeV = np.sum(spec.energies_MeV * spec.weights)
-        total_count = np.sum(spec.weights)
-        avg_energy_MeV = total_energy_MeV / total_count
-
-        # 2. 拟合温度
+        total_weight = np.sum(spec.weights)
+        avg_energy_MeV = total_energy_MeV / total_weight
         T_keV = self._solve_temperature_kev(avg_energy_MeV)
-        T_MeV = T_keV / 1000.0
 
-        # 3. 设定阈值 (4倍温度，通常认为是热分布的边界)
-        # 如果是非相对论情况 4T 足够，相对论可能需要更高，这里取 4.0 比较通用
-        CUTOFF_FACTOR = 4.0
-        E_cut_MeV = CUTOFF_FACTOR * T_MeV if T_MeV > 1e-6 else CUTOFF_FACTOR * avg_energy_MeV
+        # 2. 建立分箱 (覆盖整个范围，从极低到极高)
+        min_e = max(1e-4, spec.energies_MeV.min())
+        max_e = max(10.0, spec.energies_MeV.max() * 1.5)  # 确保覆盖高能尾
+        bins = np.logspace(np.log10(min_e), np.log10(max_e), 200)
+        centers = np.sqrt(bins[:-1] * bins[1:])
+        widths = np.diff(bins)
 
-        # 4. 计算模拟的尾部能量
-        is_tail = spec.energies_MeV > E_cut_MeV
-        U_sim_tail = np.sum(spec.energies_MeV[is_tail] * spec.weights[is_tail])
+        # 3. 模拟数据的直方图
+        counts_sim, _ = np.histogram(spec.energies_MeV, bins=bins, weights=spec.weights)
 
-        # 5. 计算理论的尾部能量 (积分)
-        U_th_tail = self._integrate_theoretical_energy(T_keV, E_cut_MeV, total_count)
+        # 4. 理论数据的直方图
+        # N_th(bin) ≈ PDF(center) * width * total_weight
+        pdf_vals = self._calculate_mj_pdf(centers, T_keV)
+        counts_th = pdf_vals * widths * total_weight
 
-        # 6. 核心指标：非热能量增益
-        # 多出来的能量 = Sim - Theory
-        U_excess = max(0.0, U_sim_tail - U_th_tail)
+        # 5. 核心：计算加权正向差值 (Weighted Positive Excess)
+        # 只有当 sim > th 时才计入，且乘以能量 E 进行加权
+        diff_counts = counts_sim - counts_th
 
-        # 指标A: 非热能量占比 (Excess / Total_System_Energy)
-        # 这代表了系统中有多少能量被转化为了非热形式
-        non_thermal_frac = U_excess / total_energy_MeV if total_energy_MeV > 0 else 0.0
+        # 过滤掉负值 (即模拟 < 理论的部分不扣分)
+        positive_diff = np.maximum(0.0, diff_counts)
 
-        # 指标B: 放大因子 (Sim / Theory)
-        # 代表尾部比热分布强多少倍
-        amplification = U_sim_tail / U_th_tail if U_th_tail > 0 else 1.0
+        # 能量加权积分：Sum ( ΔN * E )
+        excess_energy_MeV = np.sum(positive_diff * centers)
+
+        # 6. 归一化指标
+        # 非热能量占比 = 溢出的能量 / 总能量
+        excess_ratio = excess_energy_MeV / total_energy_MeV
 
         return {
             'T_keV': T_keV,
-            'non_thermal_fraction': non_thermal_frac,
-            'amplification': amplification,
-            'E_cut_MeV': E_cut_MeV
+            'excess_ratio': excess_ratio,
+            'total_excess_MeV': excess_energy_MeV,
+            'total_energy_MeV': total_energy_MeV
         }
 
     # =========================================================================
@@ -171,6 +164,8 @@ class ParametricTailModule(BaseComparisonModule):
                             continue
             except Exception as e:
                 console.print(f"[yellow]读取 {FILENAME_HISTORY} 出错: {e}[/yellow]")
+
+        console.print(f"[red]无法在历史记录 ({history_path.name}) 中找到模拟 run: {run.name}[/red]")
 
         # 回退策略：从 dill 对象中提取看似输入的参数
         # 这是一个简单的 heuristic
@@ -248,30 +243,50 @@ class ParametricTailModule(BaseComparisonModule):
     # =========================================================================
 
     def run(self, loaded_runs: List[SimulationRun]):
-        console.print("\n[bold magenta]执行: 参数扫描非热能量分析...[/bold magenta]")
+        console.print("\n[bold magenta]执行: 参数扫描非热能量分析 (正向差值法)...[/bold magenta]")
 
         valid_runs = [r for r in loaded_runs if r.final_spectrum]
         if len(valid_runs) < 2:
             console.print("[red]错误: 需要至少 2 个模拟来进行对比。[/red]")
             return
 
+        # 1. 检测变量并排序
         x_label, x_vals, sorted_runs = self._detect_variable_parameter(valid_runs)
 
-        y_frac = []
-        y_amp = []
+        # 2. 生成默认唯一标识符 (Hash)
+        # 将所有参与分析的 Run 名字拼起来做哈希，确保只要选的文件不一样，文件名就不一样
+        run_names_concat = "".join(sorted([r.name for r in sorted_runs]))
+        short_hash = hashlib.md5(run_names_concat.encode('utf-8')).hexdigest()[:6]
+
+        default_filename = f"scan_{x_label}_{short_hash}"
+
+        # 3. 交互式确认文件名 (给你一个改名的机会)
+        console.print(f"\n[cyan]默认输出文件名: {default_filename}.png[/cyan]")
+        user_suffix = Prompt.ask(
+            "请输入文件名后缀 (用于区分实验批次)",
+            default=short_hash,
+            show_default=True
+        )
+
+        # 构造最终文件名
+        # 格式: scan_{变量名}_{用户后缀/哈希}
+        # 例如: scan_target_sigma_batch1.png
+        final_filename = f"scan_{x_label}_{user_suffix}"
+
+        y_ratio = []
+        y_energy = []
         y_temp = []
 
-        console.print(f"  正在进行理论积分对比 (Cutoff = 4 * T_fit)...")
+        console.print(f"  正在逐个能箱计算 (Sim - Theory) * Energy ...")
         for run in sorted_runs:
-            m = self._calculate_non_thermal_metrics(run)
-            y_frac.append(m['non_thermal_fraction'])
-            y_amp.append(m['amplification'])
+            m = self._calculate_excess_energy(run)
+            y_ratio.append(m['excess_ratio'])
+            y_energy.append(m['total_excess_MeV'])
             y_temp.append(m['T_keV'])
 
             console.print(f"    - {run.name}: {x_label}={self._get_input_params(run).get(x_label)} -> "
-                          f"Excss={m['non_thermal_fraction'] * 100:.2f}%, Amp={m['amplification']:.1f}x")
+                          f"Excess Ratio={m['excess_ratio'] * 100:.3f}% (T={m['T_keV']:.1f} keV)")
 
-        # 绘图数据准备
         try:
             x_num = [float(v) for v in x_vals]
             is_num = True
@@ -279,30 +294,20 @@ class ParametricTailModule(BaseComparisonModule):
             x_num = range(len(x_vals))
             is_num = False
 
-        style = get_style()
-        fname = f"scan_nonthermal_{x_label}"
+        with create_analysis_figure(sorted_runs, "scan_excess", num_plots=2, figsize=(9, 8), override_filename=final_filename) as (fig, (ax1, ax2)):
 
-        # 创建 2 个子图：一个画非热占比，一个画温度
-        with create_analysis_figure(sorted_runs, "scan_nonthermal", num_plots=2, figsize=(9, 8), override_filename=fname) as (fig, (ax1, ax2)):
-
-            # --- 图1: 非热能量占比 (真正的高能部分) ---
-            # 这是一个非常严格的指标
-            ax1.plot(x_num, np.array(y_frac) * 100, 'o-', color='crimson', lw=2, label='非热能量占比')
-            ax1.set_ylabel(r"非热能量占比 (%)" + "\n" + r"$(U_{sim} - U_{th}) / U_{total}$")
+            # --- 图1: 非热能量占比 ---
+            # 这是最有物理意义的图：到底有多少比例的能量进入了非热部分
+            ax1.plot(x_num, np.array(y_ratio) * 100, 'o-', color='crimson', lw=2, markersize=6)
+            ax1.set_ylabel(r"非热能量占比 (%)" + "\n" + r"$\sum (N_{sim}-N_{th})E / E_{total}$")
             ax1.set_title(f"非热加速效率 vs {x_label}", fontsize=14)
             ax1.grid(True, linestyle='--', alpha=0.5)
 
-            # 可以在右轴画放大因子 (Amplification)
-            ax1b = ax1.twinx()
-            ax1b.plot(x_num, y_amp, 'd--', color='navy', alpha=0.6, label='尾部放大倍数')
-            ax1b.set_ylabel(r"尾部放大倍数 ($U_{sim}/U_{th}$)", color='navy')
-            ax1b.tick_params(axis='y', labelcolor='navy')
-            ax1b.set_yscale('log')  # 放大倍数通常跨度很大
-
-            # --- 图2: 整体温度 (加热效果) ---
-            ax2.plot(x_num, y_temp, 's-', color='darkorange', lw=2)
+            # --- 图2 (放在下半部分): 背景温度 ---
+            # 用于区分是“整体加热”还是“尾部加速”
+            ax2.plot(x_num, y_temp, 's-', color='darkorange', lw=2, markersize=6)
             ax2.set_ylabel("整体等效温度 $T_{fit}$ (keV)")
-            ax2.set_title(f"整体加热效果 vs {x_label}", fontsize=14)
+            ax2.set_title(f"背景加热效果 vs {x_label}", fontsize=14)
             ax2.set_xlabel(x_label if is_num else "Simulation Case", fontsize=12)
             ax2.grid(True, linestyle='--', alpha=0.5)
 
