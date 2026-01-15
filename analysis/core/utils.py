@@ -12,12 +12,10 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
-from rich.tree import Tree
 from rich import box
 
 from .config import config
@@ -35,26 +33,8 @@ M_E = constants.m_e
 E = constants.e
 J_PER_MEV = E * 1e6
 
-
 # =============================================================================
-# 1. Matplotlib & 字体
-# =============================================================================
-
-def setup_chinese_font():
-    """自动查找并设置支持中文的字体。"""
-    from matplotlib import font_manager as fm
-    chinese_fonts_priority = ['WenQuanYi Micro Hei', 'Source Han Sans SC', 'Noto Sans CJK SC', 'SimHei', 'Microsoft YaHei']
-    found_font = next((font for font in chinese_fonts_priority if fm.findfont(font, fontext='ttf')), None)
-    if found_font:
-        plt.rcParams['font.sans-serif'] = [found_font]
-        console.print(f"[green]✔ Matplotlib 字体已设置为：{found_font}[/green]")
-    else:
-        console.print("[yellow]⚠ 警告：未能找到支持中文的字体。图表中的中文可能无法正常显示。[/yellow]")
-    plt.rcParams['axes.unicode_minus'] = False
-
-
-# =============================================================================
-# 2. 交互式目录选择
+# 交互式目录选择
 # =============================================================================
 
 def natural_sort_key(s):

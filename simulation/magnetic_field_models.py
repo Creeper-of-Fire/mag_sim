@@ -175,9 +175,15 @@ class GaussianField(InitialMagneticField):
     """由多个高斯包叠加构成的随机磁场。"""
 
     def __init__(self, Lx: float, Ly: float, Lz: float, B_target_rms: float,
-                 num_gaussians: int, gaussian_width_L_ratio: float):
+                 d_e: float, NX: int, NY: int, NZ: int,
+                 num_gaussians: int, gaussian_width_de_ratio: float):
+        self.d_e = d_e
+        self.NX = NX
+        self.NY = NY
+        self.NZ = NZ
         self.num_gaussians = num_gaussians
-        self.gaussian_width_L_ratio = gaussian_width_L_ratio
+        self.gaussian_width_de_ratio = gaussian_width_de_ratio
+
         super().__init__(Lx, Ly, Lz, B_target_rms)
 
     def _analytical_normalization(self) -> float:
@@ -190,9 +196,9 @@ class GaussianField(InitialMagneticField):
             float: 单个高斯包应有的峰值磁场振幅 B_peak。
         """
         # 物理参数
-        wx = self.gaussian_width_L_ratio * self.Lx
-        wy = self.gaussian_width_L_ratio * self.Ly
-        wz = self.gaussian_width_L_ratio * self.Lz
+        wx = self.gaussian_width_de_ratio * self.d_e
+        wy = self.gaussian_width_de_ratio * self.d_e
+        wz = self.gaussian_width_de_ratio * self.d_e
         V = self.Lx * self.Ly * self.Lz
 
         # 计算单个单位峰值高斯包对 B_rms^2 的贡献
@@ -221,9 +227,9 @@ class GaussianField(InitialMagneticField):
 
     def _build_expressions(self):
         # 物理参数
-        wx = self.gaussian_width_L_ratio * self.Lx
-        wy = self.gaussian_width_L_ratio * self.Ly
-        wz = self.gaussian_width_L_ratio * self.Lz
+        wx = self.gaussian_width_de_ratio * self.d_e
+        wy = self.gaussian_width_de_ratio * self.d_e
+        wz = self.gaussian_width_de_ratio * self.d_e
 
         final_params_list  = None
         if comm.rank == 0:
@@ -290,8 +296,10 @@ def magnetic_field_factory(config: Bunch) -> InitialMagneticField:
     elif field_type in ["single_gaussian", "multi_gaussian"]:
         # 提取高斯场特定参数
         gauss_args = Bunch(
+            d_e=config.d_e,
+            NX=config.NX, NY=config.NY, NZ=config.NZ,
             num_gaussians=1 if field_type == "single_gaussian" else config.num_gaussians,
-            gaussian_width_L_ratio=config.gaussian_width_L_ratio,
+            gaussian_width_de_ratio=config.gaussian_width_de_ratio,
         )
         return GaussianField(**common_args, **gauss_args)
     else:

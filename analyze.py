@@ -24,7 +24,8 @@ from tqdm import tqdm
 from analysis.core.config import config
 from analysis.core.data_loader import load_run_data
 # --- 导入核心库组件 ---
-from analysis.core.utils import console, setup_chinese_font, select_directories
+from analysis.core.utils import console, select_directories
+from analysis.utils import setup_chinese_font
 from analysis.modules.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
 from analysis.plotting.styles import StyleTheme, set_style
 

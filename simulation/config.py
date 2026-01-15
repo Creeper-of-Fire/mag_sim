@@ -63,6 +63,7 @@ class SimulationParameters:
     # 当 B_field_type 为 'multi_gaussian' 时，此参数指定高斯场的数量
     num_gaussians = 5
 
-    # 高斯包的宽度，以相应方向的模拟域尺寸 (Lx, Ly, Lz) 的分数表示。
-    # 例如，0.1 表示宽度为 0.1 * Lx。较小的值产生更集中的磁场结构。
-    gaussian_width_L_ratio = 0.015
+    # 高斯包的物理宽度，以电子趋肤深度 d_e 为单位。
+    # 这是一个固定的物理尺度，使得不同尺寸 (LX) 的模拟具有物理可比性。
+    # 推荐值: > 2.5，以确保每个波包能被至少几个网格点解析，避免数值不稳定。
+    gaussian_width_de_ratio = 2.5
