@@ -234,7 +234,7 @@ class PlasmaReconnection(object):
         FIELD_TOTAL_STEP = 10
         self.field_diag_steps = self.total_steps // FIELD_TOTAL_STEP
         self.field_diag_steps = max(1, self.field_diag_steps)
-        PARTICLE_TOTAL_STEP = 2
+        PARTICLE_TOTAL_STEP = 10
         self.particle_diag_steps = self.total_steps // PARTICLE_TOTAL_STEP
         self.particle_diag_steps = max(1, self.particle_diag_steps)
 
@@ -288,13 +288,18 @@ class PlasmaReconnection(object):
     def _init_magnetic_field(self):
         # 从 config 中读取磁场参数
         b_field_config = Bunch(
-            B_field_typ=self.p.B_field_type,
+            # --- 通用参数 ---
             Lx=self.Lx,
             Ly=self.Ly,
             Lz=self.Lz,
             B_target_rms=self.B_target_rms,
+            B_field_typ=self.p.B_field_type,
+
+            d_e=self.d_e,
+            NX=self.NX, NY=self.NY, NZ=self.NZ,
+
             num_gaussians=self.p.num_gaussians,
-            gaussian_width_L_ratio=self.p.gaussian_width_L_ratio,
+            gaussian_width_de_ratio=self.p.gaussian_width_de_ratio,
             B_field_type=self.p.B_field_type,
         )
         # 使用工厂创建磁场对象
@@ -504,7 +509,7 @@ class PlasmaReconnection(object):
             w.instance for w in species_wrappers if w.name != "photons"
         ]
 
-        all_collisions = self.create_collision_pairs(all_charged_species, ndt=25)
+        all_collisions = self.create_collision_pairs(all_charged_species, ndt=1)
 
         simulation = picmi.Simulation(
             warpx_serialize_initial_conditions=True,

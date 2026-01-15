@@ -7,7 +7,7 @@ from rich.text import Text
 from rich import print as rprint
 import sys
 
-from analysis.core.utils import setup_chinese_font
+from analysis.utils import setup_chinese_font
 
 # =============================================================================
 # 全局配置
