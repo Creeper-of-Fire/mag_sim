@@ -178,7 +178,7 @@ class ParametricTailModule(BaseComparisonModule):
     def _detect_variable_parameter(self, runs: List[SimulationRun]) -> Tuple[str, List[Any], List[SimulationRun]]:
         """
         对比所有 runs 的参数，找出哪个参数在变化。
-        返回: (参数名, 参数值列表, 排序后的runs)
+        如果存在多个变化的参数，则提示用户手动选择。
         """
         # 1. 收集所有参数
         run_params_map = []
@@ -205,27 +205,39 @@ class ParametricTailModule(BaseComparisonModule):
             if len(values) > 1:
                 varying_keys.append(k)
 
-        # 4. 确定 X 轴
+        # 4. 确定 X 轴 (交互逻辑)
         if len(varying_keys) == 0:
             console.print("[yellow]警告: 所有模拟的输入参数似乎都相同？将使用模拟名称作为 X 轴。[/yellow]")
             x_key = "Run Name"
-            # 这种情况下无需排序，直接返回
-            return x_key, [r.name for r in runs], runs
 
         elif len(varying_keys) == 1:
             x_key = varying_keys[0]
             console.print(f"[green]✔ 检测到单一扫描变量: [bold]{x_key}[/bold][/green]")
-        else:
-            # 多个变量在变，让用户选，或者默认选第一个
-            # 这里为了自动化，我们优先排除 'task_name' 之类的非物理参数
-            physics_keys = [k for k in varying_keys if k not in ['task_name', 'description']]
-            x_key = physics_keys[0] if physics_keys else varying_keys[0]
-            console.print(f"[yellow]⚠ 检测到多个变量在变化 {varying_keys}。自动选择: [bold]{x_key}[/bold][/yellow]")
 
-        # 5. 根据 X 轴的值对 runs 进行排序
+        else:
+            # --- 核心修改部分：手动选择 ---
+            console.print("\n[yellow]检测到多个变化的参数，请选择一个作为绘图的 X 轴：[/yellow]")
+            # 过滤掉一些干扰项，只显示给用户选
+            for i, key in enumerate(varying_keys):
+                # 获取该参数的变化范围示例
+                example_vals = list(set([str(item['params'].get(key)) for item in run_params_map]))[:3]
+                val_str = ", ".join(example_vals) + ("..." if len(example_vals) > 3 else "")
+                console.print(f"  {i + 1}) [bold cyan]{key:<20}[/bold cyan] (示例值: {val_str})")
+
+            choices = [str(i + 1) for i in range(len(varying_keys))]
+            idx_str = Prompt.ask(
+                "[bold]请输入参数编号[/bold]",
+                choices=choices,
+                default="1"
+            )
+            x_key = varying_keys[int(idx_str) - 1]
+            console.print(f"[green]已选择 [bold]{x_key}[/bold] 作为扫描基准。[/green]\n")
+
+        # 5. 根据选择的 X 轴的值对 runs 进行排序
         def sort_key(item):
             val = item['params'].get(x_key, 0)
-            # 尝试转为 float 排序，否则按 str
+            if x_key == "Run Name":
+                return item['run'].name
             try:
                 return float(val)
             except:
@@ -234,7 +246,7 @@ class ParametricTailModule(BaseComparisonModule):
         run_params_map.sort(key=sort_key)
 
         sorted_runs = [item['run'] for item in run_params_map]
-        sorted_values = [item['params'].get(x_key, "N/A") for item in run_params_map]
+        sorted_values = [item['params'].get(x_key, item['run'].name if x_key == "Run Name" else "N/A") for item in run_params_map]
 
         return x_key, sorted_values, sorted_runs
 
