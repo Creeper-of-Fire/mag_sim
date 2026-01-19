@@ -538,7 +538,7 @@ if __name__ == "__main__":
         "氘瓶颈 (Deuterium Bottleneck)": {"n_e": 7.28e33, "T_eV": 84480.0},
         "高能区 (High-Energy Regime)": {"n_e": 9.59e40, "T_eV": 8617000.0}
     }
-    sim_params_base = {"NX": 256, "LX": 100.0, "LT": 1000.0, "DT": 0.20}
+    sim_params_base = {"NX": 64, "LX": 25.0, "LT": 1000.0, "DT": 0.20}
 
     print("=" * 70)
     print(" 开始进行等离子体物理参数分析 ".center(70, "="))

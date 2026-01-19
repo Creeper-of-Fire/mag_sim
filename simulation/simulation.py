@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import inspect
+import itertools
 import typing
 
 import numpy as np
 from mpi4py import MPI as mpi
 from pywarpx import picmi, warpx
+from pywarpx.picmi import CoulombCollisions
 from scipy.constants import e, m_e, c
 
-import itertools
 from simulation.io_manager import IOManager
 from simulation.magnetic_field_models import InitialMagneticField, magnetic_field_factory
 from simulation.utils import Bunch, mpi_barrier, enable_mpi_print
@@ -355,10 +356,25 @@ class PlasmaReconnection(object):
 
 
         # 定义通用的热分布 Bucket 参数, 并合并 QED 参数
-        bucket_thermal = Bunch(
-            momentum_distribution_type="maxwell_juttner",
-            theta=theta_plasma,
-        )
+        # 自动选择分布类型：解决 WarpX theta < 0.1 报错问题
+        if theta_plasma >= 0.1:
+            # 相对论温度，使用 Maxwell-Juttner
+            dist_type = "maxwell_juttner"
+            bucket_thermal = Bunch(
+                momentum_distribution_type=dist_type,
+                theta=theta_plasma,
+            )
+        else:
+            # 低温（< 51.1 keV），使用 Gaussian 分布
+            # 在 PIC 单位制中，高斯分布的热动量标准差 u_th = sqrt(kT/mc^2) = sqrt(theta)
+            dist_type = "gaussian"
+            u_th = np.sqrt(theta_plasma)
+            bucket_thermal = Bunch(
+                momentum_distribution_type=dist_type,
+                ux_m=0.0, uy_m=0.0, uz_m=0.0,  # 均值
+                ux_th=u_th, uy_th=u_th, uz_th=u_th  # 热弥散
+            )
+
 
         # 定义beam参数
         bucket_beam_e = Bunch(
@@ -455,7 +471,7 @@ class PlasmaReconnection(object):
         return species_wrappers
 
     @staticmethod
-    def create_collision_pairs(species_list: list, ndt: int, coulomb_log: float = None) -> list:
+    def create_collision_pairs(species_list: list, ndt: int, coulomb_log: float = None) -> list[CoulombCollisions]:
         """
         根据给定的物种列表，自动创建所有唯一的二进制碰撞对。
         这包括物种间的碰撞和物种内的自碰撞。
@@ -468,11 +484,11 @@ class PlasmaReconnection(object):
         Returns:
             一个包含所有 picmi.CoulombCollisions 对象的列表。
         """
-        collision_objects = []
+        collision_objects: list[CoulombCollisions] = []
         # itertools.combinations_with_replacement 会生成所有唯一的组合，包括 (A,A), (A,B), (B,B)
         for s1, s2 in itertools.combinations_with_replacement(species_list, 2):
             collision_name = f"coll_{s1.name}__{s2.name}"
-            collision_pair = picmi.CoulombCollisions(
+            collision_pair: CoulombCollisions = picmi.CoulombCollisions(
                 name=collision_name,
                 species=[s1, s2],
                 CoulombLog=coulomb_log,
@@ -504,23 +520,27 @@ class PlasmaReconnection(object):
         # 添加库仑碰撞
         #######################################################################
 
-        print("\n--- 正在生成二元库仑碰撞对 ---")
-        all_charged_species = [
-            w.instance for w in species_wrappers if w.name != "photons"
-        ]
-
-        all_collisions = self.create_collision_pairs(all_charged_species, ndt=1)
-
-        simulation = picmi.Simulation(
+        simulation_args = Bunch(
             warpx_serialize_initial_conditions=True,
             verbose=0,
-            warpx_collisions=all_collisions,  # 传递包含多个碰撞对象的列表
             warpx_particle_pusher_algo="boris",
             warpx_reduced_diags_path=str(self.io.diags_dir),
             warpx_used_inputs_file=str(self.io.output_dir / "warpx_used_inputs")
         )
+
+        if self.p.enable_collision:
+            print("\n--- 正在生成二元库仑碰撞对 ---")
+            all_charged_species = [
+                w.instance for w in species_wrappers if w.name != "photons"
+            ]
+            all_collisions = self.create_collision_pairs(all_charged_species, ndt=1)
+            simulation_args.warpx_collisions = all_collisions  # 传递包含多个碰撞对象的列表
+            print(f"--- 总共 {len(all_collisions)} 个碰撞对已添加到模拟中。 ---\n")
+
+        simulation = picmi.Simulation(
+            **simulation_args
+        )
         self.simulation = simulation
-        print(f"--- 总共 {len(all_collisions)} 个碰撞对已添加到模拟中。 ---\n")
 
         #######################################################################
         # 设置几何、边界条件和时间步
