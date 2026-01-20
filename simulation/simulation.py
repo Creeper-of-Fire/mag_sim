@@ -10,7 +10,7 @@ from pywarpx.picmi import CoulombCollisions
 from scipy.constants import e, m_e, c
 
 from simulation.io_manager import IOManager
-from simulation.magnetic_field_models import InitialMagneticField, magnetic_field_factory
+from simulation.magnetic_field_models import InitialMagneticField, magnetic_field_factory, Dim
 from simulation.utils import Bunch, mpi_barrier, enable_mpi_print
 
 if typing.TYPE_CHECKING:
@@ -104,6 +104,20 @@ class PlasmaReconnection(object):
         self.verbose = verbose
         self.enable_qed = self.p.enable_qed
         self.io = IOManager(self.output_dir)
+
+        # 确定模拟维度
+        # 假设 params (config) 可能包含 'dim' 属性，如果是整数2或3，转换为枚举
+        if hasattr(self.p, 'dim'):
+            if isinstance(self.p.dim, int):
+                self.dim = Dim(self.p.dim)
+            elif isinstance(self.p.dim, Dim):
+                self.dim = self.p.dim
+            else:
+                self.dim = Dim.D3 # 默认 fallback
+        else:
+            self.dim = Dim.D3 # 默认为 3D
+
+        print(f"\n=== 初始化模拟 [维度: {self.dim.name}] ===")
 
         self._calculate_derived_parameters()
 
@@ -227,7 +241,10 @@ class PlasmaReconnection(object):
         self.Lz = self.LZ * self.d_e
         self.dt = self.DT / self.w_pe  # dt based on w_pe
         self.dx = self.Lx / self.NX
-        self.dy = self.Ly / self.NY
+        if self.dim == Dim.D3:
+            self.dy = self.Ly / self.NY
+        else:
+            self.dy = 0.0
         self.dz = self.Lz / self.NZ
 
         # 诊断频率
@@ -261,11 +278,12 @@ class PlasmaReconnection(object):
             f"\t相对论Theta参数 = {self.theta:.3f}\n"
         )
         print("--- 数值参数 ---")
+        dims_str = f"{self.Lx:.3e}m x {self.Ly:.3e}m x {self.Lz:.3e}m" if self.dim == Dim.D3 else f"{self.Lx:.3e}m x {self.Lz:.3e}m (XZ Plane)"
+        grid_str = f"{self.NX} x {self.NY} x {self.NZ}" if self.dim == Dim.D3 else f"{self.NX} x {self.NZ}"
+
         print(
-            f"\t计算域 = {self.Lx:.3e}m x {self.Ly:.3e}m x {self.Lz:.3e}m "
-            f"({self.LX:.0f} d_e x {self.LY:.0f} d_e x {self.LZ:.0f} d_e)\n"
-            f"\t网格 = {self.NX} x {self.NY} x {self.NZ}\n"
-            f"\tdx = {self.Lx / self.NX:.3e} m, dy = {self.Ly / self.NY:.3e} m, dz = {self.Lz / self.NZ:.3e} m\n"
+            f"\t计算域 = {dims_str}\n"
+            f"\t网格 = {grid_str}\n"
             f"\t时间步长 = {self.dt:.3e} s ({self.DT:.2e} / w_pe)\n"
             f"\t总步数 = {self.total_steps:d} (运行时间 = {self.total_steps * self.dt:.3e} s)\n"
         )
@@ -277,6 +295,10 @@ class PlasmaReconnection(object):
         params_to_save.pop('magnetic_field', None)  # 移除整个对象
         params_to_save.pop('p', None)  # 移除原始配置对象，因为其信息已被提取
         params_to_save.pop('io', None)  # 移除 IOManager
+
+
+        # 将 Enum 转换为 int 存储，方便序列化
+        params_to_save['dim'] = self.dim.value
 
         # 添加可复现的磁场符号表示
         params_to_save['Bx_srepr'] = self.magnetic_field.Bx_srepr
@@ -302,6 +324,8 @@ class PlasmaReconnection(object):
             num_gaussians=self.p.num_gaussians,
             gaussian_width_de_ratio=self.p.gaussian_width_de_ratio,
             B_field_type=self.p.B_field_type,
+
+            dim=self.dim
         )
         # 使用工厂创建磁场对象
         self.magnetic_field: InitialMagneticField = magnetic_field_factory(b_field_config)
@@ -546,16 +570,31 @@ class PlasmaReconnection(object):
         # 设置几何、边界条件和时间步
         #######################################################################
 
-        self.grid = picmi.Cartesian3DGrid(
-            number_of_cells=[self.NX, self.NY, self.NZ],
-            lower_bound=[-self.Lx / 2.0, -self.Ly / 2.0, -self.Lz / 2.0],
-            upper_bound=[self.Lx / 2.0, self.Ly / 2.0, self.Lz / 2.0],
-            lower_boundary_conditions=["periodic", "periodic", "periodic"],
-            upper_boundary_conditions=["periodic", "periodic", "periodic"],
-            lower_boundary_conditions_particles=["periodic", "periodic", "periodic"],
-            upper_boundary_conditions_particles=["periodic", "periodic", "periodic"],
-            warpx_max_grid_size=min(self.NX, self.NY, self.NZ),  # 调整最大网格大小
-        )
+        if self.dim == Dim.D3:
+            print("  -> 创建 Cartesian 3D Grid")
+            self.grid = picmi.Cartesian3DGrid(
+                number_of_cells=[self.NX, self.NY, self.NZ],
+                lower_bound=[-self.Lx / 2.0, -self.Ly / 2.0, -self.Lz / 2.0],
+                upper_bound=[self.Lx / 2.0, self.Ly / 2.0, self.Lz / 2.0],
+                lower_boundary_conditions=["periodic", "periodic", "periodic"],
+                upper_boundary_conditions=["periodic", "periodic", "periodic"],
+                lower_boundary_conditions_particles=["periodic", "periodic", "periodic"],
+                upper_boundary_conditions_particles=["periodic", "periodic", "periodic"],
+                warpx_max_grid_size=min(self.NX, self.NY, self.NZ),
+            )
+        else: # Dim.D2
+            print("  -> 创建 Cartesian 2D Grid (X-Z Plane)")
+            self.grid = picmi.Cartesian2DGrid(
+                number_of_cells=[self.NX, self.NZ],
+                lower_bound=[-self.Lx / 2.0, -self.Lz / 2.0],
+                upper_bound=[self.Lx / 2.0, self.Lz / 2.0],
+                # 2D 只需要 2 个边界条件 (x, z)
+                lower_boundary_conditions=["periodic", "periodic"],
+                upper_boundary_conditions=["periodic", "periodic"],
+                lower_boundary_conditions_particles=["periodic", "periodic"],
+                upper_boundary_conditions_particles=["periodic", "periodic"],
+                warpx_max_grid_size=min(self.NX, self.NZ),
+            )
         simulation.time_step_size = self.dt
         simulation.max_steps = self.total_steps
         simulation.current_deposition_algo = "direct"
@@ -600,23 +639,24 @@ class PlasmaReconnection(object):
         ]
 
         # 探测平面诊断
-        plane = picmi.ReducedDiagnostic(
-            diag_type="FieldProbe",
-            name="plane",
-            period=self.field_diag_steps,
-            path=str(self.io.diags_dir) + "/",
-            extension="dat",
-            probe_geometry="Plane",
-            resolution=60,
-            x_probe=0.0,
-            y_probe=0.0,
-            z_probe=0.0,
-            detector_radius=self.d_e,
-            target_up_x=0,
-            target_up_y=0,
-            target_up_z=1.0,
-        )
-        simulation.add_diagnostic(plane)
+        if self.dim == Dim.D3:
+            plane = picmi.ReducedDiagnostic(
+                diag_type="FieldProbe",
+                name="plane",
+                period=self.field_diag_steps,
+                path=str(self.io.diags_dir) + "/",
+                extension="dat",
+                probe_geometry="Plane",
+                resolution=60,
+                x_probe=0.0,
+                y_probe=0.0,
+                z_probe=0.0,
+                detector_radius=self.d_e,
+                target_up_x=0,
+                target_up_y=0,
+                target_up_z=1.0,
+            )
+            simulation.add_diagnostic(plane)
 
         # 粒子状态快照 (OpenPMD格式)
         particle_state_diag = picmi.ParticleDiagnostic(

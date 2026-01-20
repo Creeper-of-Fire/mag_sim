@@ -12,6 +12,9 @@ class SimulationParameters:
     enable_collision = True
 
     # --- 1. 基础物理参数 (Independent Physical Parameters) ---
+    # 维度
+    dim = 3
+
     # 这些参数现在描述一个相对论性的电子-正电子对等离子体
 
     # 目标磁化率 (Sigma)
