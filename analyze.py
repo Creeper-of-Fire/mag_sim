@@ -131,24 +131,66 @@ def _run_analysis_workflow(selected_modules: List[AnyModule], selected_dirs: Lis
             console.print(traceback.format_exc())
 
 
-def _run_tool_workflow(tool_name: str, selected_dirs: List[str]):
-    """执行预处理工具的工作流。"""
+def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
+    """
+    执行预处理工具的工作流。
+    tool_mode: 可能是 'interactive', 'slimmer', 或 'pruner'
+    """
     if not selected_dirs:
         return
 
-    if tool_name == 'slimmer':
-        try:
-            # 动态导入，避免如果不使用工具时的额外开销
-            from analysis.tools import slimmer
-        except ImportError:
-            console.print("[red]错误: 无法导入 'slimmer' 工具。请确保 'analysis/tools/slimmer.py' 文件存在。[/red]")
-            return
+    # --- 动态导入工具 ---
+    tools_available = {}
 
-        # 所有的逻辑（UI、并行、确认、移动）都封装在这里面
-        slimmer.run_interactive_workflow(selected_dirs)
+    # 尝试导入 Slimmer
+    try:
+        from analysis.tools import slimmer
+        tools_available['slimmer'] = slimmer.run_interactive_workflow
+    except ImportError:
+        pass  # 忽略缺失的工具
 
+    # 尝试导入 Pruner
+    try:
+        from analysis.tools import pruner
+        tools_available['pruner'] = pruner.run_pruner_interactive
+    except ImportError:
+        pass
+
+    if not tools_available:
+        console.print("[red]错误: 未找到任何可用工具 (slimmer/pruner)。请检查 analysis/tools 目录。[/red]")
+        return
+
+    # --- 交互式选择 (如果用户只输入了 -t 而没有指定名称) ---
+    target_tool = tool_mode
+    if tool_mode == 'interactive':
+        console.print("\n[bold underline]可用工具列表：[/bold underline]")
+        tool_names = list(tools_available.keys())
+
+        # 显示菜单
+        console.print(f"[[cyan]s[/cyan]] [magenta]slimmer[/magenta] (粒子数据压缩/瘦身)")
+        console.print(f"[[cyan]p[/cyan]] [magenta]pruner[/magenta]  (仅保留首/中/尾时刻，删除其余)")
+        console.print("")
+
+        choice = Prompt.ask(
+            "[bold]请选择工具[/bold]",
+            choices=tool_names + ['s', 'p'],
+            default='slimmer'
+        )
+
+        # 映射快捷键
+        if choice == 's':
+            target_tool = 'slimmer'
+        elif choice == 'p':
+            target_tool = 'pruner'
+        else:
+            target_tool = choice
+
+    # --- 执行工具 ---
+    if target_tool in tools_available:
+        console.print(f"\n[bold green]>>> 正在启动 {target_tool} 工具...[/bold green]")
+        tools_available[target_tool](selected_dirs)
     else:
-        console.print(f"[red]错误: 未知的工具名称 '{tool_name}'[/red]")
+        console.print(f"[red]错误: 未知的工具名称 '{target_tool}'[/red]")
 
 def main():
     """主执行函数"""
@@ -192,9 +234,10 @@ def main():
     )
     mode_group.add_argument(
         '-t', '--tool',
+        nargs='?',             # 表示参数是可选的 (0个或1个)
+        const='interactive',   # 如果有 -t 但没给值，args.tool = 'interactive'
         type=str,
-        choices=['slimmer'],
-        help="进入工具模式。可用工具: 'slimmer' (粒子数据瘦身)。"
+        help="进入工具模式。指定 'slimmer' 或 'pruner' 可直接运行，留空则进入交互菜单。"
     )
 
     args = parser.parse_args()

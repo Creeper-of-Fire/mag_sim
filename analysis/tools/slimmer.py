@@ -31,6 +31,9 @@ TARGET_PPC = 200
 CORE_BIN_FRACTION = 0.3
 DELTA = 1e-9
 
+# 绘图时最大采样粒子数，防止绘图撑爆内存
+MAX_PLOT_PARTICLES = 500_000
+
 # 限制并发数，绘图和H5操作较吃内存，建议设为 CPU 核心数的一半或更少
 MAX_CONCURRENT_PROCESSES = max(1, os.cpu_count() // 4)
 
@@ -149,12 +152,16 @@ def _generate_comparison_plot(original_data: Dict[str, np.ndarray], compressed_d
         print(f"Plotting error for {filename}: {e}")
     finally:
         plt.close('all')  # 确保释放内存
+        gc.collect()
 
 
 # --- Worker Process ---
 
 def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, progress_queue: multiprocessing.Queue) -> Optional[Tuple[Path, Path, int, int]]:
     unique_task_id = f"{dir_name}:{h5_path.name}"  # 使用文件名作为ID，显示更简洁
+
+    # 显式调用垃圾回收，清除上一个任务可能残留的内存
+    gc.collect()
 
     temp_h5_path = h5_path.with_suffix(".h5.tmp")
     # 在预览图中加入 dir_name 前缀，防止同名覆盖
@@ -223,6 +230,10 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
                     all_energies_for_bins.append(_calculate_kinetic_energy(px, py, pz))
                     total_raw_particles += w.size
 
+                # 立即释放大数组
+                del px, py, pz, w
+                gc.collect()
+
         # 显式垃圾回收
         gc.collect()
 
@@ -232,13 +243,15 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
 
         # Create global decision bins
         decision_bins, _ = _create_hybrid_bins(np.concatenate(all_energies_for_bins))
-        del all_energies_for_bins
+        del all_energies_for_bins # 释放能量数组
         gc.collect()
 
-        # Pass 2: Compress
+        # --- Pass 2: 压缩并写入 ---
         total_comp_particles = 0
-        all_energies_raw_plot, all_weights_raw_plot = [], []
-        all_energies_comp_plot, all_weights_comp_plot = [], []
+
+        # 用于绘图的数据容器
+        plot_data_raw = {'e': [], 'w': []}
+        plot_data_comp = {'e': [], 'w': []}
 
         with h5py.File(h5_path, 'r') as f_in, h5py.File(temp_h5_path, 'w') as f_out:
             step_key = list(f_in['data'].keys())[0]
@@ -262,14 +275,26 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
                 if weights.size == 0:
                     continue
 
-                all_energies_raw_plot.append(_calculate_kinetic_energy(px, py, pz))
-                all_weights_raw_plot.append(weights)
+                # --- 收集原始绘图数据 (降采样) ---
+                current_energy = _calculate_kinetic_energy(px, py, pz)
+                if weights.size > MAX_PLOT_PARTICLES:
+                    idx = np.random.choice(weights.size, MAX_PLOT_PARTICLES, replace=False)
+                    plot_data_raw['e'].append(current_energy[idx])
+                    plot_data_raw['w'].append(weights[idx] * (weights.size / MAX_PLOT_PARTICLES)) # 修正权重以保持直方图高度
+                else:
+                    plot_data_raw['e'].append(current_energy)
+                    plot_data_raw['w'].append(weights)
 
-                # Compression
+                # --- 压缩 ---
                 c_px, c_py, c_pz, c_w = _compress_species_data(
                     px, py, pz, weights, decision_bins,
                     progress_queue, unique_task_id
                 )
+
+                # 释放原始数据
+                del px, py, pz, weights, current_energy
+                gc.collect()
+
                 total_comp_particles += len(c_w)
 
                 species_out_group = particles_out_group.create_group(species_name)
@@ -282,26 +307,40 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
                 for key, val in species_in_group.attrs.items():
                     species_out_group.attrs[key] = val
 
+                # --- 收集压缩绘图数据 (降采样) ---
                 if c_w.size > 0:
-                    all_energies_comp_plot.append(_calculate_kinetic_energy(c_px, c_py, c_pz))
-                    all_weights_comp_plot.append(c_w)
+                    c_energy = _calculate_kinetic_energy(c_px, c_py, c_pz)
+                    if c_w.size > MAX_PLOT_PARTICLES:
+                        idx = np.random.choice(c_w.size, MAX_PLOT_PARTICLES, replace=False)
+                        plot_data_comp['e'].append(c_energy[idx])
+                        plot_data_comp['w'].append(c_w[idx] * (c_w.size / MAX_PLOT_PARTICLES))
+                    else:
+                        plot_data_comp['e'].append(c_energy)
+                        plot_data_comp['w'].append(c_w)
 
-                # 显式清理，防止多物种内存累积导致 crash
-                del px, py, pz, weights, c_px, c_py, c_pz, c_w
+                    del c_energy
+
+                # 释放压缩临时数据
+                del c_px, c_py, c_pz, c_w
                 gc.collect()
 
         # Plotting
-        final_energies_raw = np.concatenate(all_energies_raw_plot) if all_energies_raw_plot else np.array([])
-        final_weights_raw = np.concatenate(all_weights_raw_plot) if all_weights_raw_plot else np.array([])
-        final_energies_comp = np.concatenate(all_energies_comp_plot) if all_energies_comp_plot else np.array([])
-        final_weights_comp = np.concatenate(all_weights_comp_plot) if all_weights_comp_plot else np.array([])
+        # 此时内存中只有降采样后的绘图数据，大大降低 OOM 风险
+        final_e_raw = np.concatenate(plot_data_raw['e']) if plot_data_raw['e'] else np.array([])
+        final_w_raw = np.concatenate(plot_data_raw['w']) if plot_data_raw['w'] else np.array([])
+        final_e_comp = np.concatenate(plot_data_comp['e']) if plot_data_comp['e'] else np.array([])
+        final_w_comp = np.concatenate(plot_data_comp['w']) if plot_data_comp['w'] else np.array([])
 
         _generate_comparison_plot(
-            {'energy': final_energies_raw, 'weights': final_weights_raw},
-            {'energy': final_energies_comp, 'weights': final_weights_comp},
+            {'energy': final_e_raw, 'weights': final_w_raw},
+            {'energy': final_e_comp, 'weights': final_w_comp},
             f"{dir_name}/{h5_path.name}", # 标题显示目录名
             plot_path
         )
+
+        # 释放绘图数据
+        del final_e_raw, final_w_raw, final_e_comp, final_w_comp, plot_data_raw, plot_data_comp
+        gc.collect()
 
         progress_queue.put(('finish_file', unique_task_id))
         return (temp_h5_path, h5_path, total_raw_particles, total_comp_particles)

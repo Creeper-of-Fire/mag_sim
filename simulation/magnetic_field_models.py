@@ -3,6 +3,7 @@ import abc
 import random
 import time
 import typing
+from enum import Enum
 
 import numpy as np
 import sympy
@@ -13,6 +14,11 @@ from simulation.utils import Bunch, enable_mpi_print
 comm = mpi.COMM_WORLD
 
 enable_mpi_print()
+
+class Dim(Enum):
+    """模拟维度枚举"""
+    D2 = 2
+    D3 = 3
 
 class InitialMagneticField(abc.ABC):
     """
@@ -25,11 +31,12 @@ class InitialMagneticField(abc.ABC):
     3. 提供可供 WarpX 使用的数值字符串和可供分析存档的 srepr 字符串。
     """
 
-    def __init__(self, Lx: float, Ly: float, Lz: float, B_target_rms: float):
+    def __init__(self, Lx: float, Ly: float, Lz: float, B_target_rms: float, dim: Dim = Dim.D3):
         self.Lx = Lx
         self.Ly = Ly
         self.Lz = Lz
         self.B_target_rms = B_target_rms
+        self.dim = dim
 
         # 定义 sympy 符号
         self.x, self.y, self.z = sympy.symbols('x y z')
@@ -40,7 +47,7 @@ class InitialMagneticField(abc.ABC):
         self.Bz_expr: typing.Optional[sympy.Expr] = None
 
         # 构建表达式
-        print(f"\n--- 构建初始磁场: {self.__class__.__name__} ---")
+        print(f"\n--- 构建初始磁场: {self.__class__.__name__} [{self.dim.name}] ---")
         self._build_expressions()
         print(f"--- 磁场构建完毕 ---\n")
 
@@ -141,6 +148,9 @@ class ABCField(InitialMagneticField):
     """ABC (Arnold-Beltrami-Childress) 磁流体湍流种子场。"""
 
     def _build_expressions(self):
+        if self.dim == Dim.D2:
+            raise NotImplementedError("ABC 场是 3D 结构，不支持 2D 模拟。")
+
         kx = 2 * sympy.pi / self.Lx
         ky = 2 * sympy.pi / self.Ly
         kz = 2 * sympy.pi / self.Lz
@@ -161,20 +171,32 @@ class OrszagTangField(InitialMagneticField):
 
     def _build_expressions(self):
         kx = 2 * sympy.pi / self.Lx
-        ky = 2 * sympy.pi / self.Ly
+        # 注意: WarpX 2D 中，通常坐标是 x, z。Y 是 out-of-plane。
+        # 标准 OT 涡定义在 x-y 平面。
+        # 为了适配 WarpX 2D (xz平面)，我们将原本 y 的依赖映射到 z。
 
-        self.Bx_expr = -self.B_target_rms * sympy.sin(ky * self.y)
-        self.By_expr = self.B_target_rms * sympy.sin(2 * kx * self.x)
-        self.Bz_expr = sympy.sympify(0.0)
+        if self.dim == Dim.D2:
+            # 2D 模式: x->x, y->z (模拟平面的第二个维度)
+            kz = 2 * sympy.pi / self.Lz
+            self.Bx_expr = -self.B_target_rms * sympy.sin(kz * self.z)
+            self.Bz_expr = self.B_target_rms * sympy.sin(2 * kx * self.x)
+            self.By_expr = sympy.sympify(0.0)  # Out of plane component
+        else:
+            # 3D 模式: 标准定义
+            ky = 2 * sympy.pi / self.Ly
+            self.Bx_expr = -self.B_target_rms * sympy.sin(ky * self.y)
+            self.By_expr = self.B_target_rms * sympy.sin(2 * kx * self.x)
+            self.Bz_expr = sympy.sympify(0.0)
 
-        print(f"  - 创建 Orszag-Tang 涡旋 (2D湍流种子):")
+        print(f"  - 创建 Orszag-Tang 涡旋:")
+        print(f"    - 维度: {self.dim.name}")
         print(f"    - 振幅 B0={self.B_target_rms:.2e} T")
 
 
 class GaussianField(InitialMagneticField):
     """由多个高斯包叠加构成的随机磁场。"""
 
-    def __init__(self, Lx: float, Ly: float, Lz: float, B_target_rms: float,
+    def __init__(self, Lx: float, Ly: float, Lz: float, B_target_rms: float, dim: Dim,
                  d_e: float, NX: int, NY: int, NZ: int,
                  num_gaussians: int, gaussian_width_de_ratio: float):
         self.d_e = d_e
@@ -184,7 +206,7 @@ class GaussianField(InitialMagneticField):
         self.num_gaussians = num_gaussians
         self.gaussian_width_de_ratio = gaussian_width_de_ratio
 
-        super().__init__(Lx, Ly, Lz, B_target_rms)
+        super().__init__(Lx, Ly, Lz, B_target_rms,dim)
 
     def _analytical_normalization(self) -> float:
         """
@@ -196,18 +218,24 @@ class GaussianField(InitialMagneticField):
             float: 单个高斯包应有的峰值磁场振幅 B_peak。
         """
         # 物理参数
-        wx = self.gaussian_width_de_ratio * self.d_e
-        wy = self.gaussian_width_de_ratio * self.d_e
-        wz = self.gaussian_width_de_ratio * self.d_e
-        V = self.Lx * self.Ly * self.Lz
+        w = self.gaussian_width_de_ratio * self.d_e
 
-        # 计算单个单位峰值高斯包对 B_rms^2 的贡献
-        # B_rms_single^2 = (1/V) * ∫ B_peak^2 * exp(-2*(...)) dV
-        # 当 B_peak=1 时, ∫ exp(-2*[(x/wx)^2 + (y/wy)^2 + (z/wz)^2]) dV
-        # = ∫ exp(-2x^2/wx^2)dx * ∫ exp(-2y^2/wy^2)dy * ∫ exp(-2z^2/wz^2)dz
-        # = sqrt(π*wx^2/2) * sqrt(π*wy^2/2) * sqrt(π*wz^2/2)
-        # = (π/2)^(3/2) * wx * wy * wz
-        integral_B2_unit = (np.pi / 2.0) ** 1.5 * wx * wy * wz
+        if self.dim == Dim.D3:
+            # 3D: ∫ exp(-2r^2/w^2) dV = (pi/2)^(3/2) * w^3
+            # 计算单个单位峰值高斯包对 B_rms^2 的贡献
+            # B_rms_single^2 = (1/V) * ∫ B_peak^2 * exp(-2*(...)) dV
+            # 当 B_peak=1 时, ∫ exp(-2*[(x/wx)^2 + (y/wy)^2 + (z/wz)^2]) dV
+            # = ∫ exp(-2x^2/wx^2)dx * ∫ exp(-2y^2/wy^2)dy * ∫ exp(-2z^2/wz^2)dz
+            # = sqrt(π*wx^2/2) * sqrt(π*wy^2/2) * sqrt(π*wz^2/2)
+            # = (π/2)^(3/2) * wx * wy * wz
+            V = self.Lx * self.Ly * self.Lz
+            integral_B2_unit = (np.pi / 2.0) ** 1.5 * (w ** 3)
+        else:
+            # 2D (XZ平面): ∫ exp(-2(x^2+z^2)/w^2) dA = (pi/2) * w^2
+            # 这里的 "Volume" V 实际上是模拟区域的面积 Area
+            V = self.Lx * self.Lz
+            integral_B2_unit = (np.pi / 2.0) * (w ** 2)
+
         B_rms_single_sq_unit = integral_B2_unit / V
 
         # 总 B_rms^2 是 N 个高斯包贡献之和 (假设不相关)
@@ -227,9 +255,7 @@ class GaussianField(InitialMagneticField):
 
     def _build_expressions(self):
         # 物理参数
-        wx = self.gaussian_width_de_ratio * self.d_e
-        wy = self.gaussian_width_de_ratio * self.d_e
-        wz = self.gaussian_width_de_ratio * self.d_e
+        w = self.gaussian_width_de_ratio * self.d_e
 
         final_params_list  = None
         if comm.rank == 0:
@@ -240,7 +266,12 @@ class GaussianField(InitialMagneticField):
             final_params_list = []
             for _ in range(self.num_gaussians):
                 x0 = random.uniform(-self.Lx / 2.0, self.Lx / 2.0)
-                y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
+
+                if self.dim == Dim.D3:
+                    y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
+                else:
+                    y0 = 0.0 # 2D 模式下 y 坐标无意义（或者是 invariant 方向）
+
                 z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
                 # 生成单位方向向量
                 rand_vec = np.array([random.gauss(0, 1) for _ in range(3)]) # 使用高斯分布更均匀
@@ -262,7 +293,17 @@ class GaussianField(InitialMagneticField):
         bx_terms, by_terms, bz_terms = [], [], []
         for i, params in enumerate(final_params_list):
             x0, y0, z0, b_peak_x, b_peak_y, b_peak_z = params
-            gaussian_expr = sympy.exp(-(((self.x - x0) / wx) ** 2 + ((self.y - y0) / wy) ** 2 + ((self.z - z0) / wz) ** 2))
+
+            if self.dim == Dim.D3:
+                # 3D Gaussian: exp(-(dx^2 + dy^2 + dz^2))
+                r2_norm = ((self.x - x0) / w) ** 2 + ((self.y - y0) / w) ** 2 + ((self.z - z0) / w) ** 2
+            else:
+                # 2D Gaussian (Cylinder): exp(-(dx^2 + dz^2))
+                # 注意：这里我们假设 WarpX 2D 是 X-Z 平面
+                r2_norm = ((self.x - x0) / w) ** 2 + ((self.z - z0) / w) ** 2
+
+            gaussian_expr = sympy.exp(-r2_norm)
+
             bx_terms.append(b_peak_x * gaussian_expr)
             by_terms.append(b_peak_y * gaussian_expr)
             bz_terms.append(b_peak_z * gaussian_expr)
@@ -285,6 +326,7 @@ def magnetic_field_factory(config: Bunch) -> InitialMagneticField:
         Ly=config.Ly,
         Lz=config.Lz,
         B_target_rms=config.B_target_rms,
+        dim=config.dim
     )
 
     if field_type == "uniform":
