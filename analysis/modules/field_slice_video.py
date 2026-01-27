@@ -87,22 +87,17 @@ class FieldSliceVideoModule(BaseVideoModule):
         return global_max
 
     def _generate_video_for_run(self, run: SimulationRun, output_name: str):
-        # 1. 将临时文件夹建在 config.output_dir 内部
-        # 这样既整洁，又避免了路径混乱
-        # config.output_dir / JobName
-        base_output_dir = Path(config.output_dir) / run.job_name
-
-        # 临时帧文件夹放在 Job 目录下更合适，或者放在总的 temp 下均可
-        # 这里建议放在 Job 目录下，方便查错，完事后会自动删除
-        temp_dir = base_output_dir / "temp_video_frames"
+        # 目标目录: JobDir/analysis/videos
+        video_output_dir = run.job_path / config.analysis_folder_name / config.video_subfolder
+        video_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 临时目录: JobDir/analysis/videos/temp_frames_{run_name}
+        temp_dir = video_output_dir / f"temp_frames_{run.name}"
 
         # 确保目录存在，清理旧的临时文件
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
         temp_dir.mkdir(parents=True, exist_ok=True)
-
-        # 确保 Job 输出目录存在 (用于保存最终 mp4)
-        base_output_dir.mkdir(parents=True, exist_ok=True)
 
         global_b_max = self._find_global_b_max(run)
         frame_paths = []
@@ -178,7 +173,7 @@ class FieldSliceVideoModule(BaseVideoModule):
         console.print(f"  [cyan]正在将 {len(frame_paths)} 帧合成为 '{output_name}'...[/cyan]")
 
         # 最终视频也保存到 output_dir 中
-        final_video_path = base_output_dir / output_name
+        final_video_path = video_output_dir / output_name
 
         try:
             with imageio.get_writer(final_video_path, mode='I', fps=FPS, codec='libx264', quality=QUALITY, pixelformat='yuv420p') as writer:

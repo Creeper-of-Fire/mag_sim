@@ -10,7 +10,7 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from matplotlib.figure import Figure
 from rich.console import Console
@@ -280,47 +280,98 @@ def select_directories() -> List[str]:
     console.print(f"[green]✔ 已选中 {len(final_paths)} 个模拟数据目录。[/green]")
     return final_paths
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .simulation import SimulationRun
+
+def _determine_output_base_path(run_or_runs: Union['SimulationRun', List['SimulationRun'], None]) -> Path:
+    """
+    根据传入的模拟对象，智能决定基础输出目录。
+    
+    逻辑:
+    1. None -> 使用全局配置的 output_dir。
+    2. 单个 Run -> JobDir/analysis/single_runs。
+    3. 多个 Run (属于同一个 Job) -> JobDir/analysis/comparisons。
+    4. 多个 Run (跨 Job) -> Global_Dir/cross_job_comparisons。
+    """
+    if run_or_runs is None:
+        return Path(config.global_output_dir)
+
+    # 情况 A: 单个模拟
+    if not isinstance(run_or_runs, list):
+        run = run_or_runs
+        return run.job_path / config.analysis_folder_name / config.single_analysis_subfolder / run.name
+
+    # 情况 B: 多个模拟
+    runs = run_or_runs
+    if not runs:
+        return Path(config.global_output_dir)
+
+    # 检查是否所有 run 都来自同一个 Job
+    first_job = runs[0].job_path
+    all_same_job = all(r.job_path == first_job for r in runs)
+
+    if all_same_job:
+        # 同一个 Job 的对比 -> 存入该 Job 的 comparisons 目录
+        return first_job / config.analysis_folder_name / config.comparison_subfolder
+    else:
+        # 跨 Job 对比 -> 存入全局目录
+        return Path(config.global_output_dir) / "cross_job_comparisons"
 
 # =============================================================================
 # 绘图辅助函数
 # =============================================================================
-def save_figure(fig: Figure, filename: str, subfolder: Optional[str] = None, parent_folder: Optional[str] = None):
+def save_figure(
+    fig: Figure, 
+    filename: str, 
+    run_or_runs: Union['SimulationRun', List['SimulationRun'], None] = None,
+    subfolder: Optional[str] = None
+):
     """
-    将 Matplotlib Figure 保存到配置的输出目录中，可选择指定子文件夹。
+    将 Matplotlib Figure 保存到智能计算的目录中。
 
-    此函数封装了以下操作：
-    1. 从全局配置 `config.output_dir` 构建基础输出路径。
-    2. 如果提供了 `subfolder`，则将其拼接到路径中。
-    3. 确保目标目录存在。
-    4. 以标准参数 (dpi=200, bbox_inches='tight') 保存图像。
     Args:
         fig (Figure): 要保存的 Matplotlib Figure 对象。
-        filename (str): 输出文件的基本名称 (例如 "spectrum_analysis.png")。
-        subfolder (str, optional): 要在输出目录中创建/使用的子文件夹名称。
-        parent_folder: 父文件夹 (通常是 Job Name)
+        filename (str): 输出文件的基本名称。
+        run_or_runs: 用于上下文判断的模拟对象（单个或列表）。
+                     如果不传，将保存到 config.global_output_dir 根目录。
+        subfolder (str, optional): 在智能路径下的进一步子文件夹 (例如 "with_table")。
     """
-    # 构造路径
-    base_dir = Path(config.output_dir)
+    # 1. 确定基础路径
+    base_dir = _determine_output_base_path(run_or_runs)
 
-    if parent_folder:
-        base_dir = base_dir / parent_folder
-
+    # 2. 拼接子文件夹 (如果有)
     if subfolder:
         output_dir = base_dir / subfolder
     else:
         output_dir = base_dir
 
-    # 确保目录存在
-    os.makedirs(output_dir, exist_ok=True)
+    # 3. 确保目录存在
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        console.print(f"[red]创建目录失败 {output_dir}: {e}[/red]")
+        return
 
     output_path = output_dir / filename
 
-    # 保存图像
-    fig.savefig(output_path, dpi=200, bbox_inches='tight')
-
-    # 打印确认信息
+    # 4. 保存图像
+    # 使用 bbox_inches='tight' 裁剪空白
     try:
-        rel_path = output_path.relative_to(Path.cwd())
-        console.print(f"  [green]✔ 图已保存: {rel_path}[/green]")
-    except ValueError:
-        console.print(f"  [green]✔ 图已保存: {output_path}[/green]")
+        fig.savefig(output_path, dpi=200, bbox_inches='tight')
+        
+        # 打印相对路径以便阅读
+        try:
+            # 尝试相对于项目根目录显示
+            display_path = output_path.relative_to(PROJECT_ROOT)
+        except ValueError:
+            try:
+                # 尝试相对于当前目录
+                display_path = output_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = output_path
+
+        console.print(f"  [green]✔ 图已保存: {display_path}[/green]")
+        
+    except Exception as e:
+        console.print(f"  [red]✗ 保存图像失败: {e}[/red]")
