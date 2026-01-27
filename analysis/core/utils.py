@@ -284,7 +284,7 @@ def select_directories() -> List[str]:
 # =============================================================================
 # 绘图辅助函数
 # =============================================================================
-def save_figure(fig: Figure, filename: str, subfolder: Optional[str] = None):
+def save_figure(fig: Figure, filename: str, subfolder: Optional[str] = None, parent_folder: Optional[str] = None):
     """
     将 Matplotlib Figure 保存到配置的输出目录中，可选择指定子文件夹。
 
@@ -297,21 +297,30 @@ def save_figure(fig: Figure, filename: str, subfolder: Optional[str] = None):
         fig (Figure): 要保存的 Matplotlib Figure 对象。
         filename (str): 输出文件的基本名称 (例如 "spectrum_analysis.png")。
         subfolder (str, optional): 要在输出目录中创建/使用的子文件夹名称。
+        parent_folder: 父文件夹 (通常是 Job Name)
     """
     # 构造路径
-    base_dir = config.output_dir
+    base_dir = Path(config.output_dir)
+
+    if parent_folder:
+        base_dir = base_dir / parent_folder
+
     if subfolder:
-        output_dir = os.path.join(base_dir, subfolder)
+        output_dir = base_dir / subfolder
     else:
         output_dir = base_dir
 
     # 确保目录存在
     os.makedirs(output_dir, exist_ok=True)
 
-    output_path = os.path.join(output_dir, filename)
+    output_path = output_dir / filename
 
     # 保存图像
     fig.savefig(output_path, dpi=200, bbox_inches='tight')
 
     # 打印确认信息
-    console.print(f"  [green]✔ 图已保存: {output_path}[/green]")
+    try:
+        rel_path = output_path.relative_to(Path.cwd())
+        console.print(f"  [green]✔ 图已保存: {rel_path}[/green]")
+    except ValueError:
+        console.print(f"  [green]✔ 图已保存: {output_path}[/green]")

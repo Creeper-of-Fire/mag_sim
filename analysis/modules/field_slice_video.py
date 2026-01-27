@@ -4,18 +4,17 @@ import shutil
 from pathlib import Path
 from typing import List, Set, Tuple
 
+import h5py
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
-import h5py
 
 from .base_module import BaseVideoModule
-from ..core.data_loader import _center_field_3d
+from ..core.config import config  # 需要导入配置以获取输出目录
 from ..core.simulation import SimulationRun
 from ..core.utils import console
-from ..core.config import config  # 需要导入配置以获取输出目录
 
 # --- 用户可配置参数 ---
 SLICE_AXIS = 'z'
@@ -50,7 +49,7 @@ class FieldSliceVideoModule(BaseVideoModule):
             output_name = f"{run.name}_video_field_slice.mp4"
             self._generate_video_for_run(run, output_name)
 
-    def _get_centered_b_field(self, fpath: str, target_shape: tuple, B_norm: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _get_centered_b_field(self, fpath: str, B_norm: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """从 HDF5 文件中读取、归一化并居中场分量"""
         step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
         with h5py.File(fpath, 'r') as f:
@@ -66,7 +65,7 @@ class FieldSliceVideoModule(BaseVideoModule):
 
         return Bx, By, Bz
 
-    def _find_global_b_max(self, run: SimulationRun, target_shape: tuple) -> float:
+    def _find_global_b_max(self, run: SimulationRun) -> float:
         console.print("  [cyan]预扫描 HDF5 数据以确定颜色条范围...[/cyan]")
         global_max = 0.0
         # 为了速度，可以只抽样扫描
@@ -74,7 +73,7 @@ class FieldSliceVideoModule(BaseVideoModule):
 
         for fpath in tqdm(sample_files, desc="  预扫描", unit="file", leave=False):
             # 注意：现在需要传入 B_norm
-            Bx, By, Bz = self._get_centered_b_field(fpath, target_shape, run.sim.B_norm)
+            Bx, By, Bz = self._get_centered_b_field(fpath, run.sim.B_norm)
             b_mag = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
             if b_mag.size > 0:
                 global_max = max(global_max, np.max(b_mag))
@@ -90,37 +89,69 @@ class FieldSliceVideoModule(BaseVideoModule):
     def _generate_video_for_run(self, run: SimulationRun, output_name: str):
         # 1. 将临时文件夹建在 config.output_dir 内部
         # 这样既整洁，又避免了路径混乱
-        base_output_dir = Path(config.output_dir)
+        # config.output_dir / JobName
+        base_output_dir = Path(config.output_dir) / run.job_name
+
+        # 临时帧文件夹放在 Job 目录下更合适，或者放在总的 temp 下均可
+        # 这里建议放在 Job 目录下，方便查错，完事后会自动删除
         temp_dir = base_output_dir / "temp_video_frames"
 
-        # 确保清理旧的临时文件
+        # 确保目录存在，清理旧的临时文件
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        target_shape = (run.sim.NX, run.sim.NY, run.sim.NZ)
-        global_b_max = self._find_global_b_max(run, target_shape)
+        # 确保 Job 输出目录存在 (用于保存最终 mp4)
+        base_output_dir.mkdir(parents=True, exist_ok=True)
+
+        global_b_max = self._find_global_b_max(run)
         frame_paths = []
 
         console.print("  [cyan]开始生成视频帧...[/cyan]")
         for fpath in tqdm(run.field_files, desc="  帧生成", unit="file", leave=False):
             step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
             time = step * run.sim.dt
-            Bx, By, Bz = self._get_centered_b_field(fpath, target_shape, run.sim.B_norm)
+            Bx, By, Bz = self._get_centered_b_field(fpath, run.sim.B_norm)
             b_mag = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
 
-            if SLICE_AXIS == 'z':
-                # 取 Z 轴中间切片
-                slice_idx = run.sim.NZ // 2
-                data_slice = b_mag[:, :, slice_idx]
-                # extent = [xmin, xmax, ymin, ymax]
-                extent = [-run.sim.Lx / 2, run.sim.Lx / 2, -run.sim.Ly / 2, run.sim.Ly / 2]
-                xlabel, ylabel = "x (m)", "y (m)"
-                title = f"|B| @ z=0, t = {time:.2e} s"
+            # 根据维度处理数据切片
+            if hasattr(run.sim, 'dim') and run.sim.dim == 2:
+                # --- 2D XZ 平面 ---
+                # 假设数据存储格式为 [x, z] 或 [x, y=1, z]
+                data_slice = np.squeeze(b_mag)
 
-            # ... (如果需要扩展 x, y 切片逻辑可在此处添加) ...
+                if data_slice.ndim != 2:
+                    console.print(f"[red]错误: 2D 模拟数据维度异常 {data_slice.shape}[/red]")
+                    continue
 
-            fig, ax = plt.subplots(figsize=(8, 6.5))
+                # 设置坐标范围 [xmin, xmax, zmin, zmax]
+                # x 轴对应 run.sim.Lx
+                # y 轴(绘图垂直轴) 对应 run.sim.Lz
+                extent = [-run.sim.Lx / 2, run.sim.Lx / 2, -run.sim.Lz / 2, run.sim.Lz / 2]
+                xlabel, ylabel = "x (m)", "z (m)"
+                title = f"|B| (XZ Plane), t = {time:.2e} s"
+
+            else:
+                # --- 3D 情况 ---
+                if SLICE_AXIS == 'z':
+                    # 取 Z 轴中间切片
+                    # 假设数据形状 (NX, NY, NZ)
+                    if b_mag.ndim == 3:
+                        slice_idx = b_mag.shape[2] // 2
+                        data_slice = b_mag[:, :, slice_idx]
+                    else:
+                        # 如果形状不对，尝试兼容处理
+                        data_slice = b_mag
+
+                    extent = [-run.sim.Lx / 2, run.sim.Lx / 2, -run.sim.Ly / 2, run.sim.Ly / 2]
+                    xlabel, ylabel = "x (m)", "y (m)"
+                    title = f"|B| @ z=0, t = {time:.2e} s"
+                else:
+                    # 预留给 X 或 Y 切片
+                    console.print(f"[red]尚未实现除 Z 轴以外的 3D 切片: {SLICE_AXIS}[/red]")
+                    continue
+
+            fig, ax = plt.subplots(figsize=(8, 6.4))
 
             # 这里的 vmin 防止 log(0)
             norm = LogNorm(vmin=max(1e-4 * global_b_max, 1e-9), vmax=global_b_max)

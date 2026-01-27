@@ -171,39 +171,12 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
     # 通知主进程添加任务条
     progress_queue.put(('start_file', unique_task_id))
 
-    # 如果临时文件存在 且 预览图也存在，说明之前处理成功了
+    # 如果临时文件和预览图都存在，说明之前已成功处理。
+    # 直接发送跳过信号并返回一个特殊标记，完全避免文件I/O。
     if temp_h5_path.exists() and plot_path.exists():
-        try:
-            # 虽然跳过计算，但为了最后的统计数据，我们需要快速读取粒子数
-            # 这比重新计算要快得多
-            recovered_raw = 0
-            recovered_comp = 0
-
-            # 快速扫描原始文件
-            with h5py.File(h5_path, 'r') as f_orig:
-                step = list(f_orig['data'].keys())[0]
-                ptcl_grp = f_orig[f'data/{step}/particles']
-                for sp in ptcl_grp.keys():
-                    if 'weighting' in ptcl_grp[sp]:
-                        recovered_raw += ptcl_grp[sp]['weighting'].size
-
-            # 快速扫描临时文件
-            with h5py.File(temp_h5_path, 'r') as f_temp:
-                step = list(f_temp['data'].keys())[0]
-                ptcl_grp = f_temp[f'data/{step}/particles']
-                for sp in ptcl_grp.keys():
-                    if 'weighting' in ptcl_grp[sp]:
-                        recovered_comp += ptcl_grp[sp]['weighting'].size
-
-            # 发送跳过信号
-            progress_queue.put(('skipped', unique_task_id))
-            # 返回结果，如同刚刚计算完一样
-            return (temp_h5_path, h5_path, recovered_raw, recovered_comp)
-
-        except Exception as e:
-            # 如果读取校验失败，说明文件损坏，继续下面的重新处理流程
-            # 并不需要打印错误，默默重新跑即可
-            pass
+        progress_queue.put(('skipped', unique_task_id))
+        # 返回一个带哨兵值(-1)的元组，主进程可以据此识别跳过的任务
+        return (temp_h5_path, h5_path, -1, -1)
 
     try:
         all_energies_for_bins = []
@@ -393,10 +366,13 @@ def run_interactive_workflow(selected_dirs: List[str]):
         console=console
     )
 
-    pending_ops = []  # 存储 (temp, original)
-    total_raw_all = 0
-    total_comp_all = 0
-    skipped_count = 0
+    # `files_to_replace` 存储所有最终需要执行替换操作的文件对
+    files_to_replace: List[Tuple[Path, Path]] = []
+    total_raw_this_run = 0
+    total_comp_this_run = 0
+    processed_files_count = 0
+    skipped_files_count = 0
+    error_files_count = 0
 
     with progress:
         # 总进度条
@@ -442,14 +418,12 @@ def run_interactive_workflow(selected_dirs: List[str]):
                     elif m_type == 'skipped':
                         if t_id_str in active_subtasks:
                             tid = active_subtasks.pop(t_id_str)
-                            # 将进度条设为绿色完成状态，并注明已存在
                             progress.update(tid, completed=100, total=100, description=f"[dim]{t_id_str} (Skipped)[/dim]")
-                            # 稍微延迟后隐藏，或者保持显示让用户知道跳过了
                             sleep(0.05)
                             progress.update(tid, visible=False)
-                            progress.advance(main_task_id)
-                            finished_files += 1
-                            skipped_count += 1
+                        # 无论子任务条是否存在，都推进主进度
+                        progress.advance(main_task_id)
+                        finished_files += 1
 
                     elif m_type == 'finish_file':
                         if t_id_str in active_subtasks:
@@ -473,32 +447,61 @@ def run_interactive_workflow(selected_dirs: List[str]):
                 try:
                     res = fut.result()
                     if res:
-                        pending_ops.append((res[0], res[1]))
-                        total_raw_all += res[2]
-                        total_comp_all += res[3]
+                        # 只要有结果 (tmp文件存在)，就加入待替换列表
+                        files_to_replace.append((res[0], res[1]))
+                        
+                        raw_count = res[2]
+                        # 通过哨兵值-1判断是跳过还是新处理
+                        if raw_count == -1:
+                            skipped_files_count += 1
+                        else:
+                            processed_files_count += 1
+                            total_raw_this_run += res[2]
+                            total_comp_this_run += res[3]
+                    else:
+                        # fut.result() is None, 可能意味着子进程出错返回None
+                        error_files_count += 1
+
                 except Exception as e:
                     console.print(f"[red]Critical Future Error: {e}[/red]")
+                    error_files_count += 1
 
     # 4. 统计与交互确认
-    if not pending_ops:
-        console.print("[yellow]没有生成有效数据，操作结束。[/yellow]")
-        return
-
-    ratio = total_raw_all / total_comp_all if total_comp_all > 0 else 1
     console.print("\n" + "=" * 50)
     console.print(f"[bold white]处理完成摘要:[/bold white]")
-    console.print(f"  文件数量: {len(pending_ops)}")
-    console.print(f"  原始粒子: {total_raw_all:.2e}")
-    console.print(f"  压缩粒子: {total_comp_all:.2e} (压缩比 {ratio:.1f}x)")
+    console.print(f"  成功处理: {processed_files_count} 个文件 (本次运行)")
+    console.print(f"  跳过已有: {skipped_files_count} 个文件 (来自之前运行)")
+    if error_files_count > 0:
+        console.print(f"  处理失败: {error_files_count} 个文件")
     console.print("=" * 50)
 
-    if Confirm.ask(f"[bold red]是否使用压缩后的文件替换这 {len(pending_ops)} 个原始文件?[/bold red]"):
+    # 只要有任何可替换的文件（无论是本次还是之前的），就进入确认流程
+    if not files_to_replace:
+        console.print("[yellow]没有任何可操作的文件，任务结束。[/yellow]")
+        return
+
+    # 如果本次运行确实处理了新文件，则显示压缩比等详细信息
+    if processed_files_count > 0:
+        ratio = total_raw_this_run / total_comp_this_run if total_comp_this_run > 0 else 1
+        console.print(f"\n[bold]本次运行统计 ({processed_files_count} 个文件):[/bold]")
+        console.print(f"  原始粒子: {total_raw_this_run:.2e}")
+        console.print(f"  压缩粒子: {total_comp_this_run:.2e} (压缩比 {ratio:.1f}x)")
+
+    # 最终确认，操作对象是所有找到的 .tmp 文件
+    prompt_message = (
+        f"\n[bold red]是否使用压缩版本替换总共 {len(files_to_replace)} 个文件 "
+        f"({processed_files_count} 个新处理, {skipped_files_count} 个已存在)?[/bold red]"
+    )
+    if Confirm.ask(prompt_message):
         console.print("正在替换文件...")
-        for tmp, orig in pending_ops:
-            shutil.move(tmp, orig)
-        console.print("[green]替换完成。[/green]")
+        for tmp, orig in files_to_replace:
+            # 确保临时文件真的存在，防止意外
+            if tmp.exists():
+                shutil.move(str(tmp), str(orig))
+        console.print(f"[green]全部 {len(files_to_replace)} 个文件替换完成。[/green]")
     else:
         console.print("正在清理临时文件...")
-        for tmp, _ in pending_ops:
-            if tmp.exists(): os.remove(tmp)
-        console.print("[yellow]操作已取消。[/yellow]")
+        for tmp, _ in files_to_replace:
+            if tmp.exists():
+                os.remove(tmp)
+        console.print("[yellow]操作已取消，所有临时文件已删除。[/yellow]")

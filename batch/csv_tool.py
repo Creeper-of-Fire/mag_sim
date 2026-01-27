@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -18,6 +19,12 @@ except ImportError as e:
 
 
 # --- 辅助函数 ---
+
+def generate_param_hash(params: dict):
+    """根据参数内容生成唯一指纹"""
+    # 确保 key 排序一致，序列化为字符串
+    param_str = json.dumps(params, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(param_str.encode()).hexdigest()[:12] # 取12位足够了
 
 def get_simulation_params_info():
     """
@@ -139,15 +146,15 @@ def handle_convert(args):
             for i, row in enumerate(reader):
                 line_num = i + 2  # +1 for zero-based index, +1 for header
 
-                task_name = row.pop(COLUMN_TASK_NAME, '').strip()
-                if not task_name:
-                    print(f"警告: 第 {line_num} 行的 '{COLUMN_TASK_NAME}' 为空，已跳过此任务。")
+                # --- 检查是否全空 ---
+                # 如果这一行所有的值(value)去掉空格后都是空的，说明是空行
+                if not any(str(v).strip() for v in row.values()):
+                    print(f"信息: 第 {line_num} 行是空行，已跳过。")
                     continue
 
-                sim_output_dir = output_base_dir / "sim_results" / task_name
-                # 转换为WSL可以使用的字符串格式
-                wsl_path_str = str(sim_output_dir).replace('\\', '/')
+                raw_name = row.pop(COLUMN_TASK_NAME, '').strip() or "sim"
 
+                # 提取并转换参数
                 task_params = {}
                 for param_name, value_str in row.items():
                     if param_name not in params_info:
@@ -160,6 +167,18 @@ def handle_convert(args):
                     # 只有非空值才被添加到任务参数中
                     if converted_value is not None:
                         task_params[param_name] = converted_value
+
+                # 生成哈希 (基于纯参数)
+                p_hash = generate_param_hash(task_params)
+
+                # 强制拼接：原始名字_哈希
+                # 即使在 CSV 里名字写重复了，只要参数不一样，后缀就会区分开
+                final_task_name = f"{raw_name}_{p_hash}"
+
+                sim_output_dir = output_base_dir / "sim_results" / final_task_name
+                # 转换为WSL可以使用的字符串格式
+                wsl_path_str = str(sim_output_dir).replace('\\', '/')
+
 
                 wrapped_task = {
                     "params": task_params,
