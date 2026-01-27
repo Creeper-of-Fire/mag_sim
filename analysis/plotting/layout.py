@@ -123,21 +123,6 @@ def create_analysis_figure(
             output_name = f"{run_or_runs.name}_{base_filename}.png"
             title = f"分析: {base_filename.replace('_', ' ').title()} for: {run_or_runs.name}"
 
-    # --- 确定 parent_folder (Job Name) ---
-    target_job_folder: str
-
-    if isinstance(run_or_runs, list):
-        # 对比模式: 检查是否所有 run 都来自同一个 Job
-        unique_jobs = {r.job_name for r in run_or_runs}
-        if len(unique_jobs) == 1:
-            target_job_folder = list(unique_jobs)[0]
-        else:
-            # 跨 Job 对比，放入公共文件夹，避免混乱
-            target_job_folder = "Comparisons"
-    else:
-        # 单个分析模式
-        target_job_folder = run_or_runs.job_name
-
     # --- 根据样式和传入的比例计算最终尺寸 ---
 
     style = get_style()
@@ -217,15 +202,14 @@ def create_analysis_figure(
 
         # --- 5. 保存带表格的版本 ---
         # 此时布局已经最终确定
-        save_figure(fig, output_name, subfolder="with_table", parent_folder=target_job_folder)
+        save_figure(fig, output_name, run_or_runs=run_or_runs, subfolder="with_table")
 
         # --- 6. 准备并保存不带表格的版本 ---
         table_ax.set_visible(False)
 
         # `save_figure` 函数中的 `bbox_inches='tight'` 会自动裁剪掉
         # 因表格不可见而产生的底部空白区域，同时保持绘图区的几何形状不变。
-        save_figure(fig, output_name, subfolder="without_table", parent_folder=target_job_folder)
-
+        save_figure(fig, output_name, run_or_runs=run_or_runs, subfolder="without_table")
 
     finally:
         # --- 6. 清理资源 ---

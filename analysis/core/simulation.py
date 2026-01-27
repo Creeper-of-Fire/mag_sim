@@ -100,3 +100,14 @@ class SimulationRun:
             return p.parent.parent.name
         # 否则父目录就是 JobName
         return p.parent.name
+    
+    @property
+    def job_path(self) -> Path:
+        """
+        根据 path 解析所属的 Job 的完整路径 (Path 对象)。
+        """
+        p = Path(self.path)
+        # resolve() 可以将可能存在的 ".." 或 "." 符号解析为绝对路径
+        if p.parent.name == 'sim_results':
+            return p.parent.parent.resolve()
+        return p.parent.resolve()
