@@ -9,6 +9,7 @@
 #
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, List
 import numpy as np
 
@@ -86,3 +87,16 @@ class SimulationRun:
     # 视频生成模块可能需要原始文件列表
     field_files: Optional[List[str]] = field(default=None)
     particle_files: Optional[List[str]] = field(default=None)
+
+    @property
+    def job_name(self) -> str:
+        """
+        根据 path 解析所属的 Job 名称。
+        假设结构为: JobDir/sim_results/TaskDir 或 JobDir/TaskDir
+        """
+        p = Path(self.path)
+        # 如果父目录是 sim_results，则 JobName 是再上一级
+        if p.parent.name == 'sim_results':
+            return p.parent.parent.name
+        # 否则父目录就是 JobName
+        return p.parent.name

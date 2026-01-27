@@ -11,7 +11,9 @@ from functools import cached_property
 
 import numpy as np
 from scipy.constants import c, e, epsilon_0, hbar, k, m_e, mu_0, sigma
+
 from analysis.utils import setup_chinese_font
+
 setup_chinese_font()
 
 
@@ -60,6 +62,17 @@ class PlasmaScenario:
         """热速度 (相对论)"""
         return c * np.sqrt(1 - 1 / self.lorentz_gamma ** 2)
 
+    @cached_property
+    def total_energy_density(self) -> float:
+        """
+        等离子体总能量密度 U_p (J/m^3)。
+        用于计算磁化参数 Sigma = B^2 / (2 * mu_0 * U_p)。
+        假设包含正反粒子对或电子+离子背景: 2 * n_e * (rest_mass + thermal)
+        """
+        # 注意: 这里系数取2是假设正负电荷对等的能量贡献 (如正负电子对或电子-离子)
+        # 且 3 * T_J 是相对论热能的一个近似
+        return 2 * self.n_e * (m_e * c ** 2 + 3 * self.T_J)
+
     # --- 等离子体特征尺度 ---
     @cached_property
     def omega_pe(self) -> float:
@@ -75,6 +88,23 @@ class PlasmaScenario:
     def debye_length(self) -> float:
         """德拜长度 (m)"""
         return np.sqrt(epsilon_0 * self.T_J / (self.n_e * e ** 2))
+
+    @cached_property
+    def mean_free_path(self) -> float:
+        """电子平均自由程 (m) - 估算值"""
+        # 使用强碰撞公式估算 (Coulomb Log ~ 15)
+        coulomb_log = 15
+        v_th = self.v_thermal
+        if v_th == 0: return 0.0
+
+        # 碰撞频率 nu_ei
+        nu_coll = (self.n_e * e ** 4 * coulomb_log) / (4 * np.pi * epsilon_0 ** 2 * m_e ** 2 * v_th ** 3)
+        return v_th / nu_coll if nu_coll > 0 else np.inf
+
+    @cached_property
+    def box_length_m(self) -> float:
+        """模拟盒物理总长 (m)"""
+        return self.LX * self.skin_depth_e
 
     # --- 模拟参数的物理量转换 ---
     @cached_property
@@ -253,7 +283,7 @@ class MagnetizationValidator(Validator):
 
     def validate(self, scenario: PlasmaScenario) -> list[ValidationResult]:
         coulomb_log = 15
-        U_p = 2 * scenario.n_e * (m_e * c ** 2 + 3 * scenario.T_J)
+        U_p = scenario.total_energy_density
         v_th = scenario.v_thermal
 
         if v_th > 0:
@@ -281,6 +311,121 @@ class MagnetizationValidator(Validator):
             message=msg,
             formula=r"要求: B_min(磁化) < B < B_max(分辨)"
         )]
+
+
+class ScaleWindowValidator(Validator):
+    """
+    尺度窗口验证器 (Engineering View)
+    包含 SI 单位和归一化单位 (normalized to d_e) 的双重输出。
+    """
+
+    def validate(self, scenario: PlasmaScenario) -> list[ValidationResult]:
+        results = []
+
+        # 准备基础数据
+        de = scenario.skin_depth_e
+        L_box = scenario.box_length_m
+        mfp = scenario.mean_free_path
+        lambda_D = scenario.debye_length
+        U_p = scenario.total_energy_density
+
+        # 归一化值 (Normalized values)
+        L_box_norm = L_box / de if de > 0 else 0
+        mfp_norm = mfp / de if de > 0 else np.inf
+        lambda_D_norm = lambda_D / de if de > 0 else 0
+
+        # --- 1. 碰撞尺度验证 (Collision Scale) ---
+        # 准则: Box < MFP / 10
+        is_collisionless = mfp > (L_box * 10.0)
+
+        status_coll = ValidationStatus.SUCCESS if is_collisionless else ValidationStatus.WARNING
+        # 同时显示物理值和归一化值
+        msg_coll = (f"MFP(平均自由程) = {mfp:.2e} m ({mfp_norm:.1f} d_e), "
+                    f"Box(盒子大小) = {L_box:.2e} m ({L_box_norm:.1f} d_e).")
+
+        results.append(ValidationResult(
+            validator_name="ScaleWindow",
+            status=status_coll,
+            title="碰撞尺度 (L vs MFP)",
+            message=msg_coll,
+            formula=r"Check: L_{box} \ll \lambda_{mfp}"
+        ))
+
+        # --- 2. 波动尺度验证 (Wave Scale) ---
+        is_wave_resolvable = L_box_norm > 5.0
+        status_wave = ValidationStatus.SUCCESS if is_wave_resolvable else ValidationStatus.WARNING
+
+        results.append(ValidationResult(
+            validator_name="ScaleWindow",
+            status=status_wave,
+            title="波动尺度 (Box vs SkinDepth)",
+            message=f"盒长 = {L_box_norm:.1f} d_e (物理尺寸 {L_box:.2e} m)",
+            formula=r"Check: L_{box} > 5 d_e"
+        ))
+
+        # --- 3. 磁化尺度窗口 (Magnetic Scale Window) ---
+        v_perp = scenario.v_thermal
+        gamma = scenario.lorentz_gamma
+
+        # 计算几何限制下的回旋半径限制
+        # 下限 (Grid Limit): 回旋半径不能小于 1.5 倍网格 (否则数值加热/插值错误)
+        rho_min_limit = scenario.dx_m * 1.5
+        # 上限 (Box Limit): 回旋半径不能大于 1/4 盒子 (否则粒子直接跑出边界，看不出磁化)
+        rho_max_limit = L_box / 4.0
+
+        # 将回旋半径限制转换为磁场限制 (B 与 rho 成反比)
+        # rho = (gamma m v) / (e B)  =>  B = (gamma m v) / (e rho)
+        # 因此: rho_min 对应 B_max; rho_max 对应 B_min
+        if rho_min_limit > 0 and rho_max_limit > 0:
+            B_max_grid = (gamma * m_e * v_perp) / (e * rho_min_limit)
+            B_min_box = (gamma * m_e * v_perp) / (e * rho_max_limit)
+        else:
+            B_max_grid, B_min_box = 0, 0
+
+        valid_window = B_max_grid > B_min_box
+
+        if valid_window:
+            # === 计算对应的 Sigma ===
+            # Sigma = B^2 / (2 * mu_0 * Up)
+            sigma_min = B_min_box ** 2 / (2 * mu_0 * U_p)
+            sigma_max = B_max_grid ** 2 / (2 * mu_0 * U_p)
+
+            status_mag = ValidationStatus.INFO
+            # 格式化输出: 第一行是 Sigma，第二行是 Tesla，方便查阅
+            msg_mag = (f"Sigma可行域: [{sigma_min:.2e}, {sigma_max:.2e}]\n"
+                       f"       对应磁场 B : [{B_min_box:.2e} T, {B_max_grid:.2e} T]")
+            formula_mag = r"Grid(B_max) > Box(B_min)"
+        else:
+            status_mag = ValidationStatus.FAILURE
+            msg_mag = f"窗口关闭! Grid限 ({B_max_grid:.2e} T) < Box限 ({B_min_box:.2e} T)"
+            formula_mag = "需增加 NX 或 LX"
+
+        results.append(ValidationResult(
+            validator_name="ScaleWindow",
+            status=status_mag,
+            title="磁场工程窗口 (B Field)",
+            message=msg_mag,
+            formula=formula_mag
+        ))
+
+        # --- 4. 特征长度清单 ---
+        # 这里我们列出绝对值，但使用科学计数法避免 0.0
+        # 同时附带归一化长度
+        summary_msg = (
+            f"d_e={de:.2e}m | "
+            f"λ_D={lambda_D:.2e}m ({lambda_D_norm:.2f} d_e) | "
+            f"MFP={mfp:.2e}m ({mfp_norm:.1f} d_e)"
+        )
+
+        results.append(ValidationResult(
+            validator_name="ScaleWindow",
+            status=ValidationStatus.INFO,
+            title="特征长度绝对值 (SI)",
+            message=summary_msg,
+            formula="括号内为归一化单位 ( / d_e)"
+        ))
+
+        return results
 
 
 # =============================================================================
@@ -400,25 +545,31 @@ if __name__ == "__main__":
         {
             "name": "Deuterium Bottleneck (84keV)",
             "n_e": 7.28e33,
-            "T_eV": 84480.0
+            "T_eV": 84480.0,
+            "extra_NX_times": 1.0,
+            "DT":0.2,
         },
         {
             "name": "Mid Temp Case (58keV)",
             "n_e": 3.598e32,
-            "T_eV": 58650.0
+            "T_eV": 58650.0,
+            "extra_NX_times": 1.25,
+            "DT": 0.15,
         },
         {
             "name": "Low Temp Case (12keV)",
             "n_e": 8.43e23,
-            "T_eV": 12230.0
+            "T_eV": 12230.0,
+            "extra_NX_times": 2.75,
+            "DT": 0.075,
         },
     ]
 
     # 维度二: 模拟盒的尺寸、分辨率和时长
     box_setups = [
         # 你的数据中 LX, LY, LZ 和 NX, NY, NZ 都是相等的，所以我们简化处理
-        {"name": "Box_S", "LX": 25.0, "NX": 64, "LT": 300.0},
-        {"name": "Box_M", "LX": 50.0, "NX": 128, "LT": 300.0},
+        # {"name": "Box_S", "LX": 25.0, "NX": 64, "LT": 300.0},
+        # {"name": "Box_M", "LX": 50.0, "NX": 128, "LT": 300.0},
         {"name": "Box_L", "LX": 100.0, "NX": 256, "LT": 100.0},
     ]
 
@@ -444,14 +595,13 @@ if __name__ == "__main__":
                     name=scenario_name,
                     n_e=regime['n_e'],
                     T_eV=regime['T_eV'],
-                    NX=box['NX'],
+                    NX=box['NX'] * regime['extra_NX_times'],
                     LX=box['LX'],
                     LT=box['LT'],
-                    DT=0.2,  # DT 在你的数据中是固定的
+                    DT=regime['DT'],
                     dims=3  # 你的数据中 NX=NY=NZ, 假设为3D
                 )
                 scenarios_to_run.append(scenario)
-
 
     print(f"--- 共生成了 {len(scenarios_to_run)} 个模拟场景进行分析 ---")
 
@@ -463,6 +613,7 @@ if __name__ == "__main__":
         TimescaleValidator(),
         CFLValidator(),
         MagnetizationValidator(),
+        ScaleWindowValidator()
     ]
 
     # 3. 定义本次分析需要使用的报告器

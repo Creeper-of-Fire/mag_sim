@@ -113,9 +113,9 @@ class PlasmaReconnection(object):
             elif isinstance(self.p.dim, Dim):
                 self.dim = self.p.dim
             else:
-                self.dim = Dim.D3 # 默认 fallback
+                self.dim = Dim.D3  # 默认 fallback
         else:
-            self.dim = Dim.D3 # 默认为 3D
+            self.dim = Dim.D3  # 默认为 3D
 
         print(f"\n=== 初始化模拟 [维度: {self.dim.name}] ===")
 
@@ -249,7 +249,7 @@ class PlasmaReconnection(object):
 
         # 诊断频率
         self.total_steps = int(self.LT / self.DT)
-        FIELD_TOTAL_STEP = 10
+        FIELD_TOTAL_STEP = 2
         self.field_diag_steps = self.total_steps // FIELD_TOTAL_STEP
         self.field_diag_steps = max(1, self.field_diag_steps)
         PARTICLE_TOTAL_STEP = 10
@@ -295,7 +295,6 @@ class PlasmaReconnection(object):
         params_to_save.pop('magnetic_field', None)  # 移除整个对象
         params_to_save.pop('p', None)  # 移除原始配置对象，因为其信息已被提取
         params_to_save.pop('io', None)  # 移除 IOManager
-
 
         # 将 Enum 转换为 int 存储，方便序列化
         params_to_save['dim'] = self.dim.value
@@ -377,8 +376,6 @@ class PlasmaReconnection(object):
                 qed_breit_wheeler_pos_product_species="positrons_thermal"
             )
 
-
-
         # 定义通用的热分布 Bucket 参数, 并合并 QED 参数
         # 自动选择分布类型：解决 WarpX theta < 0.1 报错问题
         if theta_plasma >= 0.1:
@@ -398,7 +395,6 @@ class PlasmaReconnection(object):
                 ux_m=0.0, uy_m=0.0, uz_m=0.0,  # 均值
                 ux_th=u_th, uy_th=u_th, uz_th=u_th  # 热弥散
             )
-
 
         # 定义beam参数
         bucket_beam_e = Bunch(
@@ -582,7 +578,7 @@ class PlasmaReconnection(object):
                 upper_boundary_conditions_particles=["periodic", "periodic", "periodic"],
                 warpx_max_grid_size=min(self.NX, self.NY, self.NZ),
             )
-        else: # Dim.D2
+        else:  # Dim.D2
             print("  -> 创建 Cartesian 2D Grid (X-Z Plane)")
             self.grid = picmi.Cartesian2DGrid(
                 number_of_cells=[self.NX, self.NZ],
@@ -638,6 +634,11 @@ class PlasmaReconnection(object):
             w.instance for w in species_wrappers
         ]
 
+        if self.dim == Dim.D3:
+            particle_data_list = ["ux", "uy", "uz", "x", "y", "z", "weighting"]
+        elif self.dim == Dim.D2:
+            particle_data_list = ["ux", "uy", "uz", "x", "z", "weighting"]
+
         # 探测平面诊断
         if self.dim == Dim.D3:
             plane = picmi.ReducedDiagnostic(
@@ -663,7 +664,7 @@ class PlasmaReconnection(object):
             name="particle_states",
             period=self.field_diag_steps,
             species=all_particle_species_for_diags,
-            data_list=["ux", "uy", "uz", "x", "y", "z", "weighting"],
+            data_list=particle_data_list,
             warpx_format='openpmd',
             warpx_openpmd_backend='h5',
             write_dir=str(self.io.diags_dir),
