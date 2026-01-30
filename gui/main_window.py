@@ -359,12 +359,6 @@ class SimulationControllerGUI(QMainWindow):
         wsl_job_dir = get_wsl_path(self.current_job_dir)
         wsl_runner = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/batch_runner.py"
 
-        self.log(convert_result.stdout)
-        if convert_result.returncode != 0:
-            self.log(f"--- 错误: CSV 转换失败！ ---\n{convert_result.stderr}")
-            QMessageBox.critical(self, "错误", f"WSL 内部转换失败:\n{convert_result.stderr}")
-            return
-
         cmd_runner = (
             f"export TERM=dumb && "
             f"{conda_cmd} && "
