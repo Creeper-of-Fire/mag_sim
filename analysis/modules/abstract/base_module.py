@@ -6,7 +6,7 @@ from typing import List, Set
 # 导入类型提示，避免循环导入
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..core.simulation import SimulationRun
+    from analysis.core.simulation import SimulationRun
 
 class BaseAnalysisModule(ABC):
     """

@@ -2,14 +2,11 @@
 
 from typing import List, Set
 
-import matplotlib.pyplot as plt
-
-from .base_module import BaseAnalysisModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console, save_figure
-from ..core.param_table import plot_parameter_table
-from ..plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
-from ..plotting.layout import create_analysis_figure
+from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
+from analysis.plotting.layout import create_analysis_figure
 
 
 class FieldEvolutionModule(BaseAnalysisModule):

@@ -2,14 +2,11 @@
 
 from typing import List, Set
 
-import matplotlib.pyplot as plt
-
-from .base_module import BaseAnalysisModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console, save_figure
-from ..core.param_table import plot_parameter_table
-from ..plotting.energy_plotter import EnergyDensityPlotter, TotalEnergyPlotter
-from ..plotting.layout import create_analysis_figure
+from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.energy_plotter import EnergyDensityPlotter, TotalEnergyPlotter
+from analysis.plotting.layout import create_analysis_figure
 
 
 class EnergyEvolutionModule(BaseAnalysisModule):

@@ -6,12 +6,12 @@ import numpy as np
 from rich.prompt import Prompt
 from rich.table import Table
 
-from .base_module import BaseComparisonModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
-from ..plotting.layout import create_analysis_figure
-from ..plotting.spectrum_plotter import SpectrumComparisonPlotter
-from ..plotting.styles import get_style
+from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.spectrum_plotter import SpectrumComparisonPlotter
+from analysis.plotting.styles import get_style
 
 
 class BaselineSpectrumComparisonModule(BaseComparisonModule):

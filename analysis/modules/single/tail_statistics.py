@@ -7,10 +7,10 @@ from scipy.constants import k as kB, c, m_e, e
 from scipy.optimize import root_scalar
 from scipy.special import kn as bessel_k
 
-from .base_module import BaseAnalysisModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
-from ..plotting.layout import create_analysis_figure
+from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
 
 # 常量定义
 ME_C2_J = m_e * c ** 2

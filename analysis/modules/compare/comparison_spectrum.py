@@ -2,14 +2,11 @@
 
 from typing import List, Set
 
-import matplotlib.pyplot as plt
-
-from .base_module import BaseComparisonModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console, save_figure
-from ..core.param_table import plot_comparison_parameter_table
-from ..plotting.layout import create_analysis_figure
-from ..plotting.spectrum_plotter import SpectrumComparisonPlotter
+from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.spectrum_plotter import SpectrumComparisonPlotter
 
 
 class SpectrumComparisonModule(BaseComparisonModule):
