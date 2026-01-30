@@ -1,7 +1,6 @@
 # analysis/modules/field_slice_video.py
 import os
 import shutil
-from pathlib import Path
 from typing import List, Set, Tuple
 
 import h5py
@@ -11,10 +10,10 @@ import numpy as np
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
-from .base_module import BaseVideoModule
-from ..core.config import config  # 需要导入配置以获取输出目录
-from ..core.simulation import SimulationRun
-from ..core.utils import console
+from analysis.modules.abstract.base_module import BaseVideoModule
+from analysis.core.config import config  # 需要导入配置以获取输出目录
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
 
 # --- 用户可配置参数 ---
 SLICE_AXIS = 'z'

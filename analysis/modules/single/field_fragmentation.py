@@ -3,15 +3,14 @@
 import os
 import numpy as np
 import h5py
-import matplotlib.pyplot as plt
 from scipy.stats import kurtosis
-from typing import List, Set, Tuple, Optional
+from typing import List, Set, Tuple
 from tqdm import tqdm
 
-from .base_module import BaseAnalysisModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
-from ..plotting.layout import create_analysis_figure
+from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
 
 
 class FieldFragmentationModule(BaseAnalysisModule):

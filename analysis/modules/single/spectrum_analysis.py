@@ -2,18 +2,16 @@
 
 from typing import List, Set, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import k as kB, c, m_e, e  # 物理常量
 from scipy.optimize import root_scalar
 from scipy.special import kn as bessel_k  # 第二类修正贝塞尔函数 K_n
 
-from .base_module import BaseAnalysisModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console, save_figure
-from ..core.param_table import plot_parameter_table
-from ..plotting.layout import create_analysis_figure
-from ..plotting.spectrum_plotter import SpectrumPlotter
+from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.spectrum_plotter import SpectrumPlotter
 
 # 为了清晰和效率，在模块级别定义常量
 ME_C2_J = m_e * c ** 2  # 电子静能量 (单位: 焦耳)

@@ -11,22 +11,19 @@
 # 5. 依次执行所选的分析模块。
 #
 import argparse
-import glob
 import importlib
 import os
-import shutil
 from pathlib import Path
 from typing import List, Dict, Union
 
-from rich.prompt import Prompt, Confirm
-from tqdm import tqdm
+from rich.prompt import Prompt
 
 from analysis.core.config import config
 from analysis.core.data_loader import load_run_data
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, select_directories
 from analysis.utils import setup_chinese_font
-from analysis.modules.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
+from analysis.modules.abstract.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
 from analysis.plotting.styles import StyleTheme, set_style
 
 # 定义模块类型别名
@@ -35,18 +32,28 @@ AnyModule = Union[BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]
 
 def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseComparisonModule], dict[str, BaseVideoModule]]:
     """
-    动态扫描 `modules` 文件夹，加载并区分单个分析模块和对比分析模块。
+    递归扫描 `modules` 文件夹及其子文件夹，加载并区分模块。
     """
     individual_modules = {}
     comparison_modules = {}
     video_modules = {}
-    modules_dir = Path(__file__).resolve().parent / "analysis/modules"
 
-    for f in modules_dir.glob("*.py"):
+    # 基础路径
+    base_dir = Path(__file__).resolve().parent
+
+    modules_dir = base_dir / "analysis/modules"
+
+    # 使用 rglob("*.py") 进行递归查找
+    for f in modules_dir.rglob("*.py"):
+        # 过滤掉 __init__.py, base_ 开头的文件以及隐藏文件
         if f.name.startswith(('_', 'base_')):
             continue
 
-        module_name = f"analysis.modules.{f.stem}"
+        # 计算相对路径并转换为 python 模块路径格式
+        # 例如: analysis/modules/subfolder/my_mod.py -> analysis.modules.subfolder.my_mod
+        relative_path = f.relative_to(base_dir)
+        module_name = ".".join(relative_path.with_suffix("").parts)
+
         try:
             module = importlib.import_module(module_name)
             for item_name in dir(module):
@@ -56,10 +63,12 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
                 if not isinstance(item, type) or item.__module__ != module_name:
                     continue
 
+                # 检查是否是对应的基类子类
                 if not issubclass(item, BaseAnalysisModule) or item in [BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]:
                     continue
 
                 instance = item()
+                # 根据实例类型归类
                 if isinstance(instance, BaseVideoModule):
                     video_modules[instance.name] = instance
                 elif isinstance(instance, BaseComparisonModule):
@@ -68,9 +77,15 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
                     individual_modules[instance.name] = instance
 
         except Exception as e:
+            # 这里的 console 是你原代码中引用的，请确保作用域内可用
             console.print(f"[red]加载模块 {module_name} 失败: {e}[/red]")
 
-    return dict(sorted(individual_modules.items())), dict(sorted(comparison_modules.items())), dict(sorted(video_modules.items()))
+    # 返回排序后的字典
+    return (
+        dict(sorted(individual_modules.items())),
+        dict(sorted(comparison_modules.items())),
+        dict(sorted(video_modules.items()))
+    )
 
 
 def _select_modules_from_list(module_dict: Dict[str, AnyModule]) -> List[AnyModule]:

@@ -1,21 +1,15 @@
 # analysis/modules/parametric_flux.py
 
-import hashlib
-import json
-from pathlib import Path
-from typing import List, Set, Dict, Any, Tuple
+from typing import List, Set, Tuple
 
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import numpy as np
-from rich.prompt import Prompt
-from rich.table import Table
 
-from utils.project_config import FILENAME_HISTORY
-from .base_module import BaseComparisonModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
-from ..plotting.layout import create_analysis_figure
+from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.core.parameter_selector import ParameterSelector
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
 
 # 最小计数阈值，避免 1/1 或 0/0 产生噪音
 MIN_COUNTS = 5
@@ -105,163 +99,7 @@ class ParametricFluxModule(BaseComparisonModule):
         return log_gain
 
     # =========================================================================
-    # 2. 参数探测逻辑 (复用)
-    # =========================================================================
-
-    def _get_input_params(self, run: SimulationRun) -> Dict[str, Any]:
-        """从历史记录或模拟对象中提取输入参数"""
-        run_path = Path(run.path).resolve()
-        history_path = run_path.parent.parent / FILENAME_HISTORY
-
-        if history_path.exists():
-            try:
-                with open(history_path, 'r', encoding='utf-8') as f:
-                    # 倒序读取，匹配最新的记录
-                    lines = f.readlines()
-                    for line in reversed(lines):
-                        try:
-                            record = json.loads(line)
-                            rec_path = Path(record.get('output_dir', '')).resolve()
-                            if rec_path.name == run_path.name:
-                                return record.get('params', {})
-                        except:
-                            continue
-            except Exception as e:
-                console.print(f"[yellow]读取 {FILENAME_HISTORY} 出错: {e}[/yellow]")
-
-        # 回退策略
-        params = {}
-        for k, v in vars(run.sim).items():
-            if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
-                params[k] = v
-        return params
-
-    def _detect_variable_parameter(self, runs: List[SimulationRun]) -> Tuple[str, List[Any], List[SimulationRun]]:
-        """
-        交互式参数筛选与 X 轴选择 (完整逻辑)。
-        """
-        # 1. 初始收集所有参数
-        current_data = []
-        for run in runs:
-            p = self._get_input_params(run)
-            current_data.append({'run': run, 'params': p})
-
-        while True:
-            # --- A. 动态分析当前数据中的变化量 ---
-            if not current_data:
-                console.print("[red]错误：所有模拟数据都被过滤掉了！[/red]")
-                return "Unknown", [], []
-
-            # 提取所有键
-            all_keys = set()
-            for item in current_data:
-                all_keys.update(item['params'].keys())
-
-            # 找出当前真正变化的键
-            varying_keys = []
-            varying_details = {}
-
-            for k in all_keys:
-                values = set()
-                for item in current_data:
-                    val = item['params'].get(k, None)
-                    values.add(str(val))
-
-                if len(values) > 1:
-                    varying_keys.append(k)
-                    varying_details[k] = list(values)
-
-            # --- B. 决策分支 ---
-
-            # 情况 1: 没有变量了
-            if len(varying_keys) == 0:
-                console.print("[yellow]警告: 当前剩余的模拟参数完全一致。将使用 Run Name 作为 X 轴。[/yellow]")
-                x_key = "Run Name"
-                break
-
-            # 情况 2: 只有一个变量 -> 自动选为 X 轴
-            if len(varying_keys) == 1:
-                x_key = varying_keys[0]
-                console.print(f"[green]✔ 锁定单一扫描变量: [bold]{x_key}[/bold] (共 {len(current_data)} 个模拟)[/green]")
-                break
-
-            # 情况 3: 有多个变量 -> 进入交互菜单
-            console.print(f"\n[bold cyan]检测到 {len(varying_keys)} 个变化的参数 (当前剩余 {len(current_data)} 个模拟)[/bold cyan]")
-
-            table = Table(title="变化参数列表")
-            table.add_column("ID", justify="right", style="cyan", no_wrap=True)
-            table.add_column("参数名", style="magenta")
-            table.add_column("当前包含的值 (示例)", style="green")
-
-            for i, key in enumerate(varying_keys):
-                vals = varying_details[key]
-                val_str = ", ".join(vals[:3]) + ("..." if len(vals) > 3 else "")
-                table.add_row(str(i + 1), key, val_str)
-
-            console.print(table)
-            console.print("[dim]提示: 选择参数后，你可以将其设定为 X 轴，或者根据其值过滤掉不需要的模拟。[/dim]")
-
-            # 用户输入
-            choices = [str(i + 1) for i in range(len(varying_keys))]
-            idx_str = Prompt.ask(
-                "[bold]请输入参数编号[/bold]",
-                choices=choices
-            )
-            selected_key = varying_keys[int(idx_str) - 1]
-
-            console.print(f"\n你选择了参数: [bold magenta]{selected_key}[/bold magenta]")
-            action = Prompt.ask(
-                "请选择操作 ([bold green]x[/]: 设为绘图 X 轴 / [bold red]f[/]: 筛选/剔除数据)",
-                choices=["x", "f"],
-                default="x",
-                show_choices=False,
-                case_sensitive=False
-            )
-
-            if action == "x":
-                # 选定 X 轴，跳出循环
-                x_key = selected_key
-                break
-            else:
-                # --- C. 执行筛选逻辑 ---
-                unique_vals = sorted(list(set([str(item['params'].get(selected_key)) for item in current_data])))
-
-                console.print(f"\n在该参数下检测到以下值：")
-                for i, v in enumerate(unique_vals):
-                    console.print(f"  {i + 1}) {v}")
-
-                keep_idx = Prompt.ask(
-                    f"[bold yellow]请选择你要【保留】的一组数据的编号[/bold yellow] (其他将被剔除)",
-                    choices=[str(i + 1) for i in range(len(unique_vals))]
-                )
-                target_val_str = unique_vals[int(keep_idx) - 1]
-
-                before_count = len(current_data)
-                current_data = [item for item in current_data if str(item['params'].get(selected_key)) == target_val_str]
-                after_count = len(current_data)
-
-                console.print(f"[green]已保留 {selected_key} = {target_val_str} 的数据。[/green]")
-                console.print(f"[dim]模拟数量从 {before_count} 减少到 {after_count}。[/dim]\n")
-
-        # 排序与输出
-        def sort_key(item):
-            if x_key == "Run Name":
-                return item['run'].name
-            val = item['params'].get(x_key, 0)
-            try:
-                return float(val)
-            except:
-                return str(val)
-
-        current_data.sort(key=sort_key)
-
-        sorted_runs = [item['run'] for item in current_data]
-        sorted_values = [item['params'].get(x_key, item['run'].name if x_key == "Run Name" else "N/A") for item in current_data]
-
-        return x_key, sorted_values, sorted_runs
-
-    # =========================================================================
-    # 3. 运行与绘图
+    # 2. 运行与绘图
     # =========================================================================
 
     def run(self, loaded_runs: List[SimulationRun]):
@@ -279,8 +117,10 @@ class ParametricFluxModule(BaseComparisonModule):
             console.print(f"[red]{e}[/red]")
             return
 
-        # 2. 确定 X 轴参数
-        x_label, x_vals, sorted_runs = self._detect_variable_parameter(valid_runs)
+        # 2. 使用 Selector 准备数据
+        selector = ParameterSelector(valid_runs)
+        x_label, x_vals, sorted_runs = selector.select()
+        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="scan_flux")
 
         # 3. 构建数据矩阵 Z
         # 矩阵形状: (Energy_Bins, Parameters)
@@ -305,11 +145,6 @@ class ParametricFluxModule(BaseComparisonModule):
             is_numeric_x = False
 
         # 5. 绘图
-        run_names_concat = "".join(sorted([r.name for r in sorted_runs]))
-        short_hash = hashlib.md5(run_names_concat.encode('utf-8')).hexdigest()[:6]
-        user_suffix = Prompt.ask(f"文件名后缀", default=short_hash)
-        final_filename = f"scan_flux_{x_label}_{user_suffix}"
-
         with create_analysis_figure(sorted_runs, "scan_flux", num_plots=1, figsize=(11, 7), override_filename=final_filename) as (fig, ax):
 
             # 设置颜色映射：红蓝发散色，中间(0)为白色

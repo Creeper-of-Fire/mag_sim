@@ -1,16 +1,14 @@
 # analysis/modules/spectrum_gain.py
 
-from typing import List, Set, Optional
+from typing import List, Set
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import FuncFormatter
 
-from .base_module import BaseComparisonModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
-from ..plotting.layout import create_analysis_figure
-from ..plotting.styles import get_style
+from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.styles import get_style
 
 
 class SpectrumGainModule(BaseComparisonModule):

@@ -1,20 +1,15 @@
 # analysis/modules/parametric_gain.py
 
-import hashlib
-import json
-from pathlib import Path
-from typing import List, Set, Dict, Any, Tuple
+from typing import List, Set, Dict, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-from rich.prompt import Prompt
-from rich.table import Table
 
-from utils.project_config import FILENAME_HISTORY
-from .base_module import BaseComparisonModule
-from ..core.simulation import SimulationRun
-from ..core.utils import console
-from ..plotting.layout import create_analysis_figure
+from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.core.parameter_selector import ParameterSelector
+from analysis.core.simulation import SimulationRun
+from analysis.core.utils import console
+from analysis.plotting.layout import create_analysis_figure
 
 # 增加一个统计阈值，避免因为初始粒子数太少导致比率爆炸
 MIN_INITIAL_COUNTS = 10
@@ -100,83 +95,9 @@ class ParametricGainModule(BaseComparisonModule):
             'peak_gain_energy_mev': peak_energy
         }
 
-    # =========================================================================
-    # 2. 参数探测核心 (从 ParametricTailModule 复用)
-    # =========================================================================
-
-    def _get_input_params(self, run: SimulationRun) -> Dict[str, Any]:
-        run_path = Path(run.path).resolve()
-        history_path = run_path.parent.parent / FILENAME_HISTORY
-        if history_path.exists():
-            try:
-                with open(history_path, 'r', encoding='utf-8') as f:
-                    for line in reversed(f.readlines()):
-                        try:
-                            record = json.loads(line)
-                            if Path(record.get('output_dir', '')).resolve().name == run_path.name:
-                                return record.get('params', {})
-                        except:
-                            continue
-            except:
-                pass
-        params = {}
-        for k, v in vars(run.sim).items():
-            if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
-                params[k] = v
-        return params
-
-    def _detect_variable_parameter(self, runs: List[SimulationRun]) -> Tuple[str, List[Any], List[SimulationRun]]:
-        current_data = [{'run': r, 'params': self._get_input_params(r)} for r in runs]
-        while True:
-            if not current_data: return "Unknown", [], []
-            all_keys = set().union(*(d['params'].keys() for d in current_data))
-            varying_keys = [k for k in all_keys if len(set(str(d['params'].get(k)) for d in current_data)) > 1]
-            if len(varying_keys) <= 1:
-                x_key = varying_keys[0] if varying_keys else "Run Name"
-                break
-
-            console.print(f"\n[bold cyan]检测到 {len(varying_keys)} 个变化的参数[/bold cyan]")
-            table = Table(title="变化参数列表")
-            table.add_column("ID", style="cyan")
-            table.add_column("参数名", style="magenta")
-            table.add_column("值 (示例)", style="green")
-            for i, key in enumerate(varying_keys):
-                vals = list(set(str(d['params'].get(key)) for d in current_data))
-                table.add_row(str(i + 1), key, ", ".join(vals[:3]) + ("..." if len(vals) > 3 else ""))
-            console.print(table)
-
-            idx_str = Prompt.ask("[bold]请选择参数编号[/bold]", choices=[str(i + 1) for i in range(len(varying_keys))])
-            selected_key = varying_keys[int(idx_str) - 1]
-
-            action = Prompt.ask(f"操作 for [bold magenta]{selected_key}[/bold magenta]: ([bold green]x[/]) 设为X轴 / ([bold red]f[/]) 筛选", choices=["x", "f"],
-                                default="x")
-            if action == 'x':
-                x_key = selected_key
-                break
-            else:
-                unique_vals = sorted(list(set(str(item['params'].get(selected_key)) for item in current_data)))
-                console.print(f"\n可用值：")
-                for i, v in enumerate(unique_vals): console.print(f"  {i + 1}) {v}")
-                keep_idx = Prompt.ask("[bold yellow]选择要【保留】的值的编号[/bold yellow]", choices=[str(i + 1) for i in range(len(unique_vals))])
-                target_val_str = unique_vals[int(keep_idx) - 1]
-                current_data = [item for item in current_data if str(item['params'].get(selected_key)) == target_val_str]
-                console.print(f"[green]已筛选。剩余 {len(current_data)} 个模拟。[/green]\n")
-
-        def sort_key(item):
-            if x_key == "Run Name": return item['run'].name
-            try:
-                return float(item['params'].get(x_key, 0))
-            except:
-                return str(item['params'].get(x_key, ""))
-
-        current_data.sort(key=sort_key)
-
-        sorted_runs = [item['run'] for item in current_data]
-        sorted_values = [item['params'].get(x_key, item['run'].name if x_key == "Run Name" else "N/A") for item in current_data]
-        return x_key, sorted_values, sorted_runs
 
     # =========================================================================
-    # 3. 运行与绘图
+    # 2. 运行与绘图
     # =========================================================================
 
     def run(self, loaded_runs: List[SimulationRun]):
@@ -194,25 +115,24 @@ class ParametricGainModule(BaseComparisonModule):
             console.print(f"[red]创建分箱失败: {e}[/red]")
             return
 
-        # 2. 检测变量并排序 (完全复用)
-        x_label, x_vals, sorted_runs = self._detect_variable_parameter(valid_runs)
+        # 2. 使用 Selector 准备数据
+        selector = ParameterSelector(valid_runs)
+        x_label, x_vals, sorted_runs = selector.select()
 
-        # 3. 文件名处理 (完全复用)
-        run_names_concat = "".join(sorted([r.name for r in sorted_runs]))
-        short_hash = hashlib.md5(run_names_concat.encode('utf-8')).hexdigest()[:6]
-        user_suffix = Prompt.ask(f"请输入文件名后缀 (默认基于哈希)", default=short_hash)
-        final_filename = f"scan_gain_{x_label}_{user_suffix}"
+        # 3. 生成文件名
+        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="scan_gain")
 
         # 4. 计算指标
         y_peak_gain = []
         y_peak_energy = []
 
         console.print(f"  正在计算每个run的峰值增益...")
-        for run in sorted_runs:
+        for i, run in enumerate(sorted_runs):
             m = self._calculate_gain_metrics(run, bins, centers, widths)
             y_peak_gain.append(m['peak_gain'])
             y_peak_energy.append(m['peak_gain_energy_mev'])
-            console.print(f"    - {run.name}: {x_label}={self._get_input_params(run).get(x_label)} -> "
+
+            console.print(f"    - {run.name}: {x_label}={x_vals[i]} -> "
                           f"Peak Gain={m['peak_gain']:.2f} @ {m['peak_gain_energy_mev']:.3f} MeV")
 
         try:
