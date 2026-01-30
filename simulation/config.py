@@ -11,6 +11,10 @@ class SimulationParameters:
 
     enable_collision = True
 
+    field_total_step = 40
+
+    particle_total_step = 40
+
     # --- 1. 基础物理参数 (Independent Physical Parameters) ---
     # 维度
     dim = 3
