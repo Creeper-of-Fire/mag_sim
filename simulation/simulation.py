@@ -249,10 +249,10 @@ class PlasmaReconnection(object):
 
         # 诊断频率
         self.total_steps = int(self.LT / self.DT)
-        FIELD_TOTAL_STEP = 2
+        FIELD_TOTAL_STEP = 40
         self.field_diag_steps = self.total_steps // FIELD_TOTAL_STEP
         self.field_diag_steps = max(1, self.field_diag_steps)
-        PARTICLE_TOTAL_STEP = 10
+        PARTICLE_TOTAL_STEP = 40
         self.particle_diag_steps = self.total_steps // PARTICLE_TOTAL_STEP
         self.particle_diag_steps = max(1, self.particle_diag_steps)
 

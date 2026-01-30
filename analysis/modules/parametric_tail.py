@@ -8,6 +8,7 @@ from typing import List, Set, Dict, Any, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from rich.prompt import Prompt
+from rich.table import Table
 from scipy.constants import k as kB, c, m_e, e
 from scipy.optimize import root_scalar
 from scipy.special import kn as bessel_k
@@ -177,76 +178,142 @@ class ParametricTailModule(BaseComparisonModule):
 
     def _detect_variable_parameter(self, runs: List[SimulationRun]) -> Tuple[str, List[Any], List[SimulationRun]]:
         """
-        对比所有 runs 的参数，找出哪个参数在变化。
-        如果存在多个变化的参数，则提示用户手动选择。
+        增强版：交互式参数筛选与 X 轴选择。
+        允许用户在绘图前剔除不想要的模拟（例如剔除 collisions=False 的组）。
         """
-        # 1. 收集所有参数
-        run_params_map = []
+        # 1. 初始收集所有参数
+        # 结构: [{'run': run_obj, 'params': dict}, ...]
+        current_data = []
         for run in runs:
             p = self._get_input_params(run)
-            run_params_map.append({'run': run, 'params': p})
+            current_data.append({'run': run, 'params': p})
 
-        if not run_params_map:
-            return "Unknown", [], runs
+        while True:
+            # --- A. 动态分析当前数据中的变化量 ---
+            if not current_data:
+                console.print("[red]错误：所有模拟数据都被过滤掉了！[/red]")
+                return "Unknown", [], []
 
-        # 2. 找出所有键
-        all_keys = set()
-        for item in run_params_map:
-            all_keys.update(item['params'].keys())
+            # 提取所有键
+            all_keys = set()
+            for item in current_data:
+                all_keys.update(item['params'].keys())
 
-        # 3. 寻找变化量
-        varying_keys = []
-        for k in all_keys:
-            values = set()
-            for item in run_params_map:
-                # 转换为字符串以便比较 (避免 float 精度问题)
-                val = item['params'].get(k, None)
-                values.add(str(val))
-            if len(values) > 1:
-                varying_keys.append(k)
+            # 找出当前真正变化的键
+            varying_keys = []
+            varying_details = {} # 存储每个变化键对应的值集合
 
-        # 4. 确定 X 轴 (交互逻辑)
-        if len(varying_keys) == 0:
-            console.print("[yellow]警告: 所有模拟的输入参数似乎都相同？将使用模拟名称作为 X 轴。[/yellow]")
-            x_key = "Run Name"
+            for k in all_keys:
+                values = set()
+                for item in current_data:
+                    val = item['params'].get(k, None)
+                    values.add(str(val)) #以此判断是否变化
+                
+                if len(values) > 1:
+                    varying_keys.append(k)
+                    varying_details[k] = list(values)
 
-        elif len(varying_keys) == 1:
-            x_key = varying_keys[0]
-            console.print(f"[green]✔ 检测到单一扫描变量: [bold]{x_key}[/bold][/green]")
+            # --- B. 决策分支 ---
+            
+            # 情况 1: 没有变量了 (剩下全是完全一样的参数，或者只剩 1 个 run)
+            if len(varying_keys) == 0:
+                console.print("[yellow]警告: 当前剩余的模拟参数完全一致。将使用 Run Name 作为 X 轴。[/yellow]")
+                x_key = "Run Name"
+                break
+            
+            # 情况 2: 只有一个变量 -> 自动选为 X 轴 (除非用户非要看一眼)
+            # 但为了防止用户其实想过滤这唯一的变量（比如想看单一值的统计？不过这里是扫描模块），
+            # 这里的逻辑是：如果只剩一个变量，通常这就是我们要画的。
+            if len(varying_keys) == 1:
+                x_key = varying_keys[0]
+                console.print(f"[green]✔ 锁定单一扫描变量: [bold]{x_key}[/bold] (共 {len(current_data)} 个模拟)[/green]")
+                break
 
-        else:
-            # --- 核心修改部分：手动选择 ---
-            console.print("\n[yellow]检测到多个变化的参数，请选择一个作为绘图的 X 轴：[/yellow]")
-            # 过滤掉一些干扰项，只显示给用户选
+            # 情况 3: 有多个变量 -> 进入交互菜单 (筛选 或 选择 X)
+            console.print(f"\n[bold cyan]检测到 {len(varying_keys)} 个变化的参数 (当前剩余 {len(current_data)} 个模拟)[/bold cyan]")
+            
+            # 创建展示表格
+            table = Table(title="变化参数列表")
+            table.add_column("ID", justify="right", style="cyan", no_wrap=True)
+            table.add_column("参数名", style="magenta")
+            table.add_column("当前包含的值 (示例)", style="green")
+
             for i, key in enumerate(varying_keys):
-                # 获取该参数的变化范围示例
-                example_vals = list(set([str(item['params'].get(key)) for item in run_params_map]))[:3]
-                val_str = ", ".join(example_vals) + ("..." if len(example_vals) > 3 else "")
-                console.print(f"  {i + 1}) [bold cyan]{key:<20}[/bold cyan] (示例值: {val_str})")
+                vals = varying_details[key]
+                # 截断显示过长的值列表
+                val_str = ", ".join(vals[:3]) + ("..." if len(vals) > 3 else "")
+                table.add_row(str(i + 1), key, val_str)
 
+            console.print(table)
+            console.print("[dim]提示: 选择参数后，你可以将其设定为 X 轴，或者根据其值过滤掉不需要的模拟。[/dim]")
+
+            # 用户输入
             choices = [str(i + 1) for i in range(len(varying_keys))]
             idx_str = Prompt.ask(
                 "[bold]请输入参数编号[/bold]",
-                choices=choices,
-                default="1"
+                choices=choices
             )
-            x_key = varying_keys[int(idx_str) - 1]
-            console.print(f"[green]已选择 [bold]{x_key}[/bold] 作为扫描基准。[/green]\n")
+            selected_key = varying_keys[int(idx_str) - 1]
 
-        # 5. 根据选择的 X 轴的值对 runs 进行排序
+            # 针对选中的 key，询问动作
+            console.print(f"\n你选择了参数: [bold magenta]{selected_key}[/bold magenta]")
+            action = Prompt.ask(
+                "请选择操作 ([bold green]x[/]: 设为绘图 X 轴 / [bold red]f[/]: 筛选/剔除数据)",
+                choices=["x", "f"],
+                default="x",
+                show_choices=False,
+                case_sensitive=False  # 允许用户输入 X 或 F
+            )
+
+            if action == "x":
+                # 选定 X 轴，跳出循环
+                x_key = selected_key
+                break
+            else:
+                # --- C. 执行筛选逻辑 ---
+                # 获取该参数下的所有可能值
+                unique_vals = sorted(list(set([str(item['params'].get(selected_key)) for item in current_data])))
+                
+                console.print(f"\n在该参数下检测到以下值：")
+                for i, v in enumerate(unique_vals):
+                    console.print(f"  {i+1}) {v}")
+                
+                keep_idx = Prompt.ask(
+                    f"[bold yellow]请选择你要【保留】的一组数据的编号[/bold yellow] (其他将被剔除)",
+                    choices=[str(i+1) for i in range(len(unique_vals))]
+                )
+                target_val_str = unique_vals[int(keep_idx) - 1]
+
+                # 执行删除
+                before_count = len(current_data)
+                # 注意：这里对比必须用字符串，因为前面为了去重都转成了 str
+                current_data = [item for item in current_data if str(item['params'].get(selected_key)) == target_val_str]
+                after_count = len(current_data)
+                
+                console.print(f"[green]已保留 {selected_key} = {target_val_str} 的数据。[/green]")
+                console.print(f"[dim]模拟数量从 {before_count} 减少到 {after_count}。[/dim]\n")
+                
+                # 循环继续，重新检测剩下的参数变化情况...
+
+        # ==========================================================
+        # 3. 排序与输出
+        # ==========================================================
+        
+        # 定义排序函数
         def sort_key(item):
-            val = item['params'].get(x_key, 0)
             if x_key == "Run Name":
                 return item['run'].name
+            val = item['params'].get(x_key, 0)
             try:
                 return float(val)
             except:
                 return str(val)
 
-        run_params_map.sort(key=sort_key)
+        # 排序
+        current_data.sort(key=sort_key)
 
-        sorted_runs = [item['run'] for item in run_params_map]
-        sorted_values = [item['params'].get(x_key, item['run'].name if x_key == "Run Name" else "N/A") for item in run_params_map]
+        sorted_runs = [item['run'] for item in current_data]
+        sorted_values = [item['params'].get(x_key, item['run'].name if x_key == "Run Name" else "N/A") for item in current_data]
 
         return x_key, sorted_values, sorted_runs
 

@@ -300,7 +300,7 @@ def _determine_output_base_path(run_or_runs: Union['SimulationRun', List['Simula
     # 情况 A: 单个模拟
     if not isinstance(run_or_runs, list):
         run = run_or_runs
-        return run.job_path / config.analysis_folder_name / config.single_analysis_subfolder / run.name
+        return run.job_path / config.analysis_folder_name / config.single_analysis_subfolder
 
     # 情况 B: 多个模拟
     runs = run_or_runs
