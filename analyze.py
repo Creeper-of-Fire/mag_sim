@@ -20,6 +20,7 @@ from rich.prompt import Prompt
 
 from analysis.core.config import config
 from analysis.core.data_loader import load_run_data
+from analysis.core.selector import SimpleTableSelector
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, select_directories
 from analysis.utils import setup_chinese_font
@@ -89,37 +90,28 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
 
 
 def _select_modules_from_list(module_dict: Dict[str, AnyModule]) -> List[AnyModule]:
-    """通用模块选择交互函数"""
+    """模块选择交互函数"""
     if not module_dict:
         return []
 
+    # 将字典的值转为列表
     module_list = list(module_dict.values())
-    console.print("\n[bold underline]请选择要执行的分析模块：[/bold underline]\n")
-    for i, mod in enumerate(module_list):
-        console.print(f"[[cyan]{i}[/cyan]] [magenta]{mod.name}[/magenta]")
-        console.print(f"    ↳ [white]{mod.description}[/white]")
-    console.print("")
 
-    while True:
-        try:
-            prompt_text = "[bold]请输入索引 (用逗号/空格分隔, [cyan]回车全选[/cyan]): [/bold]"
-            choice_str = Prompt.ask(prompt_text, default="all")
+    # 定义显示格式：显示名称和描述
+    def module_formatter(mod: AnyModule) -> str:
+        return f"[magenta]{mod.name}[/magenta]\n    ↳ [dim]{mod.description}[/dim]"
 
-            if choice_str.strip().lower() == "all":
-                console.print(f"[green]✔ 已选择全部 {len(module_list)} 个模块。[/green]")
-                return module_list
+    selector = SimpleTableSelector(
+        items=module_list,
+        columns=["模块名称", "描述"],
+        row_converter=lambda mod: [
+            f"[magenta]{mod.name}[/magenta]",
+            f"↳ [dim]{mod.description}[/dim]"
+        ],
+        title="请选择分析模块"
+    )
 
-            indices_str = choice_str.replace(',', ' ').split()
-            if not indices_str: continue
-
-            indices = [int(i) for i in indices_str]
-            if all(0 <= i < len(module_list) for i in indices):
-                return [module_list[i] for i in indices]
-            else:
-                console.print("[yellow]警告: 输入的索引超出范围，请重试。[/yellow]")
-        except ValueError:
-            console.print("[red]错误: 无效输入，请输入数字索引。[/red]")
-
+    return selector.select(default="all")
 
 def _run_analysis_workflow(selected_modules: List[AnyModule], selected_dirs: List[str]):
     """统一的数据加载和模块执行流程"""

@@ -2,12 +2,13 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import List, Any, Dict, Tuple
+from typing import List, Any, Dict, Tuple, Optional
 
 from rich.prompt import Prompt
 from rich.table import Table
 
 from utils.project_config import FILENAME_HISTORY
+from .selector import SimpleTableSelector
 from .simulation import SimulationRun
 from .utils import console
 
@@ -61,27 +62,90 @@ class ParameterSelector:
 
             # 情况 C: 多个变量 -> 交互菜单
             console.print(f"\n[bold cyan]检测到 {len(varying_keys)} 个变化的参数 (当前剩余 {len(self.data_items)} 个模拟)[/bold cyan]")
-            self._print_param_table(varying_keys, varying_details)
 
-            # 用户选择参数
-            choices = [str(i + 1) for i in range(len(varying_keys))]
-            idx_str = Prompt.ask("[bold]请输入参数编号[/bold]", choices=choices)
-            selected_key = varying_keys[int(idx_str) - 1]
+            # 这里我们强制单选，因为一次只能处理一个参数
+            target_key = self._prompt_select_parameter(varying_keys, varying_details)
+            if not target_key:
+                continue # 如果没选或取消
 
-            console.print(f"\n你选择了参数: [bold magenta]{selected_key}[/bold magenta]")
+            console.print(f"\n你选择了参数: [bold magenta]{target_key}[/bold magenta]")
+
+            # 询问操作
             action = Prompt.ask(
                 "请选择操作 ([bold green]x[/]: 设为绘图 X 轴 / [bold red]f[/]: 筛选/剔除数据)",
                 choices=["x", "f"], default="x", show_choices=False, case_sensitive=False
             )
 
             if action == "x":
-                x_key = selected_key
+                x_key = target_key
                 break
             else:
-                self._filter_data(selected_key)
+                self._filter_data(target_key)
 
         # 3. 排序并返回
         return self._sort_and_export(x_key)
+
+    # --- 辅助UI方法 ---
+    def _prompt_select_parameter(self, keys: List[str], details: Dict[str, List[str]]) -> Optional[str]:
+        """使用通用选择器让用户从变化参数列表中选一个"""
+
+        # 定义转换函数：参数名 -> [参数名, 示例值]
+        def row_converter(k):
+            vals = details[k]
+            # 截取前3个值作为示例
+            val_str = ", ".join(map(str, vals[:3])) + ("..." if len(vals) > 3 else "")
+            return [f"[magenta]{k}[/magenta]", f"[dim]{val_str}[/dim]"]
+
+        selector = SimpleTableSelector(
+            items=keys,
+            columns=["参数名", "当前包含的值 (示例)"],
+            row_converter=row_converter,
+            title="变化参数列表"
+        )
+
+        selected = selector.select(single=True, default="0")
+
+        if not selected:
+            # 用户可能按 Ctrl+C 中断了
+            return None
+
+        # 因为是 single 模式，返回的列表最多只有一个元素
+        return selected[0]
+
+    def _filter_data(self, key: str):
+        """让用户选择保留哪些值（支持多选）"""
+        # 获取所有唯一值
+        all_vals = [item['params'].get(key) for item in self.data_items]
+        # 转为字符串用于显示和比较，去重并排序
+        unique_vals = sorted(list(set(map(str, all_vals))))
+
+        selector = SimpleTableSelector(
+            items=unique_vals,
+            columns=["值"],
+            row_converter=lambda v: [f"[cyan]{v}[/cyan]"],
+            title=f"参数 [{key}] 的分布情况"
+        )
+
+        console.print("[dim]提示: 选中的值将被【保留】，未选中的将被剔除。[/dim]")
+
+        # 这里利用了 Selector 的多选能力
+        values_to_keep = selector.select(prompt_text="请选择要【保留】的数据值", default="all")
+
+        if not values_to_keep:
+            console.print("[yellow]未选择任何值，操作取消。[/yellow]")
+            return
+
+        # 执行过滤
+        before_count = len(self.data_items)
+        self.data_items = [
+            item for item in self.data_items
+            if str(item['params'].get(key)) in values_to_keep
+        ]
+        after_count = len(self.data_items)
+
+        console.print(f"[green]已保留 {len(values_to_keep)} 组参数值。[/green]")
+        console.print(f"[dim]模拟数量从 {before_count} 减少到 {after_count}。[/dim]\n")
+
 
     # --- 辅助功能 ---
 
@@ -178,27 +242,6 @@ class ParameterSelector:
             table.add_row(str(i + 1), key, val_str)
         console.print(table)
         console.print("[dim]提示: 选择参数后，你可以将其设定为 X 轴，或者根据其值过滤掉不需要的模拟。[/dim]")
-
-    def _filter_data(self, key: str):
-        # 获取所有唯一值
-        unique_vals = sorted(list(set([str(item['params'].get(key)) for item in self.data_items])))
-
-        console.print(f"\n参数 [{key}] 下检测到以下值：")
-        for i, v in enumerate(unique_vals):
-            console.print(f"  {i + 1}) {v}")
-
-        keep_idx = Prompt.ask(
-            f"[bold yellow]请选择你要【保留】的一组数据的编号[/bold yellow]",
-            choices=[str(i + 1) for i in range(len(unique_vals))]
-        )
-        target_val_str = unique_vals[int(keep_idx) - 1]
-
-        before_count = len(self.data_items)
-        self.data_items = [item for item in self.data_items if str(item['params'].get(key)) == target_val_str]
-        after_count = len(self.data_items)
-
-        console.print(f"[green]已保留 {key} = {target_val_str} 的数据。[/green]")
-        console.print(f"[dim]模拟数量从 {before_count} 减少到 {after_count}。[/dim]\n")
 
     def _sort_and_export(self, x_key: str) -> Tuple[str, List[Any], List[SimulationRun]]:
         def sort_key(item):
