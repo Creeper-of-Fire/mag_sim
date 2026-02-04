@@ -182,8 +182,6 @@ def create_analysis_figure(
     if num_plots > 0 and not isinstance(axes_array, (list, np.ndarray)):
         axes_array = [axes_array]
 
-    fig.suptitle(title, fontsize=18)
-
     plot_axes = axes_array[:-1] if num_plots > 0 else []
     table_ax = axes_array[-1]
 
