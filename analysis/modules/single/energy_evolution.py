@@ -1,10 +1,10 @@
 # modules/energy_evolution.py
 
-from typing import List, Set
+from typing import List
 
-from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.plotting.energy_plotter import EnergyDensityPlotter, TotalEnergyPlotter
 from analysis.plotting.layout import create_analysis_figure
 
@@ -17,10 +17,6 @@ class EnergyEvolutionModule(BaseAnalysisModule):
     @property
     def description(self) -> str:
         return "绘制场能（电/磁）、动能和总能量随时间的演化图。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'energy', 'initial_spectrum'}
 
     def run(self, loaded_runs: List[SimulationRun]):
         """为每个模拟生成能量演化图。"""

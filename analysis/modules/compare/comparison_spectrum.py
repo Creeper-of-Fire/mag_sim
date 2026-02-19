@@ -1,10 +1,10 @@
 # analysis/modules/comparison_spectrum.py
 
-from typing import List, Set
+from typing import List
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.spectrum_plotter import SpectrumComparisonPlotter
 
@@ -13,6 +13,7 @@ class SpectrumComparisonModule(BaseComparisonModule):
     """
     对比分析模块：对比不同模拟的最终粒子能谱。
     """
+
     @property
     def name(self) -> str:
         return "能谱对比分析"
@@ -20,10 +21,6 @@ class SpectrumComparisonModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "将多个模拟的最终能谱绘制在同一张图上进行对比。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'initial_spectrum', 'final_spectrum'}
 
     def run(self, loaded_runs: List[SimulationRun]):
         """

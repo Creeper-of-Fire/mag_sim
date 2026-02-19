@@ -1,6 +1,6 @@
 # modules/spectrum_analysis.py
 
-from typing import List, Set
+from typing import List
 
 import numpy as np
 from scipy.constants import c, m_e  # 物理常量
@@ -24,10 +24,6 @@ class SpectrumAnalysisModule(BaseAnalysisModule):
     @property
     def description(self) -> str:
         return "绘制初始/最终能谱，并与用户输入的理论热谱对比。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'initial_spectrum', 'final_spectrum'}
 
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 粒子能谱分析...[/bold magenta]")

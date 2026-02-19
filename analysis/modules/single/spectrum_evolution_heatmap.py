@@ -89,11 +89,6 @@ class SpectrumEvolutionHeatmapModule(BaseAnalysisModule):
     def description(self) -> str:
         return "绘制'时间-能量-粒子数'热力图，展示能谱随时间的连续演化过程。"
 
-    @property
-    def required_data(self) -> Set[str]:
-        # 我们需要直接访问原始文件列表
-        return {'particle_files'}
-
     def _create_common_bins(self, run: SimulationRun, sampled_files: List[str]) -> np.ndarray:
         """
         通过扫描部分文件，为所有时间步创建一个统一的能量分箱。

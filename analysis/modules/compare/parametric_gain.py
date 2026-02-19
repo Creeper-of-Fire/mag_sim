@@ -1,14 +1,14 @@
 # analysis/modules/parametric_gain.py
 
-from typing import List, Set, Dict, Tuple
+from typing import List, Dict, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.layout import create_analysis_figure
 
 # 增加一个统计阈值，避免因为初始粒子数太少导致比率爆炸
@@ -23,10 +23,6 @@ class ParametricGainModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "自动识别变化的输入参数(X轴)，绘制峰值增益比率(f_final/f_initial)和对应能量的变化趋势。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'initial_spectrum', 'final_spectrum'}
 
     # =========================================================================
     # 1. 物理计算核心 (增益比率计算)
@@ -94,7 +90,6 @@ class ParametricGainModule(BaseComparisonModule):
             'peak_gain': peak_gain,
             'peak_gain_energy_mev': peak_energy
         }
-
 
     # =========================================================================
     # 2. 运行与绘图

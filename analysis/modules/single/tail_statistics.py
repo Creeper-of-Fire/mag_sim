@@ -24,9 +24,7 @@ class TailStatisticsModule(BaseAnalysisModule):
     def description(self) -> str:
         return "分析高能尾部的宏粒子数量统计，判断偏离是否为物理真实或统计噪声。"
 
-    @property
-    def required_data(self) -> Set[str]:
-        return {'final_spectrum'}
+
 
     def _perform_adaptive_binning(
             self,
