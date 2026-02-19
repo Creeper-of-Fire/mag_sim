@@ -4,20 +4,13 @@ from typing import List, Set, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.constants import k as kB, c, m_e, e
-from scipy.optimize import root_scalar
-from scipy.special import kn as bessel_k
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.utils import physics_mj
 from analysis.plotting.layout import create_analysis_figure
-
-# --- 物理常量 ---
-ME_C2_J = m_e * c ** 2
-J_PER_MEV = e * 1e6
-J_TO_KEV = 1.0 / (e * 1e3)
 
 
 class ParametricTailModule(BaseComparisonModule):
@@ -34,46 +27,8 @@ class ParametricTailModule(BaseComparisonModule):
         return {'final_spectrum'}
 
     # =========================================================================
-    # 物理计算核心 (温度拟合 & 尾部积分)
+    # 物理计算核心
     # =========================================================================
-
-    def _solve_temperature_kev(self, avg_ek_mev: float) -> float:
-        """根据平均动能反推 Maxwell-Juttner 温度 (keV)"""
-        if avg_ek_mev <= 0: return 0.0
-        target_avg_ek_j = avg_ek_mev * J_PER_MEV
-
-        def mj_avg_energy(T_K):
-            if T_K <= 0: return -1.0
-            theta = (kB * T_K) / ME_C2_J
-            if theta < 1e-9: return 1.5 * kB * T_K
-            # <E_k> = mc^2 * ( 3*theta + K1(1/th)/K2(1/th) - 1 )
-            return ME_C2_J * (3 * theta + bessel_k(1, 1.0 / theta) / bessel_k(2, 1.0 / theta) - 1.0)
-
-        # 估算初值
-        T_guess = (2.0 / 3.0) * target_avg_ek_j / kB
-        try:
-            sol = root_scalar(lambda t: mj_avg_energy(t) - target_avg_ek_j,
-                              x0=T_guess, bracket=[T_guess * 0.1, T_guess * 10.0], method='brentq')
-            return (sol.root * kB) * J_TO_KEV
-        except:
-            return 0.0
-
-    def _calculate_mj_pdf(self, E_MeV: np.ndarray, T_keV: float) -> np.ndarray:
-        """计算 Maxwell-Juttner 概率密度 f(E)"""
-        if T_keV <= 0: return np.zeros_like(E_MeV)
-        T_J = T_keV * 1e3 * e
-        theta = T_J / ME_C2_J
-
-        # 归一化系数
-        norm = 1.0 / (ME_C2_J * theta * bessel_k(2, 1.0 / theta))
-
-        E_J = E_MeV * J_PER_MEV
-        gamma = 1.0 + E_J / ME_C2_J
-        pc_J = np.sqrt(E_J * (E_J + 2 * ME_C2_J))
-
-        # PDF (per Joule) -> 需要乘以 J_PER_MEV 转为 per MeV
-        pdf = norm * (pc_J / ME_C2_J) * gamma * np.exp(-gamma / theta) * J_PER_MEV
-        return pdf
 
     def _calculate_excess_energy(self, run: SimulationRun) -> Dict[str, float]:
         """
@@ -91,7 +46,7 @@ class ParametricTailModule(BaseComparisonModule):
         total_energy_MeV = np.sum(spec.energies_MeV * spec.weights)
         total_weight = np.sum(spec.weights)
         avg_energy_MeV = total_energy_MeV / total_weight
-        T_keV = self._solve_temperature_kev(avg_energy_MeV)
+        T_keV = physics_mj.solve_mj_temperature_kev(avg_energy_MeV)
 
         # 2. 建立分箱 (覆盖整个范围，从极低到极高)
         min_e = max(1e-4, spec.energies_MeV.min())
@@ -105,7 +60,7 @@ class ParametricTailModule(BaseComparisonModule):
 
         # 4. 理论数据的直方图
         # N_th(bin) ≈ PDF(center) * width * total_weight
-        pdf_vals = self._calculate_mj_pdf(centers, T_keV)
+        pdf_vals = physics_mj.calculate_mj_pdf(centers, T_keV)
         counts_th = pdf_vals * widths * total_weight
 
         # 5. 核心：计算加权正向差值 (Weighted Positive Excess)
