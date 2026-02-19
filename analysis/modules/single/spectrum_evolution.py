@@ -1,21 +1,20 @@
 # analysis/modules/spectrum_evolution.py
 
-import os
 import gc
+import os
 from typing import List, Set, Dict, Optional
 
 import h5py
 import numpy as np
-from scipy.constants import k as kB, c, m_e, e
-from scipy.optimize import root_scalar
-from scipy.special import kn as bessel_k
+from scipy.constants import c, m_e, e
 from tqdm import tqdm
 
-from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.core.data_loader import _get_h5_dataset  # 复用底层加载逻辑
 from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.modules.utils import physics_mj
 from analysis.plotting.layout import create_analysis_figure
-from analysis.core.data_loader import _get_h5_dataset  # 复用底层加载逻辑
 
 # --- 物理常量 ---
 ME_C2_J = m_e * c ** 2
@@ -65,37 +64,6 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
         except Exception:
             return None
 
-    def _solve_temperature_kev(self, avg_ek_mev: float) -> float:
-        """根据平均动能反推 M-J 温度 (keV)"""
-        if avg_ek_mev <= 0: return 0.0
-        target_avg_ek_j = avg_ek_mev * J_PER_MEV
-
-        def mj_avg_energy(T_K):
-            if T_K <= 0: return -1.0
-            theta = (kB * T_K) / ME_C2_J
-            if theta < 1e-9: return 1.5 * kB * T_K
-            return ME_C2_J * (3 * theta + bessel_k(1, 1.0 / theta) / bessel_k(2, 1.0 / theta) - 1.0)
-
-        T_guess = (2.0 / 3.0) * target_avg_ek_j / kB
-        try:
-            sol = root_scalar(lambda t: mj_avg_energy(t) - target_avg_ek_j,
-                              x0=T_guess, bracket=[T_guess * 0.1, T_guess * 10.0], method='brentq')
-            return (sol.root * kB) * J_TO_KEV
-        except:
-            return 0.0
-
-    def _calculate_mj_pdf(self, E_MeV: np.ndarray, T_keV: float) -> np.ndarray:
-        """计算 M-J 概率密度 f(E) (per MeV)"""
-        if T_keV <= 0: return np.zeros_like(E_MeV)
-        T_J = T_keV * 1e3 * e
-        theta = T_J / ME_C2_J
-        norm = 1.0 / (ME_C2_J * theta * bessel_k(2, 1.0 / theta))
-        E_J = E_MeV * J_PER_MEV
-        gamma = 1.0 + E_J / ME_C2_J
-        pc_J = np.sqrt(E_J * (E_J + 2 * ME_C2_J))
-        pdf = norm * (pc_J / ME_C2_J) * gamma * np.exp(-gamma / theta) * J_PER_MEV
-        return pdf
-
     def _analyze_single_spectrum(self, spec: SpectrumData) -> Dict[str, float]:
         """对单个时刻的能谱进行分析，返回关键指标。"""
         if spec is None or spec.weights.size == 0:
@@ -104,7 +72,7 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
         total_energy_MeV = np.sum(spec.energies_MeV * spec.weights)
         total_weight = np.sum(spec.weights)
         avg_energy_MeV = total_energy_MeV / total_weight
-        T_keV = self._solve_temperature_kev(avg_energy_MeV)
+        T_keV = physics_mj.solve_mj_temperature_kev(avg_energy_MeV)
 
         pos_energies = spec.energies_MeV[spec.energies_MeV > 0]
         max_E_MeV = pos_energies.max() if pos_energies.size > 0 else 0.0
@@ -117,7 +85,7 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
         widths = np.diff(bins)
 
         counts_sim, _ = np.histogram(spec.energies_MeV, bins=bins, weights=spec.weights)
-        pdf_vals = self._calculate_mj_pdf(centers, T_keV)
+        pdf_vals = physics_mj.calculate_mj_pdf(centers, T_keV)
         counts_th = pdf_vals * widths * total_weight
 
         positive_diff = np.maximum(0.0, counts_sim - counts_th)
