@@ -6,6 +6,11 @@ class SimulationParameters:
     通过修改这里的数值，您可以独立地控制模拟的各个方面。
     """
 
+    # --- 运行控制参数 ---
+    # 用于区分相同物理参数下的多次运行 (例如统计实验)
+    # 修改此值会改变任务指纹 (Hash)，从而创建独立的输出文件夹
+    run_id = 0
+
     # --- 0. 启用/禁用功能 (Enable/Disable Features) ---
     enable_qed = False
 
