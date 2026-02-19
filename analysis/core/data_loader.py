@@ -9,6 +9,7 @@
 # 提供一个高级接口 `load_run_data` 来按需加载数据。
 #
 import os
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Set, Optional, List, Any, Tuple
 
@@ -18,8 +19,56 @@ import numpy as np
 from scipy.constants import c, m_e, mu_0, e, epsilon_0
 from tqdm import tqdm
 
-from .simulation import (SimulationRun, EnergyEvolutionData, FieldEvolutionData, SpectrumData)
+from .simulation import SimulationRun
 from .utils import console
+
+# --- 各种分析所需的数据容器 ---
+
+@dataclass
+class FieldEvolutionData:
+    """存放磁场演化数据"""
+    time: np.ndarray
+    b_mean_abs_normalized: np.ndarray
+    b_max_normalized: np.ndarray
+    b_mean_x_normalized: np.ndarray
+    b_mean_y_normalized: np.ndarray
+    b_mean_z_normalized: np.ndarray
+    b_rms_x_normalized: np.ndarray
+    b_rms_y_normalized: np.ndarray
+    b_rms_z_normalized: np.ndarray
+
+
+@dataclass
+class EnergyEvolutionData:
+    """存储能量随时间演化的数据"""
+    time: np.ndarray
+
+    # 平均磁场能量密度 (J/m^3)
+    mean_mag_energy_density_x: Optional[np.ndarray] = field(default=None)
+    mean_mag_energy_density_y: Optional[np.ndarray] = field(default=None)
+    mean_mag_energy_density_z: Optional[np.ndarray] = field(default=None)
+    mean_mag_energy_density_total: Optional[np.ndarray] = field(default=None)
+
+    # 平均电场能量密度 (J/m^3)
+    mean_elec_energy_density_x: Optional[np.ndarray] = field(default=None)
+    mean_elec_energy_density_y: Optional[np.ndarray] = field(default=None)
+    mean_elec_energy_density_z: Optional[np.ndarray] = field(default=None)
+    mean_elec_energy_density_total: Optional[np.ndarray] = field(default=None)
+
+    # 平均动能密度 (J/m^3)
+    mean_kin_energy_density: Optional[np.ndarray] = field(default=None)
+
+    # 盒子内的总能量 (J)
+    total_magnetic_energy: Optional[np.ndarray] = field(default=None)
+    total_electric_energy: Optional[np.ndarray] = field(default=None)
+    total_kinetic_energy: Optional[np.ndarray] = field(default=None)
+
+
+@dataclass
+class SpectrumData:
+    """存放能谱数据"""
+    energies_MeV: np.ndarray
+    weights: np.ndarray
 
 
 # =============================================================================
