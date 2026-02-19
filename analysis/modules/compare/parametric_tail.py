@@ -1,6 +1,6 @@
 # analysis/modules/parametric_tail.py
 
-from typing import List, Set, Dict
+from typing import List, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,10 +21,6 @@ class ParametricTailModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "自动识别变化的输入参数(X轴)，绘制高能尾部能量占比和等效温度的变化趋势。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'final_spectrum'}
 
     # =========================================================================
     # 物理计算核心

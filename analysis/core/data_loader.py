@@ -8,82 +8,18 @@
 # 包含所有从磁盘文件读取和计算物理量的函数。
 # 提供一个高级接口 `load_run_data` 来按需加载数据。
 #
-import glob
 import os
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Set, Optional, List, Callable, Any
+from typing import Set, Optional, List, Any, Tuple
 
 import dill
 import h5py
 import numpy as np
 from scipy.constants import c, m_e, mu_0, e, epsilon_0
+from tqdm import tqdm
 
 from .simulation import (SimulationRun, EnergyEvolutionData, FieldEvolutionData, SpectrumData)
 from .utils import console
-
-# =============================================================================
-# 0. 缓存处理模块
-# =============================================================================
-
-# !!! 重要 !!!
-# 当你修改了任何核心数据结构 (如 EnergyEvolutionData) 或加载逻辑时，
-# 请手动增加此版本号 (例如 "v1.0" -> "v1.1")。
-# 这将使所有旧版本的缓存失效，强制重新计算。
-CACHE_API_VERSION = "v1.1"
-
-
-def _is_cache_valid(cache_path: Path, source_files: List[str]) -> bool:
-    """检查缓存文件是否有效 (存在且比所有源文件新)。"""
-    if not cache_path.exists():
-        return False
-    if not source_files:  # 如果没有源文件，只要缓存存在就认为有效
-        return True
-
-    try:
-        cache_mtime = cache_path.stat().st_mtime
-        # 获取所有源文件中最新的修改时间
-        max_source_mtime = max(os.path.getmtime(f) for f in source_files if os.path.exists(f))
-        return cache_mtime > max_source_mtime
-    except (FileNotFoundError, ValueError):
-        # 如果任何源文件丢失或列表为空，则缓存无效
-        return False
-
-
-def _cached_loader(
-        cache_path: Path,
-        source_files: List[str],
-        loader_func: Callable[..., Any],
-        loader_args: tuple
-) -> Any:
-    """
-    一个通用的缓存包装器。
-    检查缓存，如果有效则加载；否则调用原始加载函数并保存结果。
-    """
-    if _is_cache_valid(cache_path, source_files):
-        console.print(f"  [green]  -> ✓ [CACHE HIT] 从 {cache_path.name} 加载...[/green]")
-        try:
-            with open(cache_path, "rb") as f:
-                return dill.load(f)
-        except Exception as err:
-            console.print(f"  [yellow]  -> ⚠ 读取缓存 {cache_path.name} 失败: {err}。将重新计算。[/yellow]")
-
-    console.print(f"  [yellow]  -> ↳ [CACHE MISS] 正在计算并生成 {cache_path.name}...[/yellow]")
-
-    # 执行原始的加载/计算函数
-    result = loader_func(*loader_args)
-
-    # 如果成功计算出结果，则保存到缓存
-    if result is not None:
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, "wb") as f:
-                dill.dump(result, f)
-            console.print(f"  [blue]     -> ✓ 缓存已保存至 {cache_path}[/blue]")
-        except Exception as err:
-            console.print(f"  [red]     -> ✗ 保存缓存 {cache_path.name} 失败: {err}[/red]")
-
-    return result
 
 
 # =============================================================================
@@ -136,226 +72,360 @@ def _get_step_from_filename(filename: str) -> Optional[int]:
         return None
 
 
-def _center_field_3d(field: np.ndarray, target_shape: tuple) -> np.ndarray:
-    """
-    将3D交错网格场分量稳健地插值到单元中心。
-    目前没有使用，因为我们目前已经插值好了。
-    """
-    if field.shape == target_shape:
-        return field
-    nx, ny, nz = target_shape
-    if field.shape == (nx + 1, ny, nz): return 0.5 * (field[:-1, :, :] + field[1:, :, :])
-    if field.shape == (nx, ny + 1, nz): return 0.5 * (field[:, :-1, :] + field[:, 1:, :])
-    if field.shape == (nx, ny, nz + 1): return 0.5 * (field[:, :, :-1] + field[:, :, 1:])
-    if field.shape == (nx, ny + 1, nz + 1):
-        field_y_avg = 0.5 * (field[:, :-1, :] + field[:, 1:, :])
-        return 0.5 * (field_y_avg[:, :, :-1] + field_y_avg[:, :, 1:])
-    if field.shape == (nx + 1, ny, nz + 1):
-        field_x_avg = 0.5 * (field[:-1, :, :] + field[1:, :, :])
-        return 0.5 * (field_x_avg[:, :, :-1] + field_x_avg[:, :, 1:])
-    if field.shape == (nx + 1, ny + 1, nz):
-        field_x_avg = 0.5 * (field[:-1, :, :] + field[1:, :, :])
-        return 0.5 * (field_x_avg[:, :-1, :] + field_x_avg[:, 1:, :])
-    console.print(f"[red]错误: 无法处理的场形状 {field.shape}，目标为 {target_shape}。将进行裁剪。[/red]")
-    return field[:nx, :ny, :nz]
-
-
 # =============================================================================
-# 2. 模块化数据加载函数 (按需调用)
+# 2. 纯计算函数 (Pure Compute Functions)
 # =============================================================================
 
-def _load_spectrum_data(h5_filepath: str) -> Optional[SpectrumData]:
-    """从单个 HDF5 文件中加载所有带电粒子的能谱。"""
+def read_field_slice(fpath: str, axis: str = 'z', slice_idx: Optional[int] = None) -> Optional[np.ndarray]:
+    """
+    [纯函数] 从 HDF5 文件中读取磁场强度 |B| 的切片。
+    这是典型的“中间变量”提取。
+
+    Args:
+        fpath: HDF5 文件路径
+        axis: 切片法向 ('x', 'y', 'z')
+        slice_idx: 切片索引。如果为 None，自动取中心。
+    """
+    try:
+        step = _get_step_from_filename(fpath)
+        with h5py.File(fpath, 'r') as f:
+            base_path = f"/data/{step}/fields/"
+            # 尝试读取
+            if f"{base_path}B/x" not in f:
+                return None
+
+            # 读取 Bx, By, Bz
+            # 注意：WarpX 数据通常是 (x, y, z) 或 (x, z)
+            # 但 h5py 读取出来通常是 (Nx, Ny, Nz) 的 F-order 或者 C-order，取决于具体实现
+            # 这里假设读取出来是 Numpy 默认顺序
+            Bx_ds = f[base_path + 'B/x']
+            By_ds = f[base_path + 'B/y']
+            Bz_ds = f[base_path + 'B/z']
+
+            shape = Bx_ds.shape
+            ndim = len(shape)
+
+            # 2D 模拟处理
+            if ndim == 2:
+                # 2D 模拟通常是 X-Z 平面，数据本身就是切片
+                Bx = Bx_ds[:]
+                By = By_ds[:]
+                Bz = Bz_ds[:]
+                return np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
+
+            # 3D 模拟处理
+            if ndim == 3:
+                # 确定切片索引
+                target_axis_idx = {'x': 0, 'y': 1, 'z': 2}.get(axis, 2)
+
+                if slice_idx is None:
+                    slice_idx = shape[target_axis_idx] // 2
+
+                # 使用 numpy 的切片语法只读取需要的数据层，减少 I/O
+                slicer = [slice(None)] * 3
+                slicer[target_axis_idx] = slice_idx
+                slicer = tuple(slicer)
+
+                Bx = Bx_ds[slicer]
+                By = By_ds[slicer]
+                Bz = Bz_ds[slicer]
+
+                return np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
+
+    except Exception as e:
+        console.print(f"[yellow]⚠ 读取场切片失败 {os.path.basename(fpath)}: {e}[/yellow]")
+        return None
+
+    return None
+
+def compute_single_spectrum(h5_filepath: str) -> Optional[SpectrumData]:
+    """
+    [纯函数] 读取单个 HDF5 文件并返回 SpectrumData。
+    """
     all_energies_MeV, all_weights = [], []
     m_e_c2_J = m_e * c ** 2
     J_PER_MEV = e * 1e6
+
     try:
         with h5py.File(h5_filepath, 'r') as f:
+            # WarpX / OpenPMD 标准路径
+            if 'data' not in f: return None
             step_key = list(f['data'].keys())[0]
             particles_group = f[f'data/{step_key}/particles']
+
             for species_name in particles_group.keys():
-                if 'photon' in species_name: continue
+                if 'photon' in species_name: continue  # 跳过光子
 
                 species_group = particles_group[species_name]
+                try:
+                    px = _get_h5_dataset(species_group, 'momentum/x')
+                    py = _get_h5_dataset(species_group, 'momentum/y')
+                    pz = _get_h5_dataset(species_group, 'momentum/z')
+                    weights = _get_h5_dataset(species_group, 'weighting')
+                except KeyError:
+                    continue
 
-                px = _get_h5_dataset(species_group, 'momentum/x')
-                py = _get_h5_dataset(species_group, 'momentum/y')
-                pz = _get_h5_dataset(species_group, 'momentum/z')
-                weights = _get_h5_dataset(species_group, 'weighting')
                 if weights.size == 0: continue
+
                 p_sq = px ** 2 + py ** 2 + pz ** 2
                 kinetic_energy_J = np.sqrt(p_sq * c ** 2 + m_e_c2_J ** 2) - m_e_c2_J
                 all_energies_MeV.append(kinetic_energy_J / J_PER_MEV)
                 all_weights.append(weights)
+
         if not all_energies_MeV: return None
         return SpectrumData(np.concatenate(all_energies_MeV), np.concatenate(all_weights))
+
     except Exception as err:
-        console.print(f"  [red] -> ✗ 加载能谱 {os.path.basename(h5_filepath)} 时出错: {err}[/red]")
+        console.print(f"[yellow]⚠ 读取能谱失败 {os.path.basename(h5_filepath)}: {err}[/yellow]")
         return None
 
 
-def _load_field_evolution_data(dir_path: str, sim_obj: object) -> Optional[FieldEvolutionData]:
-    """从 OpenPMD/HDF5 文件序列中加载磁场演化数据。"""
-    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/field_states", "*.h5")))
-    if not field_files:
-        console.print(f"  [yellow]⚠ 在 'diags/field_states/' 目录下找不到任何 .h5 文件。[/yellow]")
-        return None
+def compute_field_evolution(field_files: List[str], sim_obj: Any) -> Optional[FieldEvolutionData]:
+    """
+    [纯函数] 遍历场文件列表，计算场演化统计量。
+    """
+    if not field_files: return None
 
     times, b_max_vals = [], []
-    b_mean_x_vals, b_mean_y_vals, b_mean_z_vals = [], [], []
-    b_rms_x_vals, b_rms_y_vals, b_rms_z_vals = [], [], []
-    b_mean_abs_vals = []
-    target_shape = (sim_obj.NX, sim_obj.NY, sim_obj.NZ)
+    b_mean_x, b_mean_y, b_mean_z = [], [], []
+    b_rms_x, b_rms_y, b_rms_z = [], [], []
+    b_mean_abs = []
 
-    for fpath in field_files:
+    # 简单抽样以显示进度条
+    for fpath in tqdm(field_files, desc="  计算场演化", unit="file", leave=False):
+        step = _get_step_from_filename(fpath)
+        if step is None: continue
+
         try:
-            step = _get_step_from_filename(fpath)
-            if step is None: continue
-
             with h5py.File(fpath, 'r') as f:
-                # 读取SI单位的原始场数据
                 base_path = f"/data/{step}/fields/"
-                Bx_raw = f[base_path + 'B/x'][:]
-                By_raw = f[base_path + 'B/y'][:]
-                Bz_raw = f[base_path + 'B/z'][:]
+                # 直接读取
+                Bx = f[base_path + 'B/x'][:]
+                By = f[base_path + 'B/y'][:]
+                Bz = f[base_path + 'B/z'][:]
 
-            Bx_norm, By_norm, Bz_norm = Bx_raw / sim_obj.B_norm, By_raw / sim_obj.B_norm, Bz_raw / sim_obj.B_norm
+            # 归一化
+            Bx /= sim_obj.B_norm
+            By /= sim_obj.B_norm
+            Bz /= sim_obj.B_norm
 
-            Bx, By, Bz = Bx_norm, By_norm, Bz_norm
+            b_mean_x.append(np.mean(Bx))
+            b_mean_y.append(np.mean(By))
+            b_mean_z.append(np.mean(Bz))
+            b_rms_x.append(np.sqrt(np.mean(Bx ** 2)))
+            b_rms_y.append(np.sqrt(np.mean(By ** 2)))
+            b_rms_z.append(np.sqrt(np.mean(Bz ** 2)))
 
-            b_mean_x_vals.append(np.mean(Bx))
-            b_mean_y_vals.append(np.mean(By))
-            b_mean_z_vals.append(np.mean(Bz))
-            b_rms_x_vals.append(np.sqrt(np.mean(Bx ** 2)))
-            b_rms_y_vals.append(np.sqrt(np.mean(By ** 2)))
-            b_rms_z_vals.append(np.sqrt(np.mean(Bz ** 2)))
-            b_magnitude = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
-            b_max_vals.append(np.max(b_magnitude))
-            b_mean_abs_vals.append(np.mean(b_magnitude))
+            b_mag = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
+            b_max_vals.append(np.max(b_mag))
+            b_mean_abs.append(np.mean(b_mag))
+
             times.append(step * sim_obj.dt)
-        except Exception as e:
-            console.print(f"  [red]✗ 处理场文件 {os.path.basename(fpath)} 时出错: {e}[/red]")
+        except Exception:
             continue
 
     if not times: return None
+
     return FieldEvolutionData(
-        time=np.array(times), b_max_normalized=np.array(b_max_vals),
-        b_mean_x_normalized=np.array(b_mean_x_vals), b_mean_y_normalized=np.array(b_mean_y_vals),
-        b_mean_z_normalized=np.array(b_mean_z_vals), b_mean_abs_normalized=np.array(b_mean_abs_vals),
-        b_rms_x_normalized=np.array(b_rms_x_vals), b_rms_y_normalized=np.array(b_rms_y_vals),
-        b_rms_z_normalized=np.array(b_rms_z_vals)
+        time=np.array(times),
+        b_max_normalized=np.array(b_max_vals),
+        b_mean_x_normalized=np.array(b_mean_x),
+        b_mean_y_normalized=np.array(b_mean_y),
+        b_mean_z_normalized=np.array(b_mean_z),
+        b_mean_abs_normalized=np.array(b_mean_abs),
+        b_rms_x_normalized=np.array(b_rms_x),
+        b_rms_y_normalized=np.array(b_rms_y),
+        b_rms_z_normalized=np.array(b_rms_z)
     )
 
 
-def _load_energy_evolution_data(dir_path: str, sim_obj: object) -> Optional[EnergyEvolutionData]:
-    """从 OpenPMD/HDF5 文件序列中加载磁能、电能和动能演化数据。"""
-    # 路径改变：不再是 diags/fields，而是 diags/field_states
-    field_dir = os.path.join(dir_path, "diags/field_states")
-    particle_dir = os.path.join(dir_path, "diags/particle_states")
-    # 文件类型改变：不再是 .npz，而是 .h5
-    field_files = {s: f for f in glob.glob(os.path.join(field_dir, "*.h5")) if (s := _get_step_from_filename(f)) is not None}
-    particle_files = {s: f for f in glob.glob(os.path.join(particle_dir, "*.h5")) if (s := _get_step_from_filename(f)) is not None}
+def compute_energy_evolution(field_files: List[str], particle_files: List[str], sim_obj: Any) -> Optional[EnergyEvolutionData]:
+    """
+    [纯函数] 综合计算场能和动能的演化。
+    需要对齐场文件和粒子文件的时间步。
+    """
+    # 建立 {step: filepath} 映射
+    f_map = {s: f for f in field_files if (s := _get_step_from_filename(f)) is not None}
+    p_map = {s: f for f in particle_files if (s := _get_step_from_filename(f)) is not None}
 
-    common_steps = sorted(list(set(field_files.keys()) & set(particle_files.keys())))
-    if not common_steps: return None
+    # 找交集
+    common_steps = sorted(list(set(f_map.keys()) & set(p_map.keys())))
+    if not common_steps:
+        console.print("[yellow]⚠ 未找到时间步匹配的场文件和粒子文件，能量计算跳过。[/yellow]")
+        return None
 
     times = []
-    mag_edens_x, mag_edens_y, mag_edens_z, mag_edens_tot = [], [], [], []
-    elec_edens_x, elec_edens_y, elec_edens_z, elec_edens_tot = [], [], [], []
-    kin_edens = []
-    total_mag_E, total_elec_E, total_kin_E = [], [], []
+    # 数据容器
+    res = {k: [] for k in [
+        'mag_x', 'mag_y', 'mag_z', 'mag_tot',
+        'elec_x', 'elec_y', 'elec_z', 'elec_tot',
+        'kin_dens', 'tot_mag', 'tot_elec', 'tot_kin'
+    ]}
 
-    target_shape = (sim_obj.NX, sim_obj.NY, sim_obj.NZ)
-    dx = sim_obj.Lx / sim_obj.NX
-    dy = sim_obj.Ly / sim_obj.NY
-    dz = sim_obj.Lz / sim_obj.NZ
-    cell_volume = dx * dy * dz
-    sim_volume = cell_volume * np.prod(target_shape)
+    # 计算体积元
+    cell_vol = (sim_obj.Lx / sim_obj.NX) * (sim_obj.Ly / sim_obj.NY) * (sim_obj.Lz / sim_obj.NZ)
+    sim_vol = cell_vol * sim_obj.NX * sim_obj.NY * sim_obj.NZ
+    m_e_c2_J = m_e * c ** 2
 
-    for step in common_steps:
+    for step in tqdm(common_steps, desc="  计算能量演化", unit="step", leave=False):
         times.append(step * sim_obj.dt)
 
-        # 场能 (从 HDF5 读取)
-        with h5py.File(field_files[step], 'r') as f:
-            # 直接读取SI单位的原始场数据
-            base_path = f"/data/{step}/fields/"
-            Bx = f[base_path + 'B/x'][:]
-            By = f[base_path + 'B/y'][:]
-            Bz = f[base_path + 'B/z'][:]
-            Ex = f[base_path + 'E/x'][:]
-            Ey = f[base_path + 'E/y'][:]
-            Ez = f[base_path + 'E/z'][:]
+        # --- 1. 场能 ---
+        try:
+            with h5py.File(f_map[step], 'r') as f:
+                bp = f"/data/{step}/fields/"
+                Bx = f[bp + 'B/x'][:]
+                By = f[bp + 'B/y'][:]
+                Bz = f[bp + 'B/z'][:]
+                Ex = f[bp + 'E/x'][:]
+                Ey = f[bp + 'E/y'][:]
+                Ez = f[bp + 'E/z'][:]
 
-        # 使用SI单位计算能量密度，无需任何归一化因子
-        mag_ed_x, mag_ed_y, mag_ed_z = (Bx ** 2) / (2 * mu_0), (By ** 2) / (2 * mu_0), (Bz ** 2) / (2 * mu_0)
-        elec_ed_x, elec_ed_y, elec_ed_z = (epsilon_0 * Ex ** 2) / 2, (epsilon_0 * Ey ** 2) / 2, (epsilon_0 * Ez ** 2) / 2
+            # 磁能密度 (J/m^3)
+            md_x, md_y, md_z = (Bx ** 2) / (2 * mu_0), (By ** 2) / (2 * mu_0), (Bz ** 2) / (2 * mu_0)
+            res['mag_x'].append(np.mean(md_x))
+            res['mag_y'].append(np.mean(md_y))
+            res['mag_z'].append(np.mean(md_z))
+            res['mag_tot'].append(np.mean(md_x + md_y + md_z))
+            res['tot_mag'].append(np.sum(md_x + md_y + md_z) * cell_vol)
 
-        mag_edens_x.append(np.mean(mag_ed_x))
-        mag_edens_y.append(np.mean(mag_ed_y))
-        mag_edens_z.append(np.mean(mag_ed_z))
-        mag_edens_tot.append(np.mean(mag_ed_x + mag_ed_y + mag_ed_z))
-        total_mag_E.append(np.sum(mag_ed_x + mag_ed_y + mag_ed_z) * cell_volume)
+            # 电能密度
+            ed_x, ed_y, ed_z = (epsilon_0 * Ex ** 2) / 2, (epsilon_0 * Ey ** 2) / 2, (epsilon_0 * Ez ** 2) / 2
+            res['elec_x'].append(np.mean(ed_x))
+            res['elec_y'].append(np.mean(ed_y))
+            res['elec_z'].append(np.mean(ed_z))
+            res['elec_tot'].append(np.mean(ed_x + ed_y + ed_z))
+            res['tot_elec'].append(np.sum(ed_x + ed_y + ed_z) * cell_vol)
 
-        elec_edens_x.append(np.mean(elec_ed_x))
-        elec_edens_y.append(np.mean(elec_ed_y))
-        elec_edens_z.append(np.mean(elec_ed_z))
-        elec_edens_tot.append(np.mean(elec_ed_x + elec_ed_y + elec_ed_z))
-        total_elec_E.append(np.sum(elec_ed_x + elec_ed_y + elec_ed_z) * cell_volume)
+        except Exception as e:
+            console.print(f"[red]Error reading fields at step {step}: {e}[/red]")
+            return None
 
-        # 动能
-        tot_k_E, k_ed = 0.0, 0.0
-        m_e_c2_J = m_e * c ** 2
-        with h5py.File(particle_files[step], 'r') as f:
-            step_key = list(f['data'].keys())[0]
-            particles_group = f[f'data/{step_key}/particles']
-            for species_name in particles_group.keys():
-                if 'photon' in species_name: continue
+        # --- 2. 动能 ---
+        try:
+            tot_k_E = 0.0
+            with h5py.File(p_map[step], 'r') as f:
+                sk = list(f['data'].keys())[0]
+                pg = f[f'data/{sk}/particles']
+                for sp in pg.keys():
+                    if 'photon' in sp: continue
+                    sg = pg[sp]
+                    try:
+                        px = _get_h5_dataset(sg, 'momentum/x')
+                        py = _get_h5_dataset(sg, 'momentum/y')
+                        pz = _get_h5_dataset(sg, 'momentum/z')
+                        w = _get_h5_dataset(sg, 'weighting')
+                    except KeyError:
+                        continue
 
-                species_group = particles_group[species_name]
+                    if w.size == 0: continue
+                    p2 = px ** 2 + py ** 2 + pz ** 2
+                    k_E = np.sqrt(p2 * c ** 2 + m_e_c2_J ** 2) - m_e_c2_J
+                    tot_k_E += np.sum(k_E * w)
 
-                px = _get_h5_dataset(species_group, 'momentum/x')
-                py = _get_h5_dataset(species_group, 'momentum/y')
-                pz = _get_h5_dataset(species_group, 'momentum/z')
-                weights = _get_h5_dataset(species_group, 'weighting')
+            res['tot_kin'].append(tot_k_E)
+            res['kin_dens'].append(tot_k_E / sim_vol if sim_vol > 0 else 0)
 
-                if weights.size == 0: continue
-                p_sq = px ** 2 + py ** 2 + pz ** 2
-                kinetic_energy_J = np.sqrt(p_sq * c ** 2 + m_e_c2_J ** 2) - m_e_c2_J
-                tot_k_E += np.sum(kinetic_energy_J * weights)
-        k_ed = tot_k_E / sim_volume if sim_volume > 0 else 0
-        total_kin_E.append(tot_k_E)
-        kin_edens.append(k_ed)
+        except Exception as e:
+            console.print(f"[red]Error reading particles at step {step}: {e}[/red]")
+            return None
 
-    if not times: return None
     return EnergyEvolutionData(
-        time=np.array(times), mean_mag_energy_density_x=np.array(mag_edens_x),
-        mean_mag_energy_density_y=np.array(mag_edens_y), mean_mag_energy_density_z=np.array(mag_edens_z),
-        mean_mag_energy_density_total=np.array(mag_edens_tot),
-        mean_elec_energy_density_x=np.array(elec_edens_x), mean_elec_energy_density_y=np.array(elec_edens_y),
-        mean_elec_energy_density_z=np.array(elec_edens_z), mean_elec_energy_density_total=np.array(elec_edens_tot),
-        mean_kin_energy_density=np.array(kin_edens), total_magnetic_energy=np.array(total_mag_E),
-        total_electric_energy=np.array(total_elec_E), total_kinetic_energy=np.array(total_kin_E)
+        time=np.array(times),
+        mean_mag_energy_density_x=np.array(res['mag_x']),
+        mean_mag_energy_density_y=np.array(res['mag_y']),
+        mean_mag_energy_density_z=np.array(res['mag_z']),
+        mean_mag_energy_density_total=np.array(res['mag_tot']),
+        mean_elec_energy_density_x=np.array(res['elec_x']),
+        mean_elec_energy_density_y=np.array(res['elec_y']),
+        mean_elec_energy_density_z=np.array(res['elec_z']),
+        mean_elec_energy_density_total=np.array(res['elec_tot']),
+        mean_kin_energy_density=np.array(res['kin_dens']),
+        total_magnetic_energy=np.array(res['tot_mag']),
+        total_electric_energy=np.array(res['tot_elec']),
+        total_kinetic_energy=np.array(res['tot_kin'])
     )
+
+
+def compute_spectrum_evolution_matrix(
+        particle_files: List[str],
+        sim_obj: Any,
+        n_bins: int = 200,
+        log_scale: bool = True
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    [纯函数] 计算能谱随时间的演化矩阵 (Waterfall Data)。
+
+    Returns:
+        (times, energy_bin_centers, matrix_2d)
+        matrix_2d shape: (n_time_steps, n_bins)
+    """
+    if not particle_files:
+        return np.array([]), np.array([]), np.array([])
+
+    # 1. 预扫描: 确定全局能量范围
+    # 为了速度，只采样首尾和中间
+    sample_indices = np.unique(np.linspace(0, len(particle_files) - 1, min(10, len(particle_files))).astype(int))
+    sampled_files = [particle_files[i] for i in sample_indices]
+
+    global_min, global_max = 1e9, -1e9
+
+    for fpath in sampled_files:
+        spec = compute_single_spectrum(fpath)
+        if spec and spec.energies_MeV.size > 0:
+            pos_E = spec.energies_MeV[spec.energies_MeV > 0]
+            if pos_E.size > 0:
+                global_min = min(global_min, pos_E.min())
+                global_max = max(global_max, pos_E.max())
+
+    if global_max < 0:  # 没找到有效数据
+        return np.array([]), np.array([]), np.array([])
+
+    global_min = max(global_min * 0.9, 1e-4)
+    global_max = global_max * 1.2
+
+    # 2. 创建 Bins
+    if log_scale:
+        bins = np.logspace(np.log10(global_min), np.log10(global_max), n_bins + 1)
+    else:
+        bins = np.linspace(global_min, global_max, n_bins + 1)
+
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    bin_widths = np.diff(bins)
+
+    times = []
+    matrix_rows = []
+
+    # 3. 遍历所有文件计算直方图
+    for fpath in tqdm(particle_files, desc="  计算能谱矩阵", unit="step", leave=False):
+        step = _get_step_from_filename(fpath)
+        if step is None: continue
+
+        spec = compute_single_spectrum(fpath)
+
+        if spec and spec.energies_MeV.size > 0:
+            counts, _ = np.histogram(spec.energies_MeV, bins=bins, weights=spec.weights)
+            # 归一化为 dN/dE
+            dNdE = counts / bin_widths
+        else:
+            dNdE = np.zeros(n_bins)
+
+        matrix_rows.append(dNdE)
+        times.append(step * sim_obj.dt)
+
+    return np.array(times), bin_centers, np.array(matrix_rows)
 
 
 # =============================================================================
 # 3. 高级统一加载接口
 # =============================================================================
 
-def load_run_data(dir_path: str, required_data: Set[str]) -> Optional[SimulationRun]:
+def load_run_data(dir_path: str, required_data: Set[str] = None) -> Optional[SimulationRun]:
     """
-    为单个模拟目录加载所有需要的数据。
-
-    Args:
-        dir_path (str): 模拟数据文件夹路径。
-        required_data (Set[str]): 一个包含所需数据类型的集合,
-            例如 {'energy', 'initial_spectrum', 'field'}.
-
-    Returns:
-        Optional[SimulationRun]: 一个填充了所需数据的 SimulationRun 对象，
-                                 如果加载失败则返回 None。
+    [工厂函数] 为单个模拟目录创建一个 SimulationRun 实例。
     """
-    console.print(f"\n[bold cyan]正在加载模拟: {os.path.basename(dir_path)}[/bold cyan]")
+    console.print(f"\n[bold cyan]正在初始化模拟: {os.path.basename(dir_path)}[/bold cyan]")
+
     param_file = os.path.join(dir_path, "sim_parameters.dpkl")
     if not os.path.exists(param_file):
         console.print(f"  [red]✗ 错误: 找不到参数文件 '{param_file}'。[/red]")
@@ -364,65 +434,12 @@ def load_run_data(dir_path: str, required_data: Set[str]) -> Optional[Simulation
     try:
         with open(param_file, "rb") as f:
             sim_obj = SimpleNamespace(**dill.load(f))
-        console.print("  [green]✔ 成功加载参数文件。[/green]")
+
+        # 创建实例，它会自动建立索引
+        run = SimulationRun(path=dir_path, name=os.path.basename(dir_path), sim=sim_obj)
+        console.print("  [green]✔ 索引建立完成。[/green]")
+        return run
+
     except Exception as e:
-        console.print(f"  [red]✗ 加载参数文件失败: {e}[/red]")
+        console.print(f"  [red]✗ 加载失败: {e}[/red]")
         return None
-
-    run = SimulationRun(path=dir_path, name=os.path.basename(dir_path), sim=sim_obj)
-
-    # --- 设置带版本号的缓存目录 ---
-    cache_dir = Path(dir_path) / f".analysis_cache_{CACHE_API_VERSION}"
-
-    # --- 按需加载数据 (通过缓存包装器) ---
-    # 无论模块是否请求，都获取文件列表，因为这非常快，并且在后续流程中很有用
-    particle_files = sorted(glob.glob(os.path.join(dir_path, "diags/particle_states", "openpmd_*.h5")))
-    run.particle_files = particle_files
-
-    field_files = sorted(glob.glob(os.path.join(dir_path, "diags/field_states", "*.h5")))
-    run.field_files = field_files
-
-    # 基础依赖文件 (参数文件自身)
-    base_dependencies = [param_file]
-
-    if 'initial_spectrum' in required_data and particle_files:
-        console.print("  [white]  -> 检查初始能谱...[/white]")
-        cache_path = cache_dir / "initial_spectrum.cache"
-        source_files = base_dependencies + [particle_files[0]]
-        run.initial_spectrum = _cached_loader(
-            cache_path, source_files, _load_spectrum_data, (particle_files[0],)
-        )
-
-    if 'final_spectrum' in required_data and particle_files:
-        if len(particle_files) > 1:
-            console.print("  [white]  -> 检查最终能谱...[/white]")
-            cache_path = cache_dir / "final_spectrum.cache"
-            source_files = base_dependencies + [particle_files[-1]]
-            run.final_spectrum = _cached_loader(
-                cache_path, source_files, _load_spectrum_data, (particle_files[-1],)
-            )
-        else:
-            console.print("  [yellow]  -> 只有一个粒子文件，最终能谱将与初始能谱相同。[/yellow]")
-            run.final_spectrum = run.initial_spectrum
-
-    if 'energy' in required_data:
-        console.print("  [white]  -> 检查能量演化数据...[/white]")
-        cache_path = cache_dir / "energy_data.cache"
-        source_files = base_dependencies + particle_files + field_files
-        run.energy_data = _cached_loader(
-            cache_path, source_files, _load_energy_evolution_data, (dir_path, sim_obj)
-        )
-        if run.energy_data is None:
-            console.print("  [yellow]  -> 未能加载能量演化数据。[/yellow]")
-
-    if 'field' in required_data:
-        console.print("  [white]  -> 检查场演化数据...[/white]")
-        cache_path = cache_dir / "field_data.cache"
-        source_files = base_dependencies + field_files
-        run.field_data = _cached_loader(
-            cache_path, source_files, _load_field_evolution_data, (dir_path, sim_obj)
-        )
-        if run.field_data is None:
-            console.print("  [yellow]  -> 未能加载场演化数据。[/yellow]")
-
-    return run

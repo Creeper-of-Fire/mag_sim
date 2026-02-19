@@ -1,12 +1,12 @@
 # analysis/modules/spectrum_gain.py
 
-from typing import List, Set
+from typing import List
 
 import numpy as np
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -25,10 +25,6 @@ class SpectrumGainModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "计算最终能谱与初始能谱的比率 (f_final / f_initial)，展示各能量段的粒子数放大倍数。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'initial_spectrum', 'final_spectrum'}
 
     def _create_common_bins(self, runs: List[SimulationRun], num_bins: int = 150):
         """为所有模拟创建统一的能量分箱，确保比率计算的基准一致。"""

@@ -1,14 +1,14 @@
 # analysis/modules/parametric_flux.py
 
-from typing import List, Set, Tuple
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.layout import create_analysis_figure
 
 # 最小计数阈值，避免 1/1 或 0/0 产生噪音
@@ -23,10 +23,6 @@ class ParametricFluxModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "绘制 [参数-能量] 热力图。颜色表示粒子数的增益(红)或损耗(蓝)，直观展示加速区间随参数的移动。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'initial_spectrum', 'final_spectrum'}
 
     # =========================================================================
     # 1. 数据处理核心

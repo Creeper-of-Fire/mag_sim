@@ -1,12 +1,12 @@
-from typing import List, Set
+from typing import List
+
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -19,10 +19,6 @@ class QuantileDiagnosticModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "通过对比能量的最高端(99.9%)与中位数(50%)的比率变化，判断是发生了随机加速(比率上升)还是整体加热(比率不变)。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'final_spectrum'}
 
     def _get_quantile(self, spec: SpectrumData, q: float) -> float:
         """

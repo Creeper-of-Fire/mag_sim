@@ -1,10 +1,10 @@
 # modules/field_evolution.py
 
-from typing import List, Set
+from typing import List
 
-from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
 from analysis.plotting.layout import create_analysis_figure
 
@@ -17,10 +17,6 @@ class FieldEvolutionModule(BaseAnalysisModule):
     @property
     def description(self) -> str:
         return "绘制磁场分量的RMS/平均值以及总场强随时间的演化。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'field', 'initial_spectrum'}
 
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 磁场演化分析...[/bold magenta]")

@@ -2,14 +2,12 @@
 
 import gc
 import os
-from typing import List, Set, Dict, Optional
+from typing import List, Dict, Optional
 
-import h5py
 import numpy as np
 from scipy.constants import c, m_e, e
 from tqdm import tqdm
 
-from analysis.core.data_loader import _get_h5_dataset  # 复用底层加载逻辑
 from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
@@ -22,6 +20,91 @@ J_PER_MEV = e * 1e6
 J_TO_KEV = 1.0 / (e * 1e3)
 
 
+def _analyze_single_spectrum(spec: SpectrumData) -> Dict[str, float]:
+    """对单个时刻的能谱进行分析，返回关键指标。"""
+    if spec is None or spec.weights.size == 0:
+        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'max_E_MeV': 0.0}
+
+    total_energy_MeV = np.sum(spec.energies_MeV * spec.weights)
+    total_weight = np.sum(spec.weights)
+    avg_energy_MeV = total_energy_MeV / total_weight
+    T_keV = physics_mj.solve_mj_temperature_kev(avg_energy_MeV)
+
+    pos_energies = spec.energies_MeV[spec.energies_MeV > 0]
+    max_E_MeV = pos_energies.max() if pos_energies.size > 0 else 0.0
+
+    # --- 计算非热能量 ---
+    min_e = max(1e-4, pos_energies.min()) if pos_energies.size > 0 else 1e-4
+    max_e = max(10.0, max_E_MeV * 1.5)
+    bins = np.logspace(np.log10(min_e), np.log10(max_e), 200)
+    centers = np.sqrt(bins[:-1] * bins[1:])
+    widths = np.diff(bins)
+
+    counts_sim, _ = np.histogram(spec.energies_MeV, bins=bins, weights=spec.weights)
+    pdf_vals = physics_mj.calculate_mj_pdf(centers, T_keV)
+    counts_th = pdf_vals * widths * total_weight
+
+    positive_diff = np.maximum(0.0, counts_sim - counts_th)
+    excess_energy_MeV = np.sum(positive_diff * centers)
+
+    excess_ratio = excess_energy_MeV / total_energy_MeV if total_energy_MeV > 0 else 0.0
+
+    return {
+        'T_keV': T_keV,
+        'excess_ratio': excess_ratio,
+        'max_E_MeV': max_E_MeV
+    }
+
+
+def compute_spectrum_evolution_metrics(run: SimulationRun) -> Dict[str, np.ndarray]:
+    """
+    遍历所有粒子文件，计算每一帧的等效温度、非热占比和最大能量。
+    此函数的返回值将被自动序列化缓存。
+    """
+    times = []
+    temps_keV = []
+    excess_ratios = []
+    max_energies = []
+
+    # 获取文件列表
+    files_to_process = run.particle_files
+    if not files_to_process:
+        return {}
+
+    console.print(f"  [cyan]计算能谱演化指标 (共 {len(files_to_process)} 帧)...[/cyan]")
+
+    for fpath in tqdm(files_to_process, desc="  处理能谱", unit="file", leave=False):
+        # 1. 使用 run 提供的单文件读取能力
+
+        spec: Optional[SpectrumData] = run.get_spectrum_from_path(fpath)
+
+        if spec is None or spec.weights.size == 0:
+            continue
+
+        # 获取时间
+        step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
+        time = step * run.sim.dt
+
+        # 2. 使用 _analyze_single_spectrum 进行分析
+        metrics = _analyze_single_spectrum(spec)
+
+        times.append(time)
+        temps_keV.append(metrics['T_keV'])
+        excess_ratios.append(metrics['excess_ratio'])
+        max_energies.append(metrics['max_E_MeV'])
+
+        # 显式释放内存，防止大循环内存泄漏
+        del spec
+        gc.collect()
+
+    return {
+        "time": np.array(times),
+        "T_keV": np.array(temps_keV),
+        "excess_ratio": np.array(excess_ratios),
+        "max_E_MeV": np.array(max_energies)
+    }
+
+
 class SpectrumEvolutionModule(BaseAnalysisModule):
     @property
     def name(self) -> str:
@@ -30,78 +113,6 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
     @property
     def description(self) -> str:
         return "分析每个时间步的能谱，绘制等效温度、非热能量占比和最大能量随时间的演化。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        # 只需要粒子文件列表，我们会自己逐个加载
-        return {'particle_files'}
-
-    # =========================================================================
-    # 1. 核心计算逻辑 (逐帧调用)
-    # =========================================================================
-
-    def _load_spectrum_from_file(self, h5_filepath: str) -> Optional[SpectrumData]:
-        """从单个 HDF5 文件加载能谱，这是模块的私有加载器。"""
-        all_energies_MeV, all_weights = [], []
-        try:
-            with h5py.File(h5_filepath, 'r') as f:
-                step_key = list(f['data'].keys())[0]
-                particles_group = f[f'data/{step_key}/particles']
-                for species_name in particles_group.keys():
-                    if 'photon' in species_name: continue
-                    species_group = particles_group[species_name]
-                    px = _get_h5_dataset(species_group, 'momentum/x')
-                    py = _get_h5_dataset(species_group, 'momentum/y')
-                    pz = _get_h5_dataset(species_group, 'momentum/z')
-                    weights = _get_h5_dataset(species_group, 'weighting')
-                    if weights.size == 0: continue
-                    p_sq = px ** 2 + py ** 2 + pz ** 2
-                    kinetic_energy_J = np.sqrt(p_sq * c ** 2 + ME_C2_J ** 2) - ME_C2_J
-                    all_energies_MeV.append(kinetic_energy_J / J_PER_MEV)
-                    all_weights.append(weights)
-            if not all_energies_MeV: return None
-            return SpectrumData(np.concatenate(all_energies_MeV), np.concatenate(all_weights))
-        except Exception:
-            return None
-
-    def _analyze_single_spectrum(self, spec: SpectrumData) -> Dict[str, float]:
-        """对单个时刻的能谱进行分析，返回关键指标。"""
-        if spec is None or spec.weights.size == 0:
-            return {'T_keV': 0.0, 'excess_ratio': 0.0, 'max_E_MeV': 0.0}
-
-        total_energy_MeV = np.sum(spec.energies_MeV * spec.weights)
-        total_weight = np.sum(spec.weights)
-        avg_energy_MeV = total_energy_MeV / total_weight
-        T_keV = physics_mj.solve_mj_temperature_kev(avg_energy_MeV)
-
-        pos_energies = spec.energies_MeV[spec.energies_MeV > 0]
-        max_E_MeV = pos_energies.max() if pos_energies.size > 0 else 0.0
-
-        # --- 计算非热能量 ---
-        min_e = max(1e-4, pos_energies.min()) if pos_energies.size > 0 else 1e-4
-        max_e = max(10.0, max_E_MeV * 1.5)
-        bins = np.logspace(np.log10(min_e), np.log10(max_e), 200)
-        centers = np.sqrt(bins[:-1] * bins[1:])
-        widths = np.diff(bins)
-
-        counts_sim, _ = np.histogram(spec.energies_MeV, bins=bins, weights=spec.weights)
-        pdf_vals = physics_mj.calculate_mj_pdf(centers, T_keV)
-        counts_th = pdf_vals * widths * total_weight
-
-        positive_diff = np.maximum(0.0, counts_sim - counts_th)
-        excess_energy_MeV = np.sum(positive_diff * centers)
-
-        excess_ratio = excess_energy_MeV / total_energy_MeV if total_energy_MeV > 0 else 0.0
-
-        return {
-            'T_keV': T_keV,
-            'excess_ratio': excess_ratio,
-            'max_E_MeV': max_E_MeV
-        }
-
-    # =========================================================================
-    # 2. 模块主流程
-    # =========================================================================
 
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 能谱时间演化分析...[/bold magenta]")
@@ -116,36 +127,16 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
     def _process_and_plot_run(self, run: SimulationRun):
         console.print(f"\n[bold]分析模拟: {run.name}[/bold]")
 
-        times = []
-        temps_keV = []
-        excess_ratios = []
-        max_energies = []
+        data = compute_spectrum_evolution_metrics(run)
 
-        files_to_process = run.particle_files
-
-        # 逐帧处理
-        for fpath in tqdm(files_to_process, desc="  处理能谱帧", unit="file", leave=False):
-            step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
-            time = step * run.sim.dt
-
-            # 1. 加载数据
-            spectrum = self._load_spectrum_from_file(fpath)
-
-            # 2. 分析
-            if spectrum:
-                metrics = self._analyze_single_spectrum(spectrum)
-                times.append(time)
-                temps_keV.append(metrics['T_keV'])
-                excess_ratios.append(metrics['excess_ratio'])
-                max_energies.append(metrics['max_E_MeV'])
-
-            # 3. 关键：手动释放内存
-            del spectrum
-            gc.collect()
-
-        if not times:
-            console.print("[red]  错误: 未能处理任何能谱文件。[/red]")
+        if not data or len(data["time"]) == 0:
+            console.print("[red]  错误: 未能生成能谱演化数据。[/red]")
             return
+
+        times = data["time"]
+        temps_keV = data["T_keV"]
+        excess_ratios = data["excess_ratio"]
+        max_energies = data["max_E_MeV"]
 
         # --- 绘图 ---
         filename_override = f"{run.name}_analysis_spectrum_evolution"

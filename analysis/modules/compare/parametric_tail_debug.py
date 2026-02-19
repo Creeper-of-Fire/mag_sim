@@ -1,6 +1,6 @@
 # analysis/modules/parametric_tail_debug.py
 
-from typing import List, Set, Dict
+from typing import List, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,11 +22,6 @@ class ParametricTailDebugModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "对比初始时刻(t=0)与最终时刻的'非热能量'计算值，量化算法由统计涨落引起的误差底噪。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        # 必须同时拥有初始谱和最终谱
-        return {'final_spectrum', 'initial_spectrum'}
 
     # =========================================================================
     # 物理计算核心

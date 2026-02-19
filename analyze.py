@@ -23,9 +23,9 @@ from analysis.core.data_loader import load_run_data
 from analysis.core.selector import SimpleTableSelector
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, select_directories
-from analysis.utils import setup_chinese_font
 from analysis.modules.abstract.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
 from analysis.plotting.styles import StyleTheme, set_style
+from analysis.utils import setup_chinese_font
 
 # 定义模块类型别名
 AnyModule = Union[BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]
@@ -113,22 +113,28 @@ def _select_modules_from_list(module_dict: Dict[str, AnyModule]) -> List[AnyModu
 
     return selector.select(default="all")
 
+
 def _run_analysis_workflow(selected_modules: List[AnyModule], selected_dirs: List[str]):
     """统一的数据加载和模块执行流程"""
     if not selected_modules or not selected_dirs:
         return
 
-    all_required_data = set().union(*(mod.required_data for mod in selected_modules))
-    console.print(f"\n[bold]将为分析加载以下数据类型: {all_required_data}[/bold]")
+    # --- 1. 实例化 SimulationRun ---
+    # 现在 load_run_data 内部只是 new 一个 SimulationRun 对象并做文件索引，非常快
+    loaded_runs = []
+    for dir_path in selected_dirs:
+        run = load_run_data(dir_path)
+        if run: loaded_runs.append(run)
 
-    loaded_runs = [run for dir_path in selected_dirs if (run := load_run_data(dir_path, all_required_data))]
     if not loaded_runs:
         console.print("\n[red]未能成功加载任何模拟数据，无法继续分析。[/red]")
         return
 
+    # --- 2. 依次执行模块 ---
     console.print("\n" + "=" * 50)
     console.print("[bold green]      数据加载完成，开始执行分析模块[/bold green]")
     console.print("=" * 50)
+
     for mod in selected_modules:
         try:
             mod.run(loaded_runs)
@@ -199,6 +205,7 @@ def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
     else:
         console.print(f"[red]错误: 未知的工具名称 '{target_tool}'[/red]")
 
+
 def main():
     """主执行函数"""
     console.print("[bold inverse] WarpX 可扩展交互式分析框架 [/bold inverse]")
@@ -216,8 +223,8 @@ def main():
     parser.add_argument(
         '--style',
         type=str,
-        default=StyleTheme.PRESENTATION.name, # 默认值
-        choices=[theme.name for theme in StyleTheme], # 从枚举自动生成选项
+        default=StyleTheme.PRESENTATION.name,  # 默认值
+        choices=[theme.name for theme in StyleTheme],  # 从枚举自动生成选项
         help="选择绘图样式。"
     )
     parser.add_argument(
@@ -241,8 +248,8 @@ def main():
     )
     mode_group.add_argument(
         '-t', '--tool',
-        nargs='?',             # 表示参数是可选的 (0个或1个)
-        const='interactive',   # 如果有 -t 但没给值，args.tool = 'interactive'
+        nargs='?',  # 表示参数是可选的 (0个或1个)
+        const='interactive',  # 如果有 -t 但没给值，args.tool = 'interactive'
         type=str,
         help="进入工具模式。指定 'slimmer' 或 'pruner' 可直接运行，留空则进入交互菜单。"
     )
@@ -250,7 +257,7 @@ def main():
     args = parser.parse_args()
 
     # --- 应用选择的样式 ---
-    selected_theme = StyleTheme[args.style] # 将字符串转换为枚举成员
+    selected_theme = StyleTheme[args.style]  # 将字符串转换为枚举成员
     set_style(selected_theme)
 
     config.output_dir = args.output

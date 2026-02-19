@@ -31,16 +31,6 @@ class BaseAnalysisModule(ABC):
         """
         pass
 
-    @property
-    @abstractmethod
-    def required_data(self) -> Set[str]:
-        """
-        声明此模块运行所必需的数据类型。
-        主程序将根据这个集合，调用 data_loader 来加载数据。
-        可用键: 'energy', 'field', 'initial_spectrum', 'final_spectrum', 'field_files'
-        """
-        pass
-
     @abstractmethod
     def run(self, loaded_runs: List['SimulationRun']):
         """

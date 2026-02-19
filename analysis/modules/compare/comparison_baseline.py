@@ -1,14 +1,14 @@
 # modules/baseline_comparison.py
 
-from typing import List, Set, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from rich.prompt import Prompt
 from rich.table import Table
 
-from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
+from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.spectrum_plotter import SpectrumComparisonPlotter
 from analysis.plotting.styles import get_style
@@ -22,10 +22,6 @@ class BaselineSpectrumComparisonModule(BaseComparisonModule):
     @property
     def description(self) -> str:
         return "选择一个模拟作为基准，将其他模拟的能谱与之进行两两对比，生成多张对比图。"
-
-    @property
-    def required_data(self) -> Set[str]:
-        return {'initial_spectrum', 'final_spectrum'}
 
     def _select_baseline_run(self, runs: List[SimulationRun]) -> Optional[Tuple[SimulationRun, List[SimulationRun]]]:
         """交互式地让用户选择一个基准模拟。"""
@@ -97,9 +93,9 @@ class BaselineSpectrumComparisonModule(BaseComparisonModule):
         lw_base = style.lw_base
         plot_params = {
             'base_initial': {'ls': style.ls_secondary, 'color': style.color_baseline_secondary, 'lw': lw_base * 1.25, 'zorder': 10},
-            'base_final':   {'ls': style.ls_primary,   'color': style.color_baseline_primary,   'lw': lw_base * 1., 'zorder': 20},
-            'comp_initial': {'ls': style.ls_tertiary,  'color': style.color_comparison_secondary, 'lw': lw_base * 1., 'zorder': 30},
-            'comp_final':   {'ls': style.ls_primary,   'color': style.color_comparison_primary,   'lw': lw_base * 0.8, 'zorder': 40},
+            'base_final': {'ls': style.ls_primary, 'color': style.color_baseline_primary, 'lw': lw_base * 1., 'zorder': 20},
+            'comp_initial': {'ls': style.ls_tertiary, 'color': style.color_comparison_secondary, 'lw': lw_base * 1., 'zorder': 30},
+            'comp_final': {'ls': style.ls_primary, 'color': style.color_comparison_primary, 'lw': lw_base * 0.8, 'zorder': 40},
         }
 
         # 3. 循环生成每一对的对比图
