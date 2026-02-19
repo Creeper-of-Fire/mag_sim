@@ -28,26 +28,6 @@ class ParametricFluxModule(BaseComparisonModule):
     # 1. 数据处理核心
     # =========================================================================
 
-    def _create_common_bins(self, runs: List[SimulationRun]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """创建全局统一的能量分箱 (Y轴)"""
-        all_energies = []
-        for run in runs:
-            if run.initial_spectrum: all_energies.append(run.initial_spectrum.energies_MeV)
-            if run.final_spectrum: all_energies.append(run.final_spectrum.energies_MeV)
-
-        if not all_energies: raise ValueError("无有效能谱数据")
-        combined = np.concatenate(all_energies)
-        positive = combined[combined > 0]
-        if positive.size < 2: raise ValueError("有效能谱数据不足")
-
-        # 对数分箱
-        min_e = max(positive.min() * 0.9, 1e-4)
-        max_e = positive.max() * 1.1
-        bins = np.logspace(np.log10(min_e), np.log10(max_e), 150)  # 150个能箱，保证解析度
-        centers = np.sqrt(bins[:-1] * bins[1:])
-        widths = np.diff(bins)
-        return bins, centers, widths
-
     def _calculate_log_gain(self, run: SimulationRun, bins: np.ndarray, widths: np.ndarray) -> np.ndarray:
         """
         计算 Log10(Gain)。
@@ -108,7 +88,7 @@ class ParametricFluxModule(BaseComparisonModule):
 
         # 1. 统一分箱 (Y轴)
         try:
-            bins, centers, widths = self._create_common_bins(valid_runs)
+            bins, centers, widths = create_common_energy_bins(valid_runs)
         except ValueError as e:
             console.print(f"[red]{e}[/red]")
             return

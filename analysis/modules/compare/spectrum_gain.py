@@ -7,6 +7,7 @@ import numpy as np
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.utils.comparison_utils import create_common_energy_bins
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -26,31 +27,6 @@ class SpectrumGainModule(BaseComparisonModule):
     def description(self) -> str:
         return "计算最终能谱与初始能谱的比率 (f_final / f_initial)，展示各能量段的粒子数放大倍数。"
 
-    def _create_common_bins(self, runs: List[SimulationRun], num_bins: int = 150):
-        """为所有模拟创建统一的能量分箱，确保比率计算的基准一致。"""
-        all_energies = []
-        for run in runs:
-            if run.initial_spectrum and run.initial_spectrum.energies_MeV.size > 0:
-                all_energies.append(run.initial_spectrum.energies_MeV)
-            if run.final_spectrum and run.final_spectrum.energies_MeV.size > 0:
-                all_energies.append(run.final_spectrum.energies_MeV)
-
-        if not all_energies:
-            raise ValueError("没有有效的能谱数据。")
-
-        combined = np.concatenate(all_energies)
-        positive = combined[combined > 0]
-
-        # 避免 min 为 0 或过小
-        min_e = max(positive.min() * 0.9, 1e-4)
-        max_e = positive.max() * 1.1
-
-        # 使用对数分箱
-        bins = np.logspace(np.log10(min_e), np.log10(max_e), num_bins)
-        centers = np.sqrt(bins[:-1] * bins[1:])
-        widths = np.diff(bins)
-        return bins, centers, widths
-
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 能谱增益(比率)分析...[/bold magenta]")
 
@@ -61,7 +37,7 @@ class SpectrumGainModule(BaseComparisonModule):
 
         # 1. 创建统一分箱
         try:
-            bins, centers, widths = self._create_common_bins(valid_runs)
+            bins, centers, widths = create_common_energy_bins(valid_runs, num_bins=150)
         except ValueError as e:
             console.print(f"[red]错误: {e}[/red]")
             return

@@ -9,6 +9,7 @@ from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.utils.comparison_utils import create_common_energy_bins
 from analysis.plotting.layout import create_analysis_figure
 
 # 增加一个统计阈值，避免因为初始粒子数太少导致比率爆炸
@@ -27,27 +28,6 @@ class ParametricGainModule(BaseComparisonModule):
     # =========================================================================
     # 1. 物理计算核心 (增益比率计算)
     # =========================================================================
-
-    def _create_common_bins(self, runs: List[SimulationRun]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """为所有模拟创建统一的能量分箱，确保比率计算的基准一致。"""
-        all_energies = []
-        for run in runs:
-            if run.initial_spectrum: all_energies.append(run.initial_spectrum.energies_MeV)
-            if run.final_spectrum: all_energies.append(run.final_spectrum.energies_MeV)
-
-        if not all_energies: raise ValueError("无有效能谱数据")
-
-        combined = np.concatenate(all_energies)
-        positive = combined[combined > 0]
-        if positive.size < 2: raise ValueError("有效能谱数据不足")
-
-        min_e = max(positive.min() * 0.9, 1e-4)
-        max_e = positive.max() * 1.1
-
-        bins = np.logspace(np.log10(min_e), np.log10(max_e), 200)
-        centers = np.sqrt(bins[:-1] * bins[1:])
-        widths = np.diff(bins)
-        return bins, centers, widths
 
     def _calculate_gain_metrics(self, run: SimulationRun, bins: np.ndarray, centers: np.ndarray, widths: np.ndarray) -> Dict[str, float]:
         """
@@ -105,7 +85,7 @@ class ParametricGainModule(BaseComparisonModule):
 
         # 1. 建立全局统一分箱
         try:
-            bins, centers, widths = self._create_common_bins(valid_runs)
+            bins, centers, widths = create_common_energy_bins(valid_runs, num_bins=150)
         except ValueError as e:
             console.print(f"[red]创建分箱失败: {e}[/red]")
             return

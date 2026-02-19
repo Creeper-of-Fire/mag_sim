@@ -8,6 +8,7 @@ from scipy.special import kv
 
 from .base_plotter import BasePlotter
 from ..core.simulation import SimulationRun
+from ..modules.utils.comparison_utils import create_common_energy_bins
 
 J_PER_MEV = e * 1e6
 
@@ -91,33 +92,15 @@ class SpectrumComparisonPlotter(BasePlotter):
         """
         self.runs = runs
         self._initial_plotted_label = False  # 用于确保初始谱图例只显示一次
-        self._create_common_bins()
 
-    def _create_common_bins(self):
-        """
-        遍历所有模拟的**初始和最终**能谱，创建统一的能量分箱。
-        """
-        all_energies = []
-        for run in self.runs:
-            if run.initial_spectrum and run.initial_spectrum.energies_MeV.size > 0:
-                all_energies.append(run.initial_spectrum.energies_MeV)
-            if run.final_spectrum and run.final_spectrum.energies_MeV.size > 0:
-                all_energies.append(run.final_spectrum.energies_MeV)
-
-        if not all_energies:
-            raise ValueError("所有提供的模拟中都没有任何有效的能谱数据。")
-
-        combined = np.concatenate(all_energies)
-        positive = combined[combined > 0]
-        if positive.size < 2:
-            raise ValueError("有效的正能量数据点不足，无法创建分箱。")
-
-        global_min = max(positive.min() * 0.8, 1e-4)
-        global_max = positive.max() * 1.2
-
-        self.bins = np.logspace(np.log10(global_min), np.log10(global_max), 201)
-        self.centers = np.sqrt(self.bins[:-1] * self.bins[1:])
-        self.widths = np.diff(self.bins)
+        # --- 调用共享工具函数 ---
+        # 这里直接在构造函数中调用，并将结果存为实例变量
+        try:
+            self.bins, self.centers, self.widths = create_common_energy_bins(runs, num_bins=201)
+        except ValueError as e:
+            # 在绘图器中，如果分箱失败，我们可以设置一个标志位，在 plot 时提示
+            print(f"警告：SpectrumComparisonPlotter 创建分箱失败: {e}")
+            self.bins, self.centers, self.widths = None, None, None
 
     def plot(self, ax: Axes, run: SimulationRun, label: str, color: Optional[str] = None, **kwargs):
         """
