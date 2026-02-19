@@ -10,67 +10,22 @@
 
 import glob
 import os
+import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 
-
-# --- 各种分析所需的数据容器 ---
-
-@dataclass
-class FieldEvolutionData:
-    """存放磁场演化数据"""
-    time: np.ndarray
-    b_mean_abs_normalized: np.ndarray
-    b_max_normalized: np.ndarray
-    b_mean_x_normalized: np.ndarray
-    b_mean_y_normalized: np.ndarray
-    b_mean_z_normalized: np.ndarray
-    b_rms_x_normalized: np.ndarray
-    b_rms_y_normalized: np.ndarray
-    b_rms_z_normalized: np.ndarray
-
-
-@dataclass
-class EnergyEvolutionData:
-    """存储能量随时间演化的数据"""
-    time: np.ndarray
-
-    # 平均磁场能量密度 (J/m^3)
-    mean_mag_energy_density_x: Optional[np.ndarray] = field(default=None)
-    mean_mag_energy_density_y: Optional[np.ndarray] = field(default=None)
-    mean_mag_energy_density_z: Optional[np.ndarray] = field(default=None)
-    mean_mag_energy_density_total: Optional[np.ndarray] = field(default=None)
-
-    # 平均电场能量密度 (J/m^3)
-    mean_elec_energy_density_x: Optional[np.ndarray] = field(default=None)
-    mean_elec_energy_density_y: Optional[np.ndarray] = field(default=None)
-    mean_elec_energy_density_z: Optional[np.ndarray] = field(default=None)
-    mean_elec_energy_density_total: Optional[np.ndarray] = field(default=None)
-
-    # 平均动能密度 (J/m^3)
-    mean_kin_energy_density: Optional[np.ndarray] = field(default=None)
-
-    # 盒子内的总能量 (J)
-    total_magnetic_energy: Optional[np.ndarray] = field(default=None)
-    total_electric_energy: Optional[np.ndarray] = field(default=None)
-    total_kinetic_energy: Optional[np.ndarray] = field(default=None)
-
-
-@dataclass
-class SpectrumData:
-    """存放能谱数据"""
-    energies_MeV: np.ndarray
-    weights: np.ndarray
-
-
 from .cache import SmartCache, cached_op
+
+if typing.TYPE_CHECKING:
+    from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
 
 
 # --- 核心的模拟运行数据容器 ---
 
+# TODO 把SimulationRun提取为基类，然后创建SimulationRunSingle和SimulationRunGroup
 @dataclass
 class SimulationRun:
     """

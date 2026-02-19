@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import List, Any, Dict, Tuple, Optional
 
-from rich.prompt import Prompt
+from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 from utils.project_config import FILENAME_HISTORY
@@ -25,13 +25,57 @@ class ParameterSelector:
     def __init__(self, runs: List[SimulationRun]):
         self.initial_runs = runs
         # 数据结构: [{'run': run_obj, 'params': dict}, ...]
-        self.data_items = self._load_all_params(runs)
+        self.raw_data_items = self._load_all_params(runs)
+        # 分组后的数据
+        self.grouped_items = self._group_runs()
+        # 后续流程使用 self.data_items，它可能是分组后的也可能是原始的
+        self.data_items = self.raw_data_items
+
+    def _group_runs(self) -> Dict[str, List[Dict[str, Any]]]:
+        """根据除 run_id 外的所有参数对 runs 进行分组"""
+        groups = {}
+        for item in self.raw_data_items:
+            params = item['params'].copy()
+            params.pop('run_id', None) # 忽略 run_id
+            # 使用参数字典的 JSON 字符串作为 key，确保可哈希且唯一
+            key = json.dumps(params, sort_keys=True)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(item)
+        return groups
 
     def select(self) -> Tuple[str, List[Any], List[SimulationRun]]:
         """
         主入口。执行交互式流程。
         :return: (x_key_name, sorted_x_values, sorted_run_objects)
         """
+        # --- 交互式分组确认 ---
+        statistical_groups = {k: v for k, v in self.grouped_items.items() if len(v) > 1}
+        if statistical_groups:
+            console.print(f"\n[bold yellow]检测到 {len(statistical_groups)} 组统计性重复模拟。[/bold yellow]")
+            if Confirm.ask("是否要将这些重复模拟的结果进行平均（推荐）?", default=True):
+                # 用户同意平均，重构 self.data_items
+                new_items = []
+                # 添加未分组的单个模拟
+                for k, v in self.grouped_items.items():
+                    if len(v) == 1:
+                        new_items.append(v[0])
+                # 添加合并后的 Group 对象
+                for k, v in statistical_groups.items():
+                    group_runs = [item['run'] for item in v]
+                    group_params = v[0]['params'].copy()
+                    group_params['run_id'] = f"avg of {len(v)}"
+
+                    # 创建 SimulationRunGroup 对象
+                    group_obj = SimulationRunGroup(group_runs)
+                    new_items.append({'run': group_obj, 'params': group_params})
+
+                self.data_items = new_items
+                console.print(f"[green]✔ 已合并。当前处理 {len(self.data_items)} 个独立实体。[/green]")
+            else:
+                # 用户拒绝，保持原样
+                self.data_items = self.raw_data_items
+
         if not self.data_items:
             console.print("[red]错误: 传入的模拟列表为空。[/red]")
             return "Unknown", [], []
