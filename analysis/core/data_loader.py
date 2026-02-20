@@ -20,6 +20,7 @@ from scipy.constants import c, m_e, mu_0, e, epsilon_0
 from tqdm import tqdm
 
 from .simulation import SimulationRun
+from .simulationSingle import SimulationRunSingle
 from .utils import console
 
 # --- 各种分析所需的数据容器 ---
@@ -485,7 +486,7 @@ def load_run_data(dir_path: str, required_data: Set[str] = None) -> Optional[Sim
             sim_obj = SimpleNamespace(**dill.load(f))
 
         # 创建实例，它会自动建立索引
-        run = SimulationRun(path=dir_path, name=os.path.basename(dir_path), sim=sim_obj)
+        run = SimulationRunSingle(path=dir_path, name=os.path.basename(dir_path), sim=sim_obj)
         console.print("  [green]✔ 索引建立完成。[/green]")
         return run
 
