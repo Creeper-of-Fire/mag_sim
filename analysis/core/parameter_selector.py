@@ -10,6 +10,7 @@ from rich.table import Table
 from utils.project_config import FILENAME_HISTORY
 from .selector import SimpleTableSelector
 from .simulation import SimulationRun
+from .simulationGroup import SimulationRunGroup
 from .utils import console
 
 
