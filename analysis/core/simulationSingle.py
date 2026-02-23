@@ -10,8 +10,7 @@ import numpy as np
 from analysis.core.cache import SmartCache, cached_op
 from analysis.core.simulation import SimulationRun
 
-if typing.TYPE_CHECKING:
-    from analysis.core.data_loader import EnergyEvolutionData, FieldEvolutionData, SpectrumData
+from analysis.core.data_loader import EnergyEvolutionData, FieldEvolutionData, SpectrumData
 
 @dataclass
 class SimulationRunSingle(SimulationRun):
@@ -22,7 +21,6 @@ class SimulationRunSingle(SimulationRun):
     path: str
     name: str
     sim: object  # sim_parameters 对象
-    _fingerprint_cache: str
 
     # 内部组件
     _cache: SmartCache = field(init=False, repr=False)
@@ -90,7 +88,7 @@ class SimulationRunSingle(SimulationRun):
 
     @property
     @cached_op(file_dep="all")
-    def energy_data(self) -> Optional[EnergyEvolutionData]:
+    def energy_data(self) -> Optional['EnergyEvolutionData']:
         """获取能量演化数据 (Cached)。"""
         from .data_loader import compute_energy_evolution
 
@@ -98,7 +96,7 @@ class SimulationRunSingle(SimulationRun):
 
     @property
     @cached_op(file_dep="field")
-    def field_data(self) -> Optional[FieldEvolutionData]:
+    def field_data(self) -> Optional['FieldEvolutionData']:
         """
         获取场演化数据 (Cached)。
         """
@@ -107,7 +105,7 @@ class SimulationRunSingle(SimulationRun):
         return compute_field_evolution(field_files=self._field_files, sim_obj=self.sim)
 
     @cached_op(file_dep="auto")
-    def get_spectrum_from_path(self, fpath: str) -> Optional[SpectrumData]:
+    def get_spectrum_from_path(self, fpath: str) -> Optional['SpectrumData']:
         """
         这个方法是“自动导航”的：
         装饰器识别到参数中的 fpath，会自动将其作为单文件依赖。
@@ -115,7 +113,7 @@ class SimulationRunSingle(SimulationRun):
         from .data_loader import compute_single_spectrum
         return compute_single_spectrum(fpath)
 
-    def get_spectrum(self, step_index: int = -1) -> Optional[SpectrumData]:
+    def get_spectrum(self, step_index: int = -1) -> Optional['SpectrumData']:
         """
         获取特定时间步的能谱 (Cached)。
 
