@@ -10,17 +10,13 @@
 #
 import os
 from dataclasses import dataclass, field
-from types import SimpleNamespace
-from typing import Set, Optional, List, Any, Tuple
+from typing import Optional, List, Any, Tuple
 
-import dill
 import h5py
 import numpy as np
 from scipy.constants import c, m_e, mu_0, e, epsilon_0
 from tqdm import tqdm
 
-from .simulation import SimulationRun
-from .simulationSingle import SimulationRunSingle
 from .utils import console
 
 # --- 各种分析所需的数据容器 ---
@@ -464,32 +460,3 @@ def compute_spectrum_evolution_matrix(
         times.append(step * sim_obj.dt)
 
     return np.array(times), bin_centers, np.array(matrix_rows)
-
-
-# =============================================================================
-# 3. 高级统一加载接口
-# =============================================================================
-
-def load_run_data(dir_path: str, required_data: Set[str] = None) -> Optional[SimulationRun]:
-    """
-    [工厂函数] 为单个模拟目录创建一个 SimulationRun 实例。
-    """
-    console.print(f"\n[bold cyan]正在初始化模拟: {os.path.basename(dir_path)}[/bold cyan]")
-
-    param_file = os.path.join(dir_path, "sim_parameters.dpkl")
-    if not os.path.exists(param_file):
-        console.print(f"  [red]✗ 错误: 找不到参数文件 '{param_file}'。[/red]")
-        return None
-
-    try:
-        with open(param_file, "rb") as f:
-            sim_obj = SimpleNamespace(**dill.load(f))
-
-        # 创建实例，它会自动建立索引
-        run = SimulationRunSingle(path=dir_path, name=os.path.basename(dir_path), sim=sim_obj)
-        console.print("  [green]✔ 索引建立完成。[/green]")
-        return run
-
-    except Exception as e:
-        console.print(f"  [red]✗ 加载失败: {e}[/red]")
-        return None

@@ -4,7 +4,7 @@ import hashlib
 import inspect
 import os
 from pathlib import Path
-from typing import List, Any, Callable, Dict
+from typing import List, Any, Callable, Dict, Tuple
 
 import dill
 
@@ -59,22 +59,16 @@ def cached_op(file_dep: str = "auto"):
             elif file_dep == "all":
                 deps = run.particle_files + run.field_files + [run._param_file]
 
-            # 3. 生成缓存 Key (函数名 + 参数)
-            # 注意：我们将 run 对象排除在哈希之外，因为它包含很多动态状态
-            # 但我们需要 run.sim (参数对象) 参与哈希，因为它决定了物理常量
+            # 2. 将调用上下文“物化”，交给 Cache 处理，杜绝任何 kwargs 签名冲突
+            func_name = f"{getattr(func, '__module__', 'unknown')}.{func.__name__}"
 
-            # 构造一个用于哈希的参数字典，排除 run，加入 sim_params 的指纹
-            hash_args = dict(bound_args.arguments)
-            hash_args.pop('run', None)  # 移除 run
-            hash_args['__sim_params_hash__'] = run._cache._get_args_hash((run.sim,), {})  # 加入物理参数指纹
-
-            # 4. 调用核心缓存逻辑
             return run._cache.get(
-                func_name=f"{getattr(func, '__module__', 'unknown')}.{func.__name__}",
+                func_name=func_name,
                 dependencies=deps,
                 compute_func=func,
-                # 传递原始参数
-                **bound_args.arguments
+                run_obj=run,  # 明确传递 Receiver 对象
+                call_args=args,  # 明确传递参数元组
+                call_kwargs=kwargs  # 明确传递字典
             )
 
         return wrapper
@@ -114,16 +108,6 @@ class SmartCache:
                 hasher.update(f"{p}_MISSING".encode('utf-8'))
         return hasher.hexdigest()
 
-    def _get_args_hash(self, args: tuple, kwargs: Dict) -> str:
-        """计算函数参数的哈希。"""
-        # 使用 dill 序列化参数，因为它比 pickle/json 更能处理复杂对象（如 numpy array 或 lambda）
-        try:
-            serialized = dill.dumps((args, kwargs))
-            return hashlib.md5(serialized).hexdigest()
-        except Exception as e:
-            console.print(f"[yellow]⚠ 参数哈希计算失败: {e}，将使用随机哈希（不缓存）。[/yellow]")
-            return "NO_CACHE_" + os.urandom(4).hex()
-
     def _get_func_context_hash(self, func: Callable) -> str:
         """
         获取定义该函数的**源文件**的哈希。
@@ -153,54 +137,58 @@ class SmartCache:
             console.print(f"[dim]⚠ 无法获取源码文件哈希 ({e})，代码变更检测失效。[/dim]")
             return "UNKNOWN_SOURCE"
 
+    def _get_args_hash(self, run_obj: Any, args: Tuple, kwargs: Dict) -> str:
+        """
+        计算参数哈希。
+        这里 Cache 知道不应该序列化巨大的 run_obj 实例，只序列化物理参数(sim)和入参。
+        """
+        hash_payload = {
+            'sim_params': getattr(run_obj, 'sim', None),
+            'args': args,
+            'kwargs': kwargs
+        }
+        try:
+            return hashlib.md5(dill.dumps(hash_payload)).hexdigest()
+        except Exception as e:
+            console.print(f"[yellow]⚠ 参数哈希计算失败: {e}，将使用随机哈希（不缓存）。[/yellow]")
+            return "NO_CACHE_" + os.urandom(4).hex()
+
     def get(self,
             func_name: str,
             dependencies: List[str],
             compute_func: Callable,
-            *args,
-            **kwargs) -> Any:
+            run_obj: Any,
+            call_args: Tuple,
+            call_kwargs: Dict) -> Any:
         """
-        获取数据的通用入口。
-
-        Args:
-            func_name (str): 功能标识符 (例如 'energy_evolution', 'spectrum_hist')
-            dependencies (List[str]): 此计算依赖的源文件列表 (用于检查过期)
-            compute_func (Callable): 如果缓存未命中，调用的计算函数
-            *args, **kwargs: 传递给 compute_func 的参数
+        核心获取逻辑。显式接收 args 和 kwargs，彻底杜绝解包冲突。
         """
-        # 1. 计算指纹
+        # 1. 缓存指纹由 Cache 独立计算，关注点内聚
         files_hash = self._get_files_hash(dependencies)
-        args_hash = self._get_args_hash(args, kwargs)
+        args_hash = self._get_args_hash(run_obj, call_args, call_kwargs)
         code_hash = self._get_func_context_hash(compute_func)
 
-        # 组合成最终的 Cache Key (UUID)
-        # 格式: {func_name}_{files_hash_short}_{args_hash_short}.dill
         cache_filename = (
             f"{func_name}_{self.API_VERSION}_"
-            f"F{files_hash[:6]}_"  # File hash
-            f"A{args_hash[:6]}_"  # Args hash
-            f"C{code_hash[:6]}"  # Code hash
-            f".dill"
+            f"F{files_hash[:6]}_A{args_hash[:6]}_C{code_hash[:6]}.dill"
         )
         cache_path = self.cache_dir / cache_filename
 
-        # 2. 检查缓存是否存在
+        # 2. 命中缓存
         if cache_path.exists():
             try:
-                # console.print(f"[dim]  -> Hit Cache: {cache_filename}[/dim]")
                 with open(cache_path, "rb") as f:
                     return dill.load(f)
             except Exception as e:
                 console.print(f"[yellow]⚠ 读取缓存 {cache_filename} 失败 ({e})，将重新计算。[/yellow]")
 
-        # 3. 缓存未命中 (Miss) -> 计算
+        # 3. 未命中：由 Cache 负责触发真实计算
         console.print(f"[cyan]  -> 正在计算: {func_name} ...[/cyan]")
-        result = compute_func(*args, **kwargs)
+        result = compute_func(run_obj, *call_args, **call_kwargs)
 
-        # 4. 保存缓存
+        # 4. 持久化
         if result is not None:
             try:
-                # 先写入临时文件再重命名，原子操作防止写入中断导致文件损坏
                 temp_path = cache_path.with_suffix(".tmp")
                 with open(temp_path, "wb") as f:
                     dill.dump(result, f)

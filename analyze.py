@@ -19,7 +19,7 @@ from typing import List, Dict, Union
 from rich.prompt import Prompt
 
 from analysis.core.config import config
-from analysis.core.data_loader import load_run_data
+from analysis.core.load_run_data_loader import load_run_data
 from analysis.core.selector import SimpleTableSelector
 # --- 导入核心库组件 ---
 from analysis.core.utils import console, select_directories

@@ -15,8 +15,7 @@ from typing import Optional
 
 import numpy as np
 
-if typing.TYPE_CHECKING:
-    from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
+from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
 
 
 # --- 核心的模拟运行数据容器 ---

@@ -6,8 +6,7 @@ import numpy as np
 
 from .simulation import SimulationRun
 
-if typing.TYPE_CHECKING:
-    from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
+from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
 
 
 class SimulationRunGroup(SimulationRun):
