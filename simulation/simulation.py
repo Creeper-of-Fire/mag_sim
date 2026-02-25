@@ -147,8 +147,8 @@ class PlasmaReconnection(object):
             self.random_seed = self.p.random_seed
             print(f"  -> 使用预设/复现种子: {self.random_seed}")
         else:
-            # 生成一个真随机数 (0 到 2^32-1)
-            self.random_seed = secrets.randbits(32)
+            # 保证在 stoi 安全范围内
+            self.random_seed = secrets.randbelow(2 ** 31 - 1) + 1  # 1 到 2147483647
             print(f"  -> 已生成真随机种子: {self.random_seed}")
 
         # 将其同步回参数对象，确保稍后由 IOManager 自动保存到 .dkpl / json 中
