@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import inspect
 import itertools
+import secrets
 import typing
 
 import numpy as np
@@ -135,6 +136,23 @@ class PlasmaReconnection(object):
         self._print_summary()
 
         self.setup_run()
+
+    def generate_and_sync_seed(self):
+        """
+        生成一个真随机种子并确保它被记录。
+        如果参数中已经有了种子（说明是复现运行），则使用已有的。
+        """
+        if hasattr(self.p, 'random_seed') and self.p.random_seed:
+            # 说明是从已有的参数文件加载的，或者是手动指定的种子
+            self.random_seed = self.p.random_seed
+            print(f"  -> 使用预设/复现种子: {self.random_seed}")
+        else:
+            # 生成一个真随机数 (0 到 2^32-1)
+            self.random_seed = secrets.randbits(32)
+            print(f"  -> 已生成真随机种子: {self.random_seed}")
+
+        # 将其同步回参数对象，确保稍后由 IOManager 自动保存到 .dkpl / json 中
+        self.p.random_seed = self.random_seed
 
     @staticmethod
     def get_plasma_quantities(n_plasma, T_plasma, p_target_sigma=None, target_B0=None):
@@ -537,16 +555,24 @@ class PlasmaReconnection(object):
             wrapper.initialize_picmi_object()
 
         #######################################################################
-        # 添加库仑碰撞
+        # 初始化模拟参数
         #######################################################################
+
+        # 确保种子已经生成并记录
+        self.generate_and_sync_seed()
 
         simulation_args = Bunch(
             warpx_serialize_initial_conditions=True,
             verbose=0,
+            warpx_random_seed=self.random_seed,
             warpx_particle_pusher_algo="boris",
             warpx_reduced_diags_path=str(self.io.diags_dir),
             warpx_used_inputs_file=str(self.io.output_dir / "warpx_used_inputs")
         )
+
+        #######################################################################
+        # 添加库仑碰撞
+        #######################################################################
 
         if self.p.enable_collision:
             print("\n--- 正在生成二元库仑碰撞对 ---")
