@@ -3,10 +3,12 @@
 """
 通用物理计算模块，专注于麦克斯韦-朱特纳 (Maxwell-Jüttner) 分布相关函数。
 """
+import warnings
 from typing import Optional
 
 import numpy as np
 from scipy.constants import k as kB, c, m_e, e
+from scipy.integrate import IntegrationWarning, quad
 from scipy.optimize import root_scalar
 from scipy.special import kn as bessel_k
 
@@ -117,3 +119,36 @@ def calculate_mj_pdf(E_MeV: np.ndarray, T_keV: float) -> np.ndarray:
     # 转换单位为 per MeV
     pdf_per_mev = pdf_per_joule * J_PER_MEV
     return pdf_per_mev
+
+
+def calculate_mj_cdf(E_MeV: np.ndarray, T_keV: float) -> np.ndarray:
+    """
+    通过对 PDF进行数值积分，计算 Maxwell-Jüttner 分布的累积分布函数 F(E)。
+    F(E) = ∫_0^E f(e) de
+
+    Args:
+        E_MeV: 能量数组 (MeV)，即积分的上限。
+        T_keV: 等效温度 (keV)。
+
+    Returns:
+        每个能量点对应的累积概率。
+    """
+    if T_keV <= 0:
+        return np.zeros_like(E_MeV)
+
+    # 忽略在低能区可能出现的数值积分警告
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=IntegrationWarning,
+            message="The integral is probably divergent, or slowly convergent."
+        )
+
+        # 使用 lambda 函数捕获 T_keV
+        pdf_func = lambda e: calculate_mj_pdf(e, T_keV)
+
+        # 对每个能量上限 E 进行积分
+        cdf_values = np.array([quad(pdf_func, 0, e_max)[0] for e_max in E_MeV])
+
+    # 钳制结果在 [0, 1] 范围内，防止微小的数值误差
+    return np.clip(cdf_values, 0, 1)
