@@ -104,7 +104,7 @@ class SimulationRunSingle(SimulationRun):
 
         return compute_field_evolution(field_files=self._field_files, sim_obj=self.sim)
 
-    @cached_op(file_dep="auto")
+    # 原始粒子读取非常快（HDF5自带切片能力），不需要缓存，且占用内存巨大。
     def get_spectrum_from_path(self, fpath: str) -> Optional['SpectrumData']:
         """
         这个方法是“自动导航”的：
