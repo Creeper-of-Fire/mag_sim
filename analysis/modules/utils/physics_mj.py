@@ -11,6 +11,7 @@ from scipy.constants import k as kB, c, m_e, e
 from scipy.integrate import IntegrationWarning, quad
 from scipy.optimize import root_scalar
 from scipy.special import kn as bessel_k
+from scipy.special import kve as bessel_kve
 
 # --- 物理常量 (可供其他模块导入) ---
 ME_C2_J = m_e * c ** 2
@@ -64,7 +65,12 @@ def solve_mj_temperature_kev(avg_ek_mev: float | np.floating, guess_T_keV: Optio
         # 避免在极低温度下出现数值问题
         if theta < 1e-9:
              return 1.5 * kB * T_K # 在数值极限下退化为经典情况
-        k_ratio = bessel_k(1, 1.0 / theta) / bessel_k(2, 1.0 / theta)
+
+        # 使用 kve 代替 bessel_k，彻底消除大参数下溢！
+        # K1(z)/K2(z) == bessel_kve(1, z)/bessel_kve(2, z)
+        z = 1.0 / theta
+        k_ratio = bessel_kve(1, z) / bessel_kve(2, z)
+
         return ME_C2_J * (3 * theta + k_ratio - 1.0)
 
     # 使用非相对论结果作为智能初值
@@ -104,17 +110,26 @@ def calculate_mj_pdf(E_MeV: np.ndarray, T_keV: float) -> np.ndarray:
 
     T_J = T_keV / J_TO_KEV
     theta = T_J / ME_C2_J
+    z = 1.0 / theta
 
-    # 归一化系数 Z = mc^2 * theta * K2(1/theta)
-    norm = 1.0 / (ME_C2_J * theta * bessel_k(2, 1.0 / theta))
+    # 使用 kve 替代 K_n 避免分母在低能时 underflow
+    # 归一化系数 Z 的缩放版本 (不包含 e^{-z} 项)
+    norm_scaled = 1.0 / (ME_C2_J * theta * bessel_kve(2, z))
 
     E_J = E_MeV * J_PER_MEV
     gamma = 1.0 + E_J / ME_C2_J
     # pc = sqrt( E_k^2 + 2*E_k*m*c^2 )
     pc_J = np.sqrt(E_J * (E_J + 2 * ME_C2_J))
 
+    # 关键的物理对消：
+    # exp(-gamma/theta) / K2(1/theta)
+    # = exp(-gamma/theta) / ( kve * exp(-1/theta) )
+    # = exp(-(gamma - 1)/theta) / kve
+    # 注意 (gamma - 1)/theta 实际上就是 E_J / (k_B T)
+    # 因此，我们把式子里面的-gamma / theta替换成-(gamma - 1.0) / theta，这里就相当于消掉了公式上面的e^静质量，而这个项就是bessel_kve2和K2的区别所在。
+
     # PDF (per Joule)
-    pdf_per_joule = norm * (pc_J / ME_C2_J) * gamma * np.exp(-gamma / theta)
+    pdf_per_joule = norm_scaled * (pc_J / ME_C2_J) * gamma * np.exp(-(gamma - 1.0) / theta)
 
     # 转换单位为 per MeV
     pdf_per_mev = pdf_per_joule * J_PER_MEV
