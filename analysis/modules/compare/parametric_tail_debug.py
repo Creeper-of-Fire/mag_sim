@@ -10,6 +10,7 @@ from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils import physics_mj
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -86,13 +87,7 @@ class ParametricTailDebugModule(BaseComparisonModule):
         style = get_style()  # 获取当前激活的样式
         console.print("\n[bold magenta]执行: 算法底噪分析 (T=0 vs T=End)...[/bold magenta]")
 
-        # 过滤掉没有初始谱的数据
-        valid_runs = []
-        for r in loaded_runs:
-            if r.final_spectrum and r.initial_spectrum:
-                valid_runs.append(r)
-            else:
-                console.print(f"[yellow]警告: 模拟 {r.name} 缺少 initial_spectrum 或 final_spectrum，已跳过。[/yellow]")
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
 
         if len(valid_runs) < 1:
             console.print("[red]错误: 没有足够的数据进行对比。请确保模拟运行时保存了 Step 0 数据。[/red]")

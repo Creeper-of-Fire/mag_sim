@@ -10,6 +10,7 @@ from tqdm import tqdm
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 
 
@@ -189,7 +190,11 @@ class FieldFragmentationModule(BaseAnalysisModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 磁场碎裂与湍流度分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.field_files]
+        valid_runs = filter_valid_runs(
+            loaded_runs,
+            require_fields=True,
+            min_field_files=2
+        )
         if not valid_runs:
             console.print("[yellow]警告: 没有找到有效的场文件 (hdf5)，跳过此分析。[/yellow]")
             return

@@ -8,6 +8,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.modules.utils import physics_mj
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -127,7 +128,7 @@ class TailStatisticsModule(BaseAnalysisModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 高能尾巴统计显著性分析 (加权修正版)...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.final_spectrum]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if not valid_runs:
             console.print("[yellow]无有效能谱数据。[/yellow]")
             return

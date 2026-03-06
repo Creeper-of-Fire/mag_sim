@@ -5,6 +5,7 @@ from typing import List
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
 from analysis.plotting.layout import create_analysis_figure
 
@@ -21,7 +22,11 @@ class FieldEvolutionModule(BaseAnalysisModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 磁场演化分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.field_data]
+        valid_runs = filter_valid_runs(
+            loaded_runs,
+            require_fields=True,
+            min_field_files=2
+        )
         if not valid_runs:
             console.print("[yellow]警告: 没有加载到有效的场数据，跳过此分析。[/yellow]")
             return

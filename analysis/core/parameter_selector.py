@@ -222,38 +222,57 @@ class ParameterSelector:
     # ================= Internal Helpers =================
 
     def _load_all_params(self, runs: List[SimulationRun]) -> List[Dict[str, Any]]:
+        """
+        加载所有 run 的参数。
+        使用内存字典缓存 history 文件，避免对同一个文件进行几十次重复的磁盘 I/O 和 JSON 解析。
+        """
+        # 1. 预解析 History 文件，建立全局缓存 { history_path: { run_name: params } }
+        history_cache: Dict[Path, Dict[str, Any]] = {}
+
+        for run in runs:
+            run_path = Path(run.path).resolve()
+            # 假设结构: job_dir / sim_results / run_dir -> history 在 job_dir 下
+            history_path = run_path.parent.parent / FILENAME_HISTORY
+
+            # 如果这个文件还没读过，且真实存在，就全量读入并解析一次
+            if history_path not in history_cache and history_path.exists():
+                history_cache[history_path] = {}
+                try:
+                    with open(history_path, 'r', encoding='utf-8') as f:
+                        # 顺序读取，后出现的同名记录会覆盖前面的记录（完美等价于反向查找）
+                        for line in f:
+                            try:
+                                record = json.loads(line)
+                                out_dir = record.get('output_dir', '')
+                                if out_dir:
+                                    # 仅提取目录名作为 Key，避免极度耗时的路径 resolve
+                                    r_name = Path(out_dir).name
+                                    history_cache[history_path][r_name] = record.get('params', {})
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+
+        # 2. 快速组装数据 (O(1) 内存查询)
         items = []
         for run in runs:
-            p = self._get_input_params(run)
-            items.append({'run': run, 'params': p})
+            run_path = Path(run.path).resolve()
+            history_path = run_path.parent.parent / FILENAME_HISTORY
+
+            params = {}
+            # 优先从内存缓存中秒取
+            if history_path in history_cache and run_path.name in history_cache[history_path]:
+                # 拷贝一份避免引用污染
+                params = history_cache[history_path][run_path.name].copy()
+            else:
+                # Fallback 策略：从 run.sim 提取
+                for k, v in vars(run.sim).items():
+                    if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
+                        params[k] = v
+
+            items.append({'run': run, 'params': params})
+
         return items
-
-    def _get_input_params(self, run: SimulationRun) -> Dict[str, Any]:
-        """尝试从 history 文件或 run 对象中获取参数"""
-        run_path = Path(run.path).resolve()
-        # 假设结构: job_dir / sim_results / run_dir
-        history_path = run_path.parent.parent / FILENAME_HISTORY
-
-        if history_path.exists():
-            try:
-                with open(history_path, 'r', encoding='utf-8') as f:
-                    for line in reversed(f.readlines()):
-                        try:
-                            record = json.loads(line)
-                            rec_path = Path(record.get('output_dir', '')).resolve()
-                            if rec_path.name == run_path.name:
-                                return record.get('params', {})
-                        except:
-                            continue
-            except Exception:
-                pass
-
-        # Fallback
-        params = {}
-        for k, v in vars(run.sim).items():
-            if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
-                params[k] = v
-        return params
 
     def _analyze_varying_params(self) -> Tuple[List[str], Dict[str, List[str]]]:
         all_keys = set()

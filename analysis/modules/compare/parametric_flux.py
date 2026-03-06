@@ -9,6 +9,8 @@ from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.utils.comparison_utils import create_common_energy_bins
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 
 # 最小计数阈值，避免 1/1 或 0/0 产生噪音
@@ -81,7 +83,7 @@ class ParametricFluxModule(BaseComparisonModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 参数扫描能谱通量热力图...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.initial_spectrum and r.final_spectrum]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if len(valid_runs) < 2:
             console.print("[red]错误: 至少需要 2 个模拟。[/red]")
             return
