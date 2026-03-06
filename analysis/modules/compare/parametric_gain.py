@@ -10,6 +10,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 
 # 增加一个统计阈值，避免因为初始粒子数太少导致比率爆炸
@@ -78,7 +79,7 @@ class ParametricGainModule(BaseComparisonModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 参数扫描能谱增益分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.initial_spectrum and r.final_spectrum]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if len(valid_runs) < 2:
             console.print("[red]错误: 需要至少 2 个包含初始和最终能谱的模拟。[/red]")
             return

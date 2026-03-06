@@ -5,6 +5,7 @@ from typing import List
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.spectrum_plotter import SpectrumComparisonPlotter
 
@@ -29,7 +30,7 @@ class SpectrumComparisonModule(BaseComparisonModule):
         """
         console.print("\n[bold magenta]执行: 能谱与参数对比分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.final_spectrum and r.final_spectrum.weights.size > 0]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
 
         if len(valid_runs) < 1:  # 即使只有一个run，也允许生成（尽管对比表意义不大）
             console.print(f"[yellow]警告: 找不到有效的能谱数据，无法进行对比分析。[/yellow]")

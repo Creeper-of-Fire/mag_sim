@@ -12,6 +12,7 @@ from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.modules.utils import physics_mj
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 
 # --- 物理常量 ---
@@ -116,7 +117,7 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
 
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 能谱时间演化分析...[/bold magenta]")
-        valid_runs = [r for r in loaded_runs if r.particle_files]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if not valid_runs:
             console.print("[yellow]警告: 没有找到有效的粒子诊断文件，跳过此分析。[/yellow]")
             return

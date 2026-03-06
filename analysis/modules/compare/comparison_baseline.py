@@ -9,6 +9,7 @@ from rich.table import Table
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.spectrum_plotter import SpectrumComparisonPlotter
 from analysis.plotting.styles import get_style
@@ -50,7 +51,7 @@ class BaselineSpectrumComparisonModule(BaseComparisonModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 基准能谱对比分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.initial_spectrum and r.final_spectrum]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if len(valid_runs) < 2:
             console.print("[red]错误: 至少需要选择两个有效的模拟才能进行基准对比。[/red]")
             return

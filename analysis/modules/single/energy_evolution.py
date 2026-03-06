@@ -5,6 +5,7 @@ from typing import List
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.energy_plotter import EnergyDensityPlotter, TotalEnergyPlotter
 from analysis.plotting.layout import create_analysis_figure
 
@@ -22,7 +23,13 @@ class EnergyEvolutionModule(BaseAnalysisModule):
         """为每个模拟生成能量演化图。"""
         console.print("\n[bold magenta]执行: 能量演化分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.energy_data]
+        valid_runs = filter_valid_runs(
+            loaded_runs,
+            require_particles=True,
+            min_particle_files=2,
+            require_fields=True,
+            min_field_files=2
+        )
         if not valid_runs:
             console.print("[yellow]警告: 没有加载到有效的能量数据，跳过此分析。[/yellow]")
             return

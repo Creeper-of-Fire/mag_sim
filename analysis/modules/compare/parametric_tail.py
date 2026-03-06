@@ -10,6 +10,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils import physics_mj
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 
 
@@ -88,7 +89,7 @@ class ParametricTailModule(BaseComparisonModule):
         console.print("\n[bold magenta]执行: 参数扫描非热能量分析 (正向差值法)...[/bold magenta]")
 
         # 1. 准备数据
-        valid_runs = [r for r in loaded_runs if r.final_spectrum]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if len(valid_runs) < 2:
             console.print("[red]错误: 需要至少 2 个模拟来进行对比。[/red]")
             return

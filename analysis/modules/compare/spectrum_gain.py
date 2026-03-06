@@ -8,6 +8,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
+from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -30,7 +31,7 @@ class SpectrumGainModule(BaseComparisonModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 能谱增益(比率)分析...[/bold magenta]")
 
-        valid_runs = [r for r in loaded_runs if r.initial_spectrum and r.final_spectrum]
+        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if len(valid_runs) < 1:
             console.print("[yellow]警告: 需要至少一个包含初始和最终能谱的模拟。[/yellow]")
             return
