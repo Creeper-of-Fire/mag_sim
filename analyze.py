@@ -155,6 +155,13 @@ def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
     # --- 动态导入工具 ---
     tools_available = {}
 
+    # 尝试导入虚拟切片工具 Slicer
+    try:
+        from analysis.tools import slicer
+        tools_available['slicer'] = slicer.run_interactive_workflow
+    except ImportError:
+        pass
+
     # 尝试导入 Slimmer
     try:
         from analysis.tools import slimmer
@@ -180,18 +187,21 @@ def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
         tool_names = list(tools_available.keys())
 
         # 显示菜单
-        console.print(f"[[cyan]s[/cyan]] [magenta]slimmer[/magenta] (粒子数据压缩/瘦身)")
+        console.print(f"[[cyan]s[/cyan]] [magenta]slicer[/magenta]  (虚拟切片：将一个模拟的各时刻拆分为多重模拟，零存储开销)")
+        console.print(f"[[cyan]m[/cyan]] [magenta]slimmer[/magenta] (粒子数据压缩/瘦身)")
         console.print(f"[[cyan]p[/cyan]] [magenta]pruner[/magenta]  (仅保留首/中/尾时刻，删除其余)")
         console.print("")
 
         choice = Prompt.ask(
             "[bold]请选择工具[/bold]",
-            choices=tool_names + ['s', 'p'],
+            choices=tool_names + ['s', 'm', 'p'],
             default='slimmer'
         )
 
         # 映射快捷键
         if choice == 's':
+            target_tool = 'slicer'
+        elif choice == 'm':
             target_tool = 'slimmer'
         elif choice == 'p':
             target_tool = 'pruner'
