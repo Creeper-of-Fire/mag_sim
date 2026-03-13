@@ -31,10 +31,31 @@ def cached_op(file_dep: str = "auto"):
 
     def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(run, *args, **kwargs):
+        def wrapper(*args, **kwargs):
+            # 0. 智能定位 run 对象
+            from .simulation import SimulationRun
+
+            run_obj = None
+
+            # 检查前两个位置参数（通常是 self 或者是单独的 run 参数）
+            for arg in args[:2]:
+                if isinstance(arg, SimulationRun):
+                    run_obj = arg
+                    break
+
+            # 如果位置参数没找到，再从关键字参数里搜一把
+            if not run_obj and 'run' in kwargs and isinstance(kwargs['run'], SimulationRun):
+                run_obj = kwargs['run']
+
+            if run_obj is None:
+                raise ValueError(
+                    f"cached_op 无法在方法 {func.__name__} 的参数中找到 SimulationRun 实例。"
+                    f"请确保方法的参数包含 run 对象，或者该方法属于 SimulationRun 的子类。"
+                )
+
             # 1. 绑定参数以方便检查
             sig = inspect.signature(func)
-            bound_args = sig.bind(run, *args, **kwargs)
+            bound_args = sig.bind(*args, **kwargs)
             bound_args.apply_defaults()
 
             # 2. 确定依赖文件列表
@@ -50,23 +71,23 @@ def cached_op(file_dep: str = "auto"):
 
                 # 如果没找到特定文件，默认依赖模拟参数文件 (最保守策略)
                 if not deps:
-                    deps = [run._param_file]
+                    deps = [run_obj._param_file]
 
             elif file_dep == "particle":
-                deps = run.particle_files
+                deps = run_obj.particle_files
             elif file_dep == "field":
-                deps = run.field_files
+                deps = run_obj.field_files
             elif file_dep == "all":
-                deps = run.particle_files + run.field_files + [run._param_file]
+                deps = run_obj.particle_files + run_obj.field_files + [run_obj._param_file]
 
             # 2. 将调用上下文“物化”，交给 Cache 处理，杜绝任何 kwargs 签名冲突
             func_name = f"{getattr(func, '__module__', 'unknown')}.{func.__name__}"
 
-            return run._cache.get(
+            return run_obj._cache.get(
                 func_name=func_name,
                 dependencies=deps,
                 compute_func=func,
-                run_obj=run,  # 明确传递 Receiver 对象
+                run_obj=run_obj,  # 明确传递 Receiver 对象
                 call_args=args,  # 明确传递参数元组
                 call_kwargs=kwargs  # 明确传递字典
             )
@@ -142,10 +163,26 @@ class SmartCache:
         计算参数哈希。
         这里 Cache 知道不应该序列化巨大的 run_obj 实例，只序列化物理参数(sim)和入参。
         """
+        from .simulation import SimulationRun
+        # 定义一个递归脱敏函数
+        def sanitize(obj):
+            # 1. 如果是 Receiver 对象本身，用占位符代替，不进行序列化
+            if isinstance(obj, SimulationRun):
+                return "__SIM_RUN_RECEIVER__"
+            # 2. 如果是模块的 self (包含 run 方法且有名字)，也脱敏
+            if hasattr(obj, 'run') and hasattr(obj, 'name'):
+                return f"__MODULE_{obj.__class__.__name__}__"
+            return obj
+
+
+        # 清洗 args 和 kwargs，防止 dill.dumps 爆炸
+        safe_args = tuple(sanitize(a) for a in args)
+        safe_kwargs = {k: sanitize(v) for k, v in kwargs.items()}
+
         hash_payload = {
             'sim_params': getattr(run_obj, 'sim', None),
-            'args': args,
-            'kwargs': kwargs
+            'args': safe_args,
+            'kwargs': safe_kwargs
         }
         try:
             return hashlib.md5(dill.dumps(hash_payload)).hexdigest()
@@ -184,7 +221,7 @@ class SmartCache:
 
         # 3. 未命中：由 Cache 负责触发真实计算
         console.print(f"[cyan]  -> 正在计算: {func_name} ...[/cyan]")
-        result = compute_func(run_obj, *call_args, **call_kwargs)
+        result = compute_func(*call_args, **call_kwargs)
 
         # 4. 持久化
         if result is not None:
