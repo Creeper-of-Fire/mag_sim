@@ -131,32 +131,44 @@ class SmartCache:
 
     def _get_func_context_hash(self, func: Callable) -> str:
         """
-        获取定义该函数的**源文件**的哈希。
+        获取该函数定义的【源码内容】哈希，而不是整个文件的哈希。
+        这样修改同一个文件内的绘图代码，不会导致计算函数的缓存失效。
         """
         try:
-            # 获取定义该函数的文件路径
-            src_file = inspect.getfile(func)
+            # 1. 尝试获取函数的原始代码
+            # getsource 会返回包括 @cached_op 在内的整个函数定义体
+            source_code = inspect.getsource(func)
 
-            # 如果不是物理文件 (比如在 Jupyter 或 repl 中)，回退到函数名
-            if not os.path.exists(src_file) or not os.path.isfile(src_file):
-                return "INTERACTIVE_" + func.__name__
+            # 2. [可选] 进一步清理代码：去除注释和首尾空格
+            # 这样你改一下函数内部的注释，缓存依然有效
+            lines = []
+            for line in source_code.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#'):
+                    lines.append(line.rstrip())
+            clean_source = "\n".join(lines)
 
-            # 检查内存缓存
-            if src_file in self._source_file_hashes:
-                return self._source_file_hashes[src_file]
+            # 3. 计算源码哈希
+            return hashlib.md5(clean_source.encode('utf-8')).hexdigest()
 
-            # 读取文件内容并哈希
-            with open(src_file, 'rb') as f:
-                content = f.read()
-                file_hash = hashlib.md5(content).hexdigest()
+        except (isinstance, TypeError, OSError) as e:
+            # 如果是交互式环境或无法获取源码，退回到文件级哈希或文件名
+            console.print(f"[dim]⚠ 无法获取函数 {func.__name__} 源码哈希 ({e})，尝试文件级检测。[/dim]")
 
-            # 存入内存缓存
-            self._source_file_hashes[src_file] = file_hash
-            return file_hash
+            try:
+                src_file = inspect.getfile(func)
+                if os.path.exists(src_file):
+                    if src_file in self._source_file_hashes:
+                        return self._source_file_hashes[src_file]
 
-        except Exception as e:
-            console.print(f"[dim]⚠ 无法获取源码文件哈希 ({e})，代码变更检测失效。[/dim]")
-            return "UNKNOWN_SOURCE"
+                    with open(src_file, 'rb') as f:
+                        file_hash = hashlib.md5(f.read()).hexdigest()
+                    self._source_file_hashes[src_file] = file_hash
+                    return file_hash
+            except:
+                pass
+
+            return "FALLBACK_" + func.__name__
 
     def _get_args_hash(self, run_obj: Any, args: Tuple, kwargs: Dict) -> str:
         """
