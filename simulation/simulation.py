@@ -98,7 +98,7 @@ class SpeciesWrapper:
             bucket.add_new_attr(key, value)
 
 
-class PlasmaReconnection(object):
+class PlasmaSimulation(object):
     def __init__(self, params: 'SimulationParameters', output_dir: str, verbose: bool):
         self.p = params
         self.output_dir = output_dir
@@ -179,7 +179,7 @@ class PlasmaReconnection(object):
         # 我们这里采用包含静止质量的通用形式:
         particle_energy_density = 2 * n_plasma * (constants.m_e * constants.c ** 2 + 3.0 * T_plasma_J)
 
-        # 2. 确定目标磁化率 (Target Sigma)
+        # 2. 确定目标磁能占比 (Target Sigma)
         # 如果 config 中定义了 target_sigma，则优先使用；否则根据 B0 计算当前的 sigma
         # 假设我们在 SimulationParameters (self.p) 中添加了 target_sigma
         # 如果没有，我们默认使用 B0 对应的 sigma 作为目标

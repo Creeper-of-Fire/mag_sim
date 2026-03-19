@@ -66,7 +66,7 @@ class PlasmaScenario:
     def total_energy_density(self) -> float:
         """
         等离子体总能量密度 U_p (J/m^3)。
-        用于计算磁化参数 Sigma = B^2 / (2 * mu_0 * U_p)。
+        用于计算磁能占比 Sigma = B^2 / (2 * mu_0 * U_p)。
         假设包含正反粒子对或电子+离子背景: 2 * n_e * (rest_mass + thermal)
         """
         # 注意: 这里系数取2是假设正负电荷对等的能量贡献 (如正负电子对或电子-离子)

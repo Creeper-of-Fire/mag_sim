@@ -114,7 +114,7 @@ class QuantileDiagnosticModule(BaseComparisonModule):
 
             # TODO 这里是临时的，之后改成一个映射表的形式
             if x_label == "target_sigma":
-                x_label_name = "磁场能量占比 $\sigma$"
+                x_label_name = "磁能占比 $\sigma$"
             else:
                 x_label_name = x_label
 
