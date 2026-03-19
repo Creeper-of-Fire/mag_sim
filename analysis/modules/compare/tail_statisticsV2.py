@@ -170,6 +170,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         super().__init__()
         # 定义要扫描的区间列表 (low, high)。None 表示正无穷
         self.intervals = [
+            (0.0, 0.5),  # 低能区
+            (0.5, 1.0),
             (1.0, 2.0),
             (2.0, 3.0),
             (3.0, 5.0),
@@ -230,16 +232,19 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         x_label_key, x_vals, sorted_runs = selector.select()
         final_filename = selector.generate_filename(x_label_key, sorted_runs, prefix="multiband_tail")
 
-        # X 轴处理
-        try:
-            x_num = [float(v) for v in x_vals]
-            is_num = True
-        except ValueError:
-            x_num = range(len(x_vals))
-            is_num = False
-
         # 获取X轴的显示信息
         x_axis_info = get_param_display(x_label_key)
+
+        # X 轴处理与格式化
+        try:
+            raw_x_num = np.array([float(v) for v in x_vals])
+            is_num = True
+            # 拿到缩放后的 X 数组，以及包含量级的 Label
+            scaled_x, final_x_label = x_axis_info.format_axis(raw_x_num)
+        except ValueError:
+            raw_x_num = np.arange(len(x_vals))
+            is_num = False
+            scaled_x, final_x_label = raw_x_num, x_axis_info.ToLabel
 
         # 数据结构初始化
         # results[factor] = {'init': [], 'init_err': [], 'init_th_err': [], 'final': [], 'final_err': [], 'final_th_err': []}
@@ -283,7 +288,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
 
         with create_analysis_figure(sorted_runs, "multiband_tail", num_plots=num_plots, override_filename=final_filename, figsize=(10, 3.5 * num_plots)) as (
                 fig, axes):
-            x_arr = np.array(x_num)
 
             # 确保 axes 是可迭代的列表
             if num_plots == 1: axes = [axes]
@@ -299,24 +303,24 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                         ha='right', va='top', fontsize='medium', fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
 
                 # 绘制理论误差带 (阴影)
-                # ax.fill_between(x_arr,
+                # ax.fill_between(scaled_x,
                 #                 (np.array(d['init']) - np.array(d['init_th_err'])) * 100,
                 #                 (np.array(d['init']) + np.array(d['init_th_err'])) * 100,
                 #                 color=style.color_baseline_secondary, alpha=0.15,
                 #                 label='初始理论散粒误差 (Shot Noise)')
 
-                ax.fill_between(x_arr,
+                ax.fill_between(scaled_x,
                                 (np.array(d['final']) - np.array(d['final_th_err'])) * 100,
                                 (np.array(d['final']) + np.array(d['final_th_err'])) * 100,
                                 color=style.color_comparison_primary, alpha=0.1,
                                 label='最终理论传递误差')
 
                 # 绘制实测值误差棒
-                ax.errorbar(x_num, np.array(d['final']) * 100, yerr=np.array(d['final_err']) * 100,
+                ax.errorbar(scaled_x, np.array(d['final']) * 100, yerr=np.array(d['final_err']) * 100,
                             fmt='-o', capsize=4, elinewidth=1.5,
                             color=style.color_comparison_primary, label='最终时刻 $t_{end}$')
 
-                # ax.errorbar(x_num, np.array(d['init']) * 100, yerr=np.array(d['init_err']) * 100,
+                # ax.errorbar(scaled_x, np.array(d['init']) * 100, yerr=np.array(d['init_err']) * 100,
                 #             fmt='--x', capsize=4, alpha=0.7,
                 #             color=style.color_baseline_secondary, label='初始时刻 $t=0$')
 
@@ -329,13 +333,13 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
 
                 # 隐藏非底部的 X 轴标签以保持整洁
                 if not is_num:
-                    ax.set_xticks(x_num)
+                    ax.set_xticks(scaled_x)
                     if i < num_plots - 1:
                         ax.set_xticklabels([])
 
             # --- 最后一个图: 温度变化 ---
             ax_temp = axes[-1]
-            ax_temp.errorbar(x_num, temps['final'], yerr=np.array(temps['final_err']),
+            ax_temp.errorbar(scaled_x, temps['final'], yerr=np.array(temps['final_err']),
                              fmt='-s', capsize=4, color=style.color_comparison_secondary, lw=style.lw_base, label='最终温度 $T$')
 
             # ax_temp.errorbar(x_num, temps['init'], yerr=np.array(temps['init_err']),
@@ -343,22 +347,14 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
 
             ax_temp.set_ylabel("$T_{eff}$ (keV)")
 
-            ax_temp.set_xlabel(x_axis_info.ToLabel)
+            ax_temp.set_xlabel(final_x_label)
 
             ax_temp.legend(fontsize='small', loc='best')
             ax_temp.grid(True, linestyle='--', alpha=0.5)
 
             if not is_num:
-                ax_temp.set_xticks(x_num)
+                ax_temp.set_xticks(scaled_x)
                 ax_temp.set_xticklabels(x_vals, rotation=45)
-
-            # --- 4. 格式化坐标轴刻度 (不转换单位) ---
-            for ax in axes:
-                if is_num:
-                    # 对X轴应用科学记数法，使用美观的数学文本格式 (例如 1.5 x 10^-15)
-                    ax.ticklabel_format(style='sci', axis='x', scilimits=(-3, 4), useMathText=True)
-                # Y轴是百分比，通常不需要特殊格式化，但如果需要也可以加上
-                # ax.ticklabel_format(style='sci', axis='y', scilimits=(-3, 4), useMathText=True)
 
             plt.subplots_adjust(hspace=0.25)
 
