@@ -8,6 +8,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 from utils.project_config import FILENAME_HISTORY
+from .param_display_names import get_param_display
 from .selector import SimpleTableSelector
 from .simulation import SimulationRun
 from .simulationGroup import SimulationRunGroup
@@ -136,14 +137,21 @@ class ParameterSelector:
 
         # 定义转换函数：参数名 -> [参数名, 示例值]
         def row_converter(k):
+            info = get_param_display(k)
             vals = details[k]
             # 截取前3个值作为示例
             val_str = ", ".join(map(str, vals[:3])) + ("..." if len(vals) > 3 else "")
-            return [f"[magenta]{k}[/magenta]", f"[dim]{val_str}[/dim]"]
+
+            # 返回一个清晰的、包含多信息的行
+            return [
+                f"[bold magenta]{info.name_cn} ({info.symbol})[/bold magenta]",
+                f"[dim]{k}[/dim]",  # 保留内部变量名供参考
+                f"[dim]{val_str}[/dim]"
+            ]
 
         selector = SimpleTableSelector(
             items=keys,
-            columns=["参数名", "当前包含的值 (示例)"],
+            columns=["参数", "内部变量", "当前值 (示例)"],
             row_converter=row_converter,
             title="变化参数列表"
         )
@@ -242,7 +250,10 @@ class ParameterSelector:
         varying_keys = []
         varying_details = {}
 
-        for k in all_keys:
+        # 先对键进行排序，确保返回的列表按字母顺序排列
+        sorted_keys = sorted(list(all_keys))
+
+        for k in sorted_keys:
             values = set()
             for item in self.data_items:
                 val = item['params'].get(k, None)
@@ -250,7 +261,8 @@ class ParameterSelector:
 
             if len(values) > 1:
                 varying_keys.append(k)
-                varying_details[k] = list(values)
+                # 同时对值列表也进行排序，保持输出整洁
+                varying_details[k] = sorted(list(values))
 
         return varying_keys, varying_details
 
