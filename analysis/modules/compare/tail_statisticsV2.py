@@ -8,6 +8,7 @@ import numpy as np
 from scipy.integrate import quad, IntegrationWarning
 
 from analysis.core.cache import cached_op
+from analysis.core.param_display_names import get_param_display
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationSingle import SimulationRunSingle
@@ -226,8 +227,19 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             return
 
         selector = ParameterSelector(valid_runs)
-        x_label, x_vals, sorted_runs = selector.select()
-        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="multiband_tail")
+        x_label_key, x_vals, sorted_runs = selector.select()
+        final_filename = selector.generate_filename(x_label_key, sorted_runs, prefix="multiband_tail")
+
+        # X 轴处理
+        try:
+            x_num = [float(v) for v in x_vals]
+            is_num = True
+        except ValueError:
+            x_num = range(len(x_vals))
+            is_num = False
+
+        # 获取X轴的显示信息
+        x_axis_info = get_param_display(x_label_key)
 
         # 数据结构初始化
         # results[factor] = {'init': [], 'init_err': [], 'init_th_err': [], 'final': [], 'final_err': [], 'final_th_err': []}
@@ -241,7 +253,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
 
         for i, run in enumerate(sorted_runs):
-            console.print(f"    [{run.name}] {x_label}={x_vals[i]}")
+            console.print(f"    [{run.name}] {x_label_key}={x_vals[i]}")
 
             # 对各个能段进行遍历计算
             for f_idx, (low, high) in enumerate(self.intervals):
@@ -263,14 +275,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 results[f_idx]['final_err'].append(m_final['excess_ratio_err'])
                 results[f_idx]['final_th_err'].append(m_final['propagated_uncertainty'])
 
-        # X 轴处理
-        try:
-            x_num = [float(v) for v in x_vals]
-            is_num = True
-        except ValueError:
-            x_num = range(len(x_vals))
-            is_num = False
-
         num_plots = len(self.intervals) + 1
 
         # =========================================================================
@@ -288,7 +292,11 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             for i, (low, high) in enumerate(self.intervals):
                 ax = axes[i]
                 d = results[i]
-                label_str = f"${low}T < E < {high}T$" if high else f"$E > {low}T$"
+
+                # 将区间标注移入图内，作为图的说明
+                label_str = f"${low:.2f}T < E < {high:.2f}T$" if high else f"$E > {low:.2f}T$"
+                ax.text(0.98, 0.95, label_str, transform=ax.transAxes,
+                        ha='right', va='top', fontsize='medium', fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
 
                 # 绘制理论误差带 (阴影)
                 # ax.fill_between(x_arr,
@@ -313,7 +321,9 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 #             color=style.color_baseline_secondary, label='初始时刻 $t=0$')
 
                 ax.axhline(0, color='black', linestyle='-', alpha=0.3, lw=1)
-                ax.set_ylabel(f"Excess %\n({label_str})")
+                ax.set_ylabel(f"超额能量占比 (%)")
+
+                # 图例留在左上角，与右侧的区间标注互不干扰
                 ax.legend(fontsize='x-small', loc='upper left', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
@@ -332,14 +342,23 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             #                  fmt='--s', capsize=4, color=style.color_baseline_secondary, lw=style.lw_base, label='初始温度 $T$')
 
             ax_temp.set_ylabel("$T_{eff}$ (keV)")
-            x_label_name = "磁场能量占比 $\sigma$" if x_label == "target_sigma" else x_label
-            ax_temp.set_xlabel(x_label_name if is_num else "模拟案例")
+
+            ax_temp.set_xlabel(x_axis_info.ToLabel)
+
             ax_temp.legend(fontsize='small', loc='best')
             ax_temp.grid(True, linestyle='--', alpha=0.5)
 
             if not is_num:
                 ax_temp.set_xticks(x_num)
                 ax_temp.set_xticklabels(x_vals, rotation=45)
+
+            # --- 4. 格式化坐标轴刻度 (不转换单位) ---
+            for ax in axes:
+                if is_num:
+                    # 对X轴应用科学记数法，使用美观的数学文本格式 (例如 1.5 x 10^-15)
+                    ax.ticklabel_format(style='sci', axis='x', scilimits=(-3, 4), useMathText=True)
+                # Y轴是百分比，通常不需要特殊格式化，但如果需要也可以加上
+                # ax.ticklabel_format(style='sci', axis='y', scilimits=(-3, 4), useMathText=True)
 
             plt.subplots_adjust(hspace=0.25)
 
