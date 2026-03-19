@@ -227,7 +227,7 @@ class GoodnessOfFitModule(BaseComparisonModule):
             # 图2：A-D 尾部加权统计量
             ax2.plot(x_arr, results_AD_stat, marker='^', color=style.color_comparison_secondary, lw=2, label='Anderson-Darling 统计量 $A^2$')
             ax2.set_ylabel("A-D 统计量 $A^2$ (尾部偏离度)")
-            x_label_name = "磁场扰动幅度 $\sigma$" if x_label == "target_sigma" else x_label
+            x_label_name = "磁能占比 $\sigma$" if x_label == "target_sigma" else x_label
             ax2.set_xlabel(x_label_name if is_num else "模拟案例")
 
             # 添加文本标注解释

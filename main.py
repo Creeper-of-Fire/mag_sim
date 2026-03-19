@@ -5,7 +5,7 @@ import os
 import sys
 
 from simulation.config import SimulationParameters
-from simulation.simulation import PlasmaReconnection
+from simulation.simulation import PlasmaSimulation
 
 def main():
     """
@@ -62,7 +62,7 @@ def main():
 
     # 2. 将参数传递给模拟引擎来设置并运行模拟
     #    注意：PlasmaReconnection的__init__方法会调用setup_run和所有初始化
-    run = PlasmaReconnection(params=params, output_dir=output_dir, verbose=args.verbose)
+    run = PlasmaSimulation(params=params, output_dir=output_dir, verbose=args.verbose)
 
     run.run_simulation()
 

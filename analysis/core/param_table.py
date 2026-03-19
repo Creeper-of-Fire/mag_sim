@@ -121,7 +121,7 @@ def _get_param_map(run: SimulationRun) -> ParamMap:
 
     # --- 核心物理参数 ---
     mapping["--- 等离子体物理 ---"] = (None, None)
-    mapping["磁化强度 $\sigma$"] = fmt_sigma
+    mapping["磁能占比 $\sigma$"] = fmt_sigma
     mapping["相对论温度 $\Theta$"] = (lambda x: f"${x.theta:.3f}$ ({x.T_plasma / 1e3:.1f} keV)", lambda x: f"{x.theta:.3f}")
     mapping["数密度 $n_0$ ($\mathrm{m}^{-3}$)"] = (lambda x: f"${x.n_plasma:.2e}$", lambda x: f"{x.n_plasma:.2e}")
 

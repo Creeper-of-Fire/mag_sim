@@ -150,7 +150,7 @@ if __name__ == "__main__":
         "name": "Deuterium Bottleneck (sigma=0.05)",
         "n_e": 7.28e33,  # 电子数密度 (m^-3)
         "T_eV": 84480.0,  # 背景温度 (eV)
-        "sigma": 0.05  # 假设的磁化参数
+        "sigma": 0.05  # 假设的磁能占比
     }
 
     # 从 sigma 反推磁场 B
