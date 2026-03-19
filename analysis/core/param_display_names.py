@@ -1,5 +1,8 @@
 # analysis/core/params_display_names.py
+
+import numpy as np
 from dataclasses import dataclass
+from typing import Tuple, Union, List
 
 
 @dataclass
@@ -18,6 +21,34 @@ class ParamInfo:
             return f"{self.name_cn} ({self.symbol}) [{self.unit}]"
         else:
             return f"{self.name_cn} ({self.symbol})"
+
+    def format_axis(self, values: Union[np.ndarray, List[float]]) -> Tuple[np.ndarray, str]:
+        """
+        输入原始数值，输出：
+        1. 缩放后的数值（用于绘图）
+        2. 格式化后的坐标轴标签（包含倍率，如 10^-15）
+        """
+        vals = np.array(values, dtype=float)
+        if vals.size == 0 or np.all(vals == 0):
+            return vals, self.ToLabel
+
+        # 自动检测数量级 (10^k)
+        max_val = np.max(np.abs(vals))
+        exponent = int(np.floor(np.log10(max_val)))
+
+        # 如果数量级在常用范围之外 (比如太小 10^-3 以下，或太大 10^4 以上)
+        # 或者单位本身就是秒 's'，且值很小
+        if abs(exponent) >= 3:
+            scale = 10 ** exponent
+            scaled_vals = vals / scale
+            # 构造带倍率的标签，例如：时间 (t) [10^-15 s]
+            if self.unit:
+                new_label = f"{self.name_cn} ({self.symbol}) [$10^{{{exponent}}}$ {self.unit}]"
+            else:
+                new_label = f"{self.name_cn} ({self.symbol}) [$10^{{{exponent}}}$]"
+            return scaled_vals, new_label
+
+        return vals, self.ToLabel
 
 
 # 创建一个默认的未知参数信息
