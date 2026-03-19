@@ -176,6 +176,7 @@ class SmartCache:
         这里 Cache 知道不应该序列化巨大的 run_obj 实例，只序列化物理参数(sim)和入参。
         """
         from .simulation import SimulationRun
+        from .utils import get_run_parameters
         # 定义一个递归脱敏函数
         def sanitize(obj):
             # 1. 如果是 Receiver 对象本身，用占位符代替，不进行序列化
@@ -190,9 +191,15 @@ class SmartCache:
         # 清洗 args 和 kwargs，防止 dill.dumps 爆炸
         safe_args = tuple(sanitize(a) for a in args)
         safe_kwargs = {k: sanitize(v) for k, v in kwargs.items()}
+        safe_sim_params = {}
+        if run_obj is not None:
+            try:
+                safe_sim_params = get_run_parameters(run_obj)
+            except Exception:
+                pass
 
         hash_payload = {
-            'sim_params': getattr(run_obj, 'sim', None),
+            'sim_params': safe_sim_params,
             'args': safe_args,
             'kwargs': safe_kwargs
         }

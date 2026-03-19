@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 import json
 import os
+import pickle
 import re
 import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 from rich.prompt import Prompt, Confirm
-from rich.table import Table
 
 from analysis.core.utils import console
 
@@ -35,6 +35,31 @@ def _get_available_steps(run_dir: Path) -> List[int]:
                 if step != -1:
                     steps.add(step)
     return sorted(list(steps))
+
+
+def _get_sim_time_params(run_dir: Path) -> Tuple[float, float]:
+    """
+    尝试从原模拟的 sim_parameters 中读取物理时间步长 dt 和归一化时间步长 DT
+    返回: (dt, DT)
+    """
+    dt, DT = 0.0, 0.0
+
+    # 尝试读取 dpkl
+    dpkl_path = run_dir / "sim_parameters.dpkl"
+    if dpkl_path.exists():
+        try:
+            with open(dpkl_path, 'rb') as f:
+                data = pickle.load(f)
+                if isinstance(data, dict):
+                    dt = float(data.get('dt', 0.0))
+                    DT = float(data.get('DT', 0.0))
+                else:
+                    dt = float(getattr(data, 'dt', 0.0))
+                    DT = float(getattr(data, 'DT', 0.0))
+        except Exception:
+            pass
+
+    return dt, DT
 
 
 def create_virtual_slices(run_dir: Path):
@@ -72,6 +97,13 @@ def create_virtual_slices(run_dir: Path):
         console.print("[yellow]未选中任何有效的时间步。[/yellow]")
         return
 
+    # 提取原模拟的 dt 和 DT，用于计算切片的实际物理时间
+    dt, DT = _get_sim_time_params(run_dir)
+    if dt == 0.0:
+        console.print("[yellow]警告: 未能从参数文件中读取到 dt/DT，虚拟时间将默认为 0。[/yellow]")
+    else:
+        console.print(f"[dim]读取到时间步长: dt = {dt:.3e} s, 归一化 DT = {DT}[/dim]")
+
     # 开始创建虚拟目录
     created_count = 0
     with console.status("[bold green]正在建立软链接和虚拟参数...[/bold green]"):
@@ -107,11 +139,19 @@ def create_virtual_slices(run_dir: Path):
                             # 使用绝对路径创建软链接，确保不会断链
                             os.symlink(f.resolve(), virt_f)
 
+            # 计算当前切片的时间并注入 custom_params.json
+            current_time = step * dt
+            current_LT = step * DT
+
             # 4. 注入 custom_params.json 欺骗框架
             custom_params = {
                 "_is_virtual_slice": True,
-                "slice_step": step,  # 你的分析模块将看到这个参数
-                "virtual_time_step": step
+                "slice_step": step,  # 工具标记
+                "virtual_time_step": step,  # 工具标记
+                # 下面覆盖 simulation 的原生字典参数，让分析模块读取到截断后的时间
+                "total_steps": step,  # 覆盖原始总步数
+                "current_time": current_time,  # 切片对应的绝对物理时间 (s)
+                "LT": current_LT  # 覆盖归一化总时间
             }
             with open(virtual_dir / "custom_params.json", 'w', encoding='utf-8') as f:
                 json.dump(custom_params, f, indent=4)

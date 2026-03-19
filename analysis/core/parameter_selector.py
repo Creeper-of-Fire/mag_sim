@@ -224,64 +224,12 @@ class ParameterSelector:
     def _load_all_params(self, runs: List[SimulationRun]) -> List[Dict[str, Any]]:
         """
         加载所有 run 的参数。
-        使用内存字典缓存 history 文件，避免对同一个文件进行几十次重复的磁盘 I/O 和 JSON 解析。
-        优先级: 本地 custom_params.json > 全局 history.jsonl > run.sim 默认属性
         """
-        # 1. 预解析 History 文件，建立全局缓存 { history_path: { run_name: params } }
-        history_cache: Dict[Path, Dict[str, Any]] = {}
+        from .utils import get_run_parameters
 
-        for run in runs:
-            run_path = Path(run.path).resolve()
-            # 假设结构: job_dir / sim_results / run_dir -> history 在 job_dir 下
-            history_path = run_path.parent.parent / FILENAME_HISTORY
-
-            # 如果这个文件还没读过，且真实存在，就全量读入并解析一次
-            if history_path not in history_cache and history_path.exists():
-                history_cache[history_path] = {}
-                try:
-                    with open(history_path, 'r', encoding='utf-8') as f:
-                        # 顺序读取，后出现的同名记录会覆盖前面的记录（完美等价于反向查找）
-                        for line in f:
-                            try:
-                                record = json.loads(line)
-                                out_dir = record.get('output_dir', '')
-                                if out_dir:
-                                    # 仅提取目录名作为 Key，避免极度耗时的路径 resolve
-                                    r_name = Path(out_dir).name
-                                    history_cache[history_path][r_name] = record.get('params', {})
-                            except Exception:
-                                continue
-                except Exception:
-                    pass
-
-        # 2. 快速组装数据 (O(1) 内存查询)
         items = []
         for run in runs:
-            run_path = Path(run.path).resolve()
-            history_path = run_path.parent.parent / FILENAME_HISTORY
-
-            params = {}
-
-            # 层级 1: 从 run.sim 提取基础参数
-            for k, v in vars(run.sim).items():
-                if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
-                    params[k] = v
-
-            # 层级 2: 全局 history 文件覆盖
-            if history_path in history_cache and run_path.name in history_cache[history_path]:
-                params.update(history_cache[history_path][run_path.name])
-
-            # 层级 3: 本地 custom_params.json 覆盖 (最高优先级)
-            # 这允许 Slicer 工具注入自定义的虚拟参数
-            local_param_file = run_path / "custom_params.json"
-            if local_param_file.exists():
-                try:
-                    with open(local_param_file, 'r', encoding='utf-8') as f:
-                        local_params = json.load(f)
-                        params.update(local_params)
-                except Exception as e:
-                    console.print(f"[yellow]⚠ 读取 {local_param_file} 失败: {e}[/yellow]")
-
+            params = get_run_parameters(run)
             items.append({'run': run, 'params': params})
 
         return items

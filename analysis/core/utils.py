@@ -1,5 +1,5 @@
 # core/utils.py
-
+import json
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
@@ -9,7 +9,7 @@
 #
 import re
 from pathlib import Path
-from typing import List, Optional, Union, Dict
+from typing import List, Optional, Union, Dict, Any
 
 from matplotlib.figure import Figure
 from rich import box
@@ -268,6 +268,66 @@ def _determine_output_base_path(run_or_runs: Union['SimulationRun', List['Simula
         # 跨 Job 对比 -> 存入全局目录
         return Path(config.global_output_dir) / "cross_job_comparisons"
 
+
+# 全局参数缓存，避免对同一个 history.jsonl 进行重复的磁盘 I/O 和解析
+_HISTORY_FILE_CACHE: Dict[Path, Dict[str, Any]] = {}
+
+
+def get_run_parameters(run: Any) -> Dict[str, Any]:
+    """
+    获取单次模拟(或模拟组)的纯粹物理参数字典，确保返回可被稳定哈希的基础数据类型。
+    彻底解决直接序列化 run.sim 对象带来的每次运行哈希不一致的问题。
+    优先级: 本地 custom_params.json > 全局 history.jsonl > run.sim 默认属性
+    """
+    from utils.project_config import FILENAME_HISTORY
+    filename_history = FILENAME_HISTORY
+
+    params = {}
+
+    # 1. 尝试从 run.sim 提取基础参数 (转换为普通字典，丢弃复杂对象和私有属性)
+    if hasattr(run, 'sim') and run.sim is not None:
+        for k, v in vars(run.sim).items():
+            if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
+                params[k] = v
+
+    if not hasattr(run, 'path') or not run.path:
+        return params
+
+    run_path = Path(run.path).resolve()
+    history_path = run_path.parent.parent / filename_history
+
+    # 2. 读取全局 history 缓存 (极其高效，只读一次)
+    if history_path not in _HISTORY_FILE_CACHE and history_path.exists():
+        _HISTORY_FILE_CACHE[history_path] = {}
+        try:
+            with open(history_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        record = json.loads(line)
+                        out_dir = record.get('output_dir', '')
+                        if out_dir:
+                            r_name = Path(out_dir).name
+                            _HISTORY_FILE_CACHE[history_path][r_name] = record.get('params', {})
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    # 3. 合并 history.jsonl 中的记录
+    if history_path in _HISTORY_FILE_CACHE and run_path.name in _HISTORY_FILE_CACHE[history_path]:
+        params.update(_HISTORY_FILE_CACHE[history_path][run_path.name])
+
+    # 4. 合并 custom_params.json (最高优先级)
+    local_param_file = run_path / "custom_params.json"
+    if local_param_file.exists():
+        try:
+            with open(local_param_file, 'r', encoding='utf-8') as f:
+                local_params = json.load(f)
+                params.update(local_params)
+        except Exception:
+            pass
+
+    return params
 
 # =============================================================================
 # 绘图辅助函数

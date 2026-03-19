@@ -1,7 +1,7 @@
 # analysis/modules/single/tail_statisticsV2.py
 
 import warnings
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,16 +20,26 @@ from analysis.plotting.styles import get_style
 
 
 @cached_op(file_dep="particle")
-def compute_run_tail_metrics(run: 'SimulationRunSingle', is_final: bool) -> Dict[str, float]:
+def compute_run_tail_metrics(
+        run: 'SimulationRunSingle',
+        is_final: bool,
+        f_low: float,
+        f_high: Optional[float] = None
+) -> Dict[str, float]:
     """
-    计算单个 Run 的物理度量，并执行极其严谨的统计学误差传递 (Error Propagation)。
-    结果将被小巧的字典缓存。
+    计算单个 Run 在指定能量区间 [f_low*T, f_high*T] 内的物理度量。并执行极其严谨的统计学误差传递。
+
+    参数:
+        run: 单次模拟数据对象
+        is_final: 是否为最终时刻
+        f_low: 区间下限倍数 (E > f_low * T)
+        f_high: 区间上限倍数 (E < f_high * T)，若为 None 则表示到正无穷
     """
     step_index = -1 if is_final else 0
     spec = run.get_spectrum(step_index)
 
     if spec is None or spec.weights.size == 0:
-        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'propagated_uncertainty': 0.0}
+        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'propagated_uncertainty': 0.0, 'threshold_MeV': 0.0}
 
     # =========================================================================
     # 0. 精确基础统计与有效粒子数 (Effective Sample Size)
@@ -38,14 +48,17 @@ def compute_run_tail_metrics(run: 'SimulationRunSingle', is_final: bool) -> Dict
     total_weight = np.sum(spec.weights)
 
     if total_weight == 0 or total_energy_MeV <= 0:
-        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'propagated_uncertainty': 0.0}
+        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'propagated_uncertainty': 0.0, 'threshold_MeV': 0.0}
 
     avg_energy_MeV = total_energy_MeV / total_weight
 
     # PIC 加权统计中的关键：有效粒子数 N_eff
     V1 = total_weight
     V2 = np.sum(spec.weights ** 2)
-    N_eff = (V1 ** 2) / V2 if V2 > 0 else 1.0
+    if V2 > 0:
+        N_eff = (V1 ** 2) / V2
+    else:
+        N_eff = 1.0
 
     # =========================================================================
     # 1. 步骤一：计算平均能量的标准误 sigma_<E>
@@ -68,30 +81,34 @@ def compute_run_tail_metrics(run: 'SimulationRunSingle', is_final: bool) -> Dict
     dT_dE = (T_plus - T_minus) / (2 * delta_E)
     sigma_T = abs(dT_dE) * sigma_avg_E
 
-    # 设定基准阈值
-    threshold_energy_MeV = (3.0 * T_keV) / 1000.0
     max_sim_energy_MeV = np.max(spec.energies_MeV)
 
     # =========================================================================
     # 3. 步骤三：定义理论尾部能量函数，并计算其误差 sigma_Eth
     # =========================================================================
     def compute_theoretical_tail_energy(T_val: float) -> float:
-        """封装积分逻辑，以便于进行数值求导"""
-        th_E = (3.0 * T_val) / 1000.0
+        e_low = (f_low * T_val) / 1000.0
+        # 如果没有上限，或者上限超过了模拟最大能量，则积分到最大能量
+        if f_high is None:
+            e_high = max_sim_energy_MeV
+        else:
+            e_high = (f_high * T_val) / 1000.0
 
-        def integrand(e): return e * physics_mj.calculate_mj_pdf(np.array([e]), T_val)[0]
+        def integrand(e):
+            return e * physics_mj.calculate_mj_pdf(np.array([e]), T_val)[0]
 
-        def pdf_func(e):  return physics_mj.calculate_mj_pdf(np.array([e]), T_val)[0]
+        def pdf_func(e):
+            return physics_mj.calculate_mj_pdf(np.array([e]), T_val)[0]
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=IntegrationWarning)
-            quad_result = quad(integrand, th_E, max_sim_energy_MeV, limit=200)[0]
+            quad_result = quad(integrand, e_low, e_high, limit=200)[0]
             prob_norm = quad(pdf_func, 0, max_sim_energy_MeV, limit=200)[0]
 
         if prob_norm <= 0: return 0.0
         return (quad_result / prob_norm) * total_weight
 
-    # 计算基准理论尾部能量
+    # 基准理论能量与由于温度波动引起的理论误差
     th_tail_energy_MeV = compute_theoretical_tail_energy(T_keV)
 
     # 数值求导 |dE_th / dT|
@@ -105,14 +122,18 @@ def compute_run_tail_metrics(run: 'SimulationRunSingle', is_final: bool) -> Dict
     # =========================================================================
     # 4. 步骤四：计算模拟尾部的泊松/散粒散布误差 sigma_Esim
     # =========================================================================
-    tail_mask = spec.energies_MeV > threshold_energy_MeV
-    if not np.any(tail_mask):
+    e_low_th = (f_low * T_keV) / 1000.0
+    e_high_th = (f_high * T_keV / 1000.0) if f_high else float('inf')
+
+    mask = (spec.energies_MeV >= e_low_th) & (spec.energies_MeV < e_high_th)
+
+    if not np.any(mask):
         sim_tail_energy_MeV = 0.0
         sigma_sim_tail_energy = 0.0
     else:
-        sim_tail_energy_MeV = np.sum(spec.energies_MeV[tail_mask] * spec.weights[tail_mask])
+        sim_tail_energy_MeV = np.sum(spec.energies_MeV[mask] * spec.weights[mask])
         # 核心：加权蒙特卡洛计数的方差公式 Var = sum( (W_i * E_i)^2 )
-        var_sim_tail_energy = np.sum((spec.energies_MeV[tail_mask] * spec.weights[tail_mask]) ** 2)
+        var_sim_tail_energy = np.sum((spec.energies_MeV[mask] * spec.weights[mask]) ** 2)
         sigma_sim_tail_energy = np.sqrt(var_sim_tail_energy)
 
     # =========================================================================
@@ -130,22 +151,33 @@ def compute_run_tail_metrics(run: 'SimulationRunSingle', is_final: bool) -> Dict
         'T_keV': T_keV,
         'excess_ratio': excess_ratio,
         'propagated_uncertainty': propagated_uncertainty,  # <--- 这是我们手算出来的终极理论误差！
-        'total_excess_MeV': excess_energy_MeV,
-        'total_energy_MeV': total_energy_MeV,
-        'threshold_MeV': threshold_energy_MeV
+        'threshold_low_MeV': e_low_th,
+        'threshold_high_MeV': e_high_th if f_high else max_sim_energy_MeV
     }
 
 
-class ParametricTailDebugModule(BaseComparisonModule):
+class MultiBandTailStatisticsModule(BaseComparisonModule):
     @property
     def name(self) -> str:
-        return "DEBUG V2：无分箱精确算法底噪分析"
+        return "多能段高能尾部分析 (Multi-Band Exact Integration)"
 
     @property
     def description(self) -> str:
-        return "使用解析积分与无分箱精确求和，对比(t=0)与最终时刻的非热能量，量化纯统计涨落。"
+        return "扫描多个能量区间（如 1-3T, 3-5T, 5-10T），全面评估不同组分的高能非热信号与理论底噪。"
 
-    def _get_metrics_with_error(self, run_or_group, is_final: bool) -> Dict[str, float]:
+    def __init__(self):
+        super().__init__()
+        # 定义要扫描的区间列表 (low, high)。None 表示正无穷
+        self.intervals = [
+            (1.0, 2.0),
+            (2.0, 3.0),
+            (3.0, 5.0),
+            (5.0, 10.0),
+            (10.0, 15.0),
+            (15.0, None)
+        ]
+
+    def _get_metrics_with_error(self, run_or_group, is_final: bool, low: float, high: Optional[float]) -> Dict[str, float]:
         """
         核心分发器...
         """
@@ -155,7 +187,7 @@ class ParametricTailDebugModule(BaseComparisonModule):
             t_list, ratio_list, th_err_list = [], [], []
             for single_run in run_or_group.runs:
                 # 这里会光速命中缓存，返回极小的字典！
-                metrics = compute_run_tail_metrics(single_run, is_final)
+                metrics = compute_run_tail_metrics(single_run, is_final, low, high)
                 t_list.append(metrics['T_keV'])
                 ratio_list.append(metrics['excess_ratio'])
                 th_err_list.append(metrics['propagated_uncertainty'])
@@ -171,7 +203,7 @@ class ParametricTailDebugModule(BaseComparisonModule):
             }
         else:
             # 它是单次模拟
-            metrics = compute_run_tail_metrics(run_or_group, is_final)
+            metrics = compute_run_tail_metrics(run_or_group, is_final, low, high)
             return {
                 'T_keV': metrics['T_keV'],
                 'T_keV_err': 0.0,
@@ -186,7 +218,7 @@ class ParametricTailDebugModule(BaseComparisonModule):
 
     def run(self, loaded_runs: List[SimulationRun]):
         style = get_style()
-        console.print("\n[bold magenta]执行: 算法底噪分析 V2 (无分箱完美积分)...[/bold magenta]")
+        console.print(f"\n[bold magenta]执行: {self.name}...[/bold magenta]")
 
         valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
         if len(valid_runs) < 1:
@@ -195,42 +227,43 @@ class ParametricTailDebugModule(BaseComparisonModule):
 
         selector = ParameterSelector(valid_runs)
         x_label, x_vals, sorted_runs = selector.select()
-        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="debug_tail_v2")
+        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="multiband_tail")
 
-        y_ratio_init, y_ratio_final = [], []
-        y_temp_init, y_temp_final = [], []
+        # 数据结构初始化
+        # results[factor] = {'init': [], 'init_err': [], 'init_th_err': [], 'final': [], 'final_err': [], 'final_th_err': []}
+        results = {i: {'init': [], 'init_err': [], 'init_th_err': [],
+                       'final': [], 'final_err': [], 'final_th_err': []}
+                   for i in range(len(self.intervals))}
 
-        y_ratio_final_err, y_ratio_init_err = [], []
-        y_ratio_init_th_err, y_ratio_final_th_err = [], []
-        y_temp_init_err, y_temp_final_err = [], []
+        # 温度不随 tail_factor 改变，只需存一份
+        temps = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
 
-        console.print("  正在计算 Initial (底噪) 与 Final (信号) ...")
+        console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
 
         for i, run in enumerate(sorted_runs):
-            m_init = self._get_metrics_with_error(run, is_final=False)
-            m_final = self._get_metrics_with_error(run, is_final=True)
-
-            y_ratio_init.append(m_init['excess_ratio'])
-            y_ratio_init_err.append(m_init['excess_ratio_err'])
-            y_ratio_init_th_err.append(m_init['propagated_uncertainty'])
-
-            y_ratio_final.append(m_final['excess_ratio'])
-            y_ratio_final_err.append(m_final['excess_ratio_err'])
-            y_ratio_final_th_err.append(m_final['propagated_uncertainty'])
-
-            y_temp_init.append(m_init['T_keV'])
-            y_temp_init_err.append(m_init['T_keV_err'])
-
-            y_temp_final.append(m_final['T_keV'])
-            y_temp_final_err.append(m_final['T_keV_err'])
-
             console.print(f"    [{run.name}] {x_label}={x_vals[i]}")
 
-            console.print(
-                f"Initial(T=0)  : Excess = {m_init['excess_ratio'] * 100:>7.4f}% ± {m_init['excess_ratio_err'] * 100:.4f}% (实) | 理论不确定度 = ± {m_init['propagated_uncertainty'] * 100:.4f}%")
-            console.print(
-                f"Final  (T=end): Excess = {m_final['excess_ratio'] * 100:>7.4f}% ± {m_final['excess_ratio_err'] * 100:.4f}% (实) | 理论不确定度 = ± {m_final['propagated_uncertainty'] * 100:.4f}%")
+            # 对各个能段进行遍历计算
+            for f_idx, (low, high) in enumerate(self.intervals):
+                m_init = self._get_metrics_with_error(run, is_final=False, low=low, high=high)
+                m_final = self._get_metrics_with_error(run, is_final=True, low=low, high=high)
 
+                # 只在第一个 factor 时记录温度
+                if f_idx == 0:
+                    temps['init'].append(m_init['T_keV'])
+                    temps['init_err'].append(m_init['T_keV_err'])
+                    temps['final'].append(m_final['T_keV'])
+                    temps['final_err'].append(m_final['T_keV_err'])
+
+                results[f_idx]['init'].append(m_init['excess_ratio'])
+                results[f_idx]['init_err'].append(m_init['excess_ratio_err'])
+                results[f_idx]['init_th_err'].append(m_init['propagated_uncertainty'])
+
+                results[f_idx]['final'].append(m_final['excess_ratio'])
+                results[f_idx]['final_err'].append(m_final['excess_ratio_err'])
+                results[f_idx]['final_th_err'].append(m_final['propagated_uncertainty'])
+
+        # X 轴处理
         try:
             x_num = [float(v) for v in x_vals]
             is_num = True
@@ -238,85 +271,80 @@ class ParametricTailDebugModule(BaseComparisonModule):
             x_num = range(len(x_vals))
             is_num = False
 
-        with create_analysis_figure(sorted_runs, "debug_tail_v2", num_plots=2, override_filename=final_filename) as (fig, (ax1, ax2)):
+        num_plots = len(self.intervals) + 1
 
+        # =========================================================================
+        # 绘图逻辑：N个能段的 Excess 占比图 + 1个温度图
+        # =========================================================================
+
+        with create_analysis_figure(sorted_runs, "multiband_tail", num_plots=num_plots, override_filename=final_filename, figsize=(10, 3.5 * num_plots)) as (
+                fig, axes):
             x_arr = np.array(x_num)
 
-            # --- 图1: 信号 vs 底噪 ---
+            # 确保 axes 是可迭代的列表
+            if num_plots == 1: axes = [axes]
 
-            # 1. 先画【理论误差带】(用阴影表示，作为背景基准)
-            # 初始时刻的理论底噪范围
-            ax1.fill_between(x_arr,
-                             (np.array(y_ratio_init) - np.array(y_ratio_init_th_err)) * 100,
-                             (np.array(y_ratio_init) + np.array(y_ratio_init_th_err)) * 100,
-                             color=style.color_baseline_secondary, alpha=0.15,
-                             label='初始理论误差范围 (Shot Noise Limit)')
+            # --- 图 1 到 N: 各能段 Excess Ratio ---
+            for i, (low, high) in enumerate(self.intervals):
+                ax = axes[i]
+                d = results[i]
+                label_str = f"${low}T < E < {high}T$" if high else f"$E > {low}T$"
 
-            # 最终时刻的理论误差范围
-            ax1.fill_between(x_arr,
-                             (np.array(y_ratio_final) - np.array(y_ratio_final_th_err)) * 100,
-                             (np.array(y_ratio_final) + np.array(y_ratio_final_th_err)) * 100,
-                             color=style.color_comparison_primary, alpha=0.1,
-                             label='最终理论误差范围 (Propagated Error)')
+                # 绘制理论误差带 (阴影)
+                # ax.fill_between(x_arr,
+                #                 (np.array(d['init']) - np.array(d['init_th_err'])) * 100,
+                #                 (np.array(d['init']) + np.array(d['init_th_err'])) * 100,
+                #                 color=style.color_baseline_secondary, alpha=0.15,
+                #                 label='初始理论散粒误差 (Shot Noise)')
 
-            # 2. 再画【实测误差棒】
-            # 最终时刻信号
-            ax1.errorbar(x_num, np.array(y_ratio_final) * 100,
-                         yerr=np.array(y_ratio_final_err) * 100,
-                         fmt='-o',  # 线条+圆点
-                         capsize=4,  # 误差棒两端的横线长度
-                         elinewidth=1.5,
-                         color=style.color_comparison_primary,
-                         label='最终时刻 (实测均值 ± 1σ)')
+                ax.fill_between(x_arr,
+                                (np.array(d['final']) - np.array(d['final_th_err'])) * 100,
+                                (np.array(d['final']) + np.array(d['final_th_err'])) * 100,
+                                color=style.color_comparison_primary, alpha=0.1,
+                                label='最终理论传递误差')
 
-            # 初始时刻底噪
-            ax1.errorbar(x_num, np.array(y_ratio_init) * 100,
-                         yerr=np.array(y_ratio_init_err) * 100,
-                         fmt='--x',
-                         capsize=4,
-                         alpha=0.7,
-                         color=style.color_baseline_secondary,
-                         label='初始时刻 (实测均值 ± 1σ)')
+                # 绘制实测值误差棒
+                ax.errorbar(x_num, np.array(d['final']) * 100, yerr=np.array(d['final_err']) * 100,
+                            fmt='-o', capsize=4, elinewidth=1.5,
+                            color=style.color_comparison_primary, label='最终时刻 $t_{end}$')
 
-            ax1.axhline(0, color='black', linestyle='-', alpha=0.3, lw=1)
-            ax1.set_ylabel("额外高能能量占比 (%)")
-            # 缩小图例字号防止挡住图
-            ax1.legend(fontsize='small', loc='best')
-            ax1.grid(True, linestyle=':', alpha=0.4)
+                # ax.errorbar(x_num, np.array(d['init']) * 100, yerr=np.array(d['init_err']) * 100,
+                #             fmt='--x', capsize=4, alpha=0.7,
+                #             color=style.color_baseline_secondary, label='初始时刻 $t=0$')
 
-            # --- 图2: 温度对比 ---
-            # 最终温度曲线 + 误差棒
-            ax2.errorbar(x_num, y_temp_final,
-                         yerr=np.array(y_temp_final_err),
-                         fmt='-s',  # 使用实线 + 方块
-                         capsize=4,
-                         color=style.color_comparison_secondary,
-                         lw=style.lw_base,
-                         label='最终温度 $T$ ± 1σ')
+                ax.axhline(0, color='black', linestyle='-', alpha=0.3, lw=1)
+                ax.set_ylabel(f"Excess %\n({label_str})")
+                ax.legend(fontsize='x-small', loc='upper left', ncol=2)
+                ax.grid(True, linestyle=':', alpha=0.4)
 
-            # 初始温度曲线 + 误差棒
-            ax2.errorbar(x_num, y_temp_init,
-                         yerr=np.array(y_temp_init_err),
-                         fmt='--s',  # 使用虚线 + 方块
-                         capsize=4,
-                         color=style.color_baseline_secondary,
-                         lw=style.lw_base,
-                         label='初始温度 $T$ ± 1σ')
+                # 隐藏非底部的 X 轴标签以保持整洁
+                if not is_num:
+                    ax.set_xticks(x_num)
+                    if i < num_plots - 1:
+                        ax.set_xticklabels([])
 
-            ax2.set_ylabel("$T_{eff}$ (keV)")
+            # --- 最后一个图: 温度变化 ---
+            ax_temp = axes[-1]
+            ax_temp.errorbar(x_num, temps['final'], yerr=np.array(temps['final_err']),
+                             fmt='-s', capsize=4, color=style.color_comparison_secondary, lw=style.lw_base, label='最终温度 $T$')
+
+            # ax_temp.errorbar(x_num, temps['init'], yerr=np.array(temps['init_err']),
+            #                  fmt='--s', capsize=4, color=style.color_baseline_secondary, lw=style.lw_base, label='初始温度 $T$')
+
+            ax_temp.set_ylabel("$T_{eff}$ (keV)")
             x_label_name = "磁场能量占比 $\sigma$" if x_label == "target_sigma" else x_label
-            ax2.set_xlabel(x_label_name if is_num else "模拟案例")
-            ax2.legend()
-            ax2.grid(True, linestyle='--', alpha=0.5)
+            ax_temp.set_xlabel(x_label_name if is_num else "模拟案例")
+            ax_temp.legend(fontsize='small', loc='best')
+            ax_temp.grid(True, linestyle='--', alpha=0.5)
 
             if not is_num:
-                ax1.set_xticks(x_num)
-                ax1.set_xticklabels(x_vals, rotation=45)
-                ax2.set_xticks(x_num)
-                ax2.set_xticklabels(x_vals, rotation=45)
+                ax_temp.set_xticks(x_num)
+                ax_temp.set_xticklabels(x_vals, rotation=45)
 
-            plt.subplots_adjust(hspace=0.3)
+            plt.subplots_adjust(hspace=0.25)
 
             console.print("\n[bold green]分析完成。[/bold green]")
-            console.print("注意：当前版本使用了 [bold cyan]无分箱精确解 (Binless Exact Method)[/bold cyan]。")
+            console.print("提示：已生成覆盖多组分的高能尾部演化图谱。")
+            console.print(
+                "可以观察：在较高阈值（如 >5T, >8T）下，初始底噪占比更低但相对散粒误差会被放大，\n如果在该能段信号显著脱离了阴影带，则证明产生了确凿的高能尾部物理加速机制。")
             console.print("理论上，Initial (Noise Floor) 的点应该非常紧密地围绕在 [bold yellow]0% (y=0 虚线)[/bold yellow] 上下均匀波动。")

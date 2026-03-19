@@ -10,7 +10,7 @@ from enum import Enum, auto
 from functools import cached_property
 
 import numpy as np
-from scipy.constants import c, e, epsilon_0, hbar, k, m_e, mu_0, sigma
+from scipy.constants import c, e, epsilon_0, hbar, k, m_e, mu_0, sigma, alpha
 
 from analysis.utils import setup_chinese_font
 
@@ -72,6 +72,34 @@ class PlasmaScenario:
         # 注意: 这里系数取2是假设正负电荷对等的能量贡献 (如正负电子对或电子-离子)
         # 且 3 * T_J 是相对论热能的一个近似
         return 2 * self.n_e * (m_e * c ** 2 + 3 * self.T_J)
+
+    # --- 能耗/停止时间计算 (Stopping Time) ---
+    @cached_property
+    def coulomb_log(self) -> float: return 15.0
+
+    @cached_property
+    def collision_time_s(self) -> float:
+        """经典的动量散射碰撞时间 (Spitzer)"""
+        v_th = self.v_thermal
+        if v_th == 0: return np.inf
+        nu_coll = (self.n_e * e ** 4 * self.coulomb_log) / (4 * np.pi * epsilon_0 ** 2 * m_e ** 2 * v_th ** 3)
+        return 1.0 / nu_coll if nu_coll > 0 else np.inf
+
+    def stopping_time_A19(self, E_eV: float) -> float:
+        """
+        严格根据物理评论D 第37卷 第12期 Eq. (A19) 推导的能损(停止)时间计算。
+        适用于 T < m_e 且粒子的 beta > beta_th (快粒子近似)。
+        dE/dt = 4 * pi * alpha^2 * (hbar * c)^2 * Lambda * n_e / (beta * c * m_e)
+        tau = E / (dE/dt)
+        """
+        E_J = E_eV * e
+        gamma = 1 + E_J / (m_e * c ** 2)
+        if gamma <= 1: return np.inf
+        beta = np.sqrt(1 - 1 / gamma ** 2)
+
+        # SI 单位系下严格转换的 Eq. (A19)
+        dE_dt = (4 * np.pi * alpha ** 2 * (hbar * c) ** 2 * self.coulomb_log * self.n_e) / (beta * c * m_e)
+        return E_J / dE_dt
 
     # --- 等离子体特征尺度 ---
     @cached_property
@@ -167,6 +195,137 @@ class Validator(ABC):
 # 核心架构: 第3部分 - 具体验证器实现 (Concrete Validators)
 # 每个类实现一个独立的物理检查
 # =============================================================================
+class TimescaleValidatorV2(Validator):
+    """
+    检查碰撞和能量损失时间尺度。
+    无碰撞 PIC 模拟要求：碰撞时间和能耗时间都应远大于模拟总时长。
+    """
+
+    def validate(self, scenario: PlasmaScenario) -> list[ValidationResult]:
+        t_sim = scenario.total_sim_time_s
+        results = []
+
+        # 定义需要检查的时间尺度及其名称
+        check_list = [
+            ("动量散射时间", scenario.collision_time_s, "描述整体偏转/动量交换频率"),
+            ("主体能损时间 (T_e)", scenario.stopping_time_A19(scenario.T_eV), "Eq.(A19): 热粒子能量弛豫时间"),
+            ("高能尾部能损时间 (2T_e)", scenario.stopping_time_A19(scenario.T_eV * 2), "Eq.(A19): 快粒子能量弛豫时间"),
+            ("高能尾部能损时间 (10T_e)", scenario.stopping_time_A19(scenario.T_eV * 10), "Eq.(A19): 快粒子能量弛豫时间")
+        ]
+
+        for title, tau, desc in check_list:
+            ratio = tau / t_sim if t_sim > 0 else np.inf
+
+            # 判定标准：通常大于 10 倍模拟时长认为可以忽略该效应（无碰撞近似成立）
+            if ratio > 10:
+                status = ValidationStatus.SUCCESS
+            elif ratio > 1:
+                status = ValidationStatus.WARNING
+            else:
+                status = ValidationStatus.FAILURE  # 物理过程在模拟时间内发生，不可忽略
+
+            # 格式化消息：同时显示比例和物理秒数
+            # 使用科学计数法，因为 BBN 场景下的时间尺度可能在 10^-20 秒量级
+            msg = f"Ratio={ratio:.2e} | 物理时长={tau:.2e} s"
+
+            results.append(ValidationResult(
+                validator_name="TimescaleCheck",
+                status=status,
+                title=title,
+                message=msg,
+                formula=desc
+            ))
+
+        # 4. 辐射冷却时间 (单独算，因为涉及公式不同)
+        U_rad = (4 * sigma / c) * scenario.T_K ** 4
+        sigma_T = 6.6524e-29
+        dE_dt_cool = (4 / 3) * sigma_T * c * U_rad * scenario.lorentz_gamma ** 2
+        tau_cool = (scenario.lorentz_gamma * m_e * c ** 2) / dE_dt_cool if dE_dt_cool > 0 else np.inf
+
+        cool_ratio = tau_cool / t_sim
+        msg_cool = f"Ratio={cool_ratio:.2e} | 物理时长={tau_cool:.2e} s"
+
+        results.append(ValidationResult(
+            "TimescaleCheck",
+            ValidationStatus.SUCCESS if cool_ratio > 10 else ValidationStatus.WARNING,
+            "辐射冷却时间",
+            msg_cool,
+            "评估康普顿/同步辐射损耗时间尺度"
+        ))
+
+        return results
+
+
+class RelativisticCollisionAnalyzer:
+    def __init__(self, n_e: float, T_eV: float, coulomb_log: float = 15.0):
+        self.n_e = n_e
+        self.T_eV = T_eV
+        self.T_J = T_eV * e
+        self.coulomb_log = coulomb_log
+
+        # 1. 相对论温度参数 z = m_e c^2 / T_b
+        self.z = (m_e * c ** 2) / self.T_J
+
+        # 2. 预计算贝塞尔函数 K_0(z), K_1(z), K_2(z)
+        from scipy.special import kve as bessel_kve
+
+        self.K0 = bessel_kve(0, self.z)
+        self.K1 = bessel_kve(1, self.z)
+        self.K2 = bessel_kve(2, self.z)
+
+        # 3. 碰撞强度常数 \Gamma_{ab} (对于 e-e 碰撞)
+        # 论文定义: \Gamma_{ab} = n_b q_a^2 q_b^2 \ln\Lambda / (4 \pi \epsilon_0^2 m_a^2)
+        self.Gamma_ee = (self.n_e * e ** 4 * self.coulomb_log) / (4 * np.pi * epsilon_0 ** 2 * m_e ** 2)
+
+        # 4. 背景热速度参数 u_{tb}^2 = T_b / m_b
+        self.u_tb_sq = self.T_J / m_e
+
+    def evaluate_relaxation(self, E_test_eV: float):
+        """
+        严格根据 Braams & Karney (1987) 计算 D_uu, F_u 和弛豫时间。
+        E_test_eV: 测试粒子的动能 (eV)
+        """
+        E_test_J = E_test_eV * e
+
+        # 粒子的相对论运动学参数
+        gamma = 1.0 + E_test_J / (m_e * c ** 2)
+        if gamma <= 1.0:
+            return float('inf'), 0.0, 0.0
+
+        v = c * np.sqrt(1.0 - 1.0 / gamma ** 2)
+        u = gamma * v  # 动量/质量比 (论文中的变量 u)
+
+        # ==========================================
+        # 严格执行文献公式计算 D_uu
+        # D_{uu} = \Gamma_{ab} * (K_1/K_2) * (u_{tb}^2 / v^3) * [1 - (K_0/K_1) * (u_{tb}^2 / \gamma^2 c^2)]
+        # ==========================================
+        term_bessel_1 = self.K1 / self.K2
+        term_bessel_2 = self.K0 / self.K1
+
+        bracket = 1.0 - term_bessel_2 * (self.u_tb_sq / (gamma ** 2 * c ** 2))
+
+        D_uu = self.Gamma_ee * term_bessel_1 * (self.u_tb_sq / v ** 3) * bracket
+
+        # ==========================================
+        # 严格执行文献公式计算 F_u (动摩擦力)
+        # F_u = - (m_a v / T_b) * D_{uu}
+        # ==========================================
+        F_u = - (m_e * v / self.T_J) * D_uu
+
+        # ==========================================
+        # 计算弛豫时间 \tau
+        # \tau = u / |F_u| = (\gamma v) / |F_u|
+        # ==========================================
+        tau = u / abs(F_u) if F_u != 0 else float('inf')
+
+        return {
+            "tau_s": tau,
+            "D_uu": D_uu,
+            "F_u": F_u,
+            "gamma": gamma,
+            "v_over_c": v / c
+        }
+
 class QuantumDegeneracyValidator(Validator):
     """检查系统是否处于经典状态，避免量子简并。"""
 
@@ -537,6 +696,24 @@ class MatplotlibReporter(Reporter):
 # 组装并运行整个分析流程
 # =============================================================================
 if __name__ == "__main__":
+
+    test_scenario = PlasmaScenario(
+        name="Deuterium Bottleneck (84keV)",
+        n_e=7.28e33,
+        T_eV=84480.0,
+        NX=256, LX=100.0, LT=100.0, DT=0.2, dims=3
+    )
+
+    validators = [TimescaleValidator(),TimescaleValidatorV2(),]  # 仅测试修改的部分
+
+    print(f"\n分析场景: {test_scenario.name}")
+    print("-" * 70)
+    for v in validators:
+        for res in v.validate(test_scenario):
+            print(f"[{res.status.name:7}] {res.title:30} : {res.message}")
+            if res.formula: print(f"{'':10} 说明: {res.formula}")
+
+    exit()
 
     # --- 1. 定义参数扫描的各个维度 ---
 
