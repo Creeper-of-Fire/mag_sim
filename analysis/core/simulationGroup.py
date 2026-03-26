@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import numpy as np
 
+from analysis.core.simulationSingle import SimulationRunSingle
 from .simulation import SimulationRun
 
 from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
@@ -11,14 +12,14 @@ from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
 
 class SimulationRunGroup(SimulationRun):
     """
-    代表一组统计性重复的 SimulationRun。
+    代表一组统计性重复的 SimulationRunSingle。
     负责对其数据进行平均和统计。
     """
 
-    def __init__(self, runs: List[SimulationRun]):
+    def __init__(self, runs: List['SimulationRunSingle']):
         if not runs:
             raise ValueError("SimulationRunGroup 必须包含至少一个 run。")
-        self.runs: List[SimulationRun] = runs
+        self.runs: List['SimulationRunSingle'] = runs
         self.name = f"{runs[0].name}_group(N={len(runs)})"
         # 假设所有 runs 的 sim 对象参数一致
         self._sim_ref = runs[0].sim

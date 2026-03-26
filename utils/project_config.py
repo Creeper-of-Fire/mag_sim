@@ -42,6 +42,11 @@ STATUS_RUNNING = "运行中"  # 预留
 
 
 # --- 4. 路径工具函数 ---
+def get_spack_activation_command(env_path):
+    # 1. 显式指定你的 Spack 安装根目录
+    spack_root = "/home/cof/spack"
+    # 2. 拼接环境激活命令
+    return f"source /home/cof/spack/share/spack/setup-env.sh && spack env activate {env_path}"
 
 def get_wsl_path(win_path: str | Path) -> str:
     """

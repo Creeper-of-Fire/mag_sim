@@ -1,7 +1,7 @@
 # analysis/modules/single/tail_statisticsV2.py
 
 import warnings
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, NamedTuple, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,38 +20,55 @@ from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
 
+class TemperatureResult(NamedTuple):
+    """光谱基础物理量及统计误差"""
+    T_keV: float
+    sigma_T: float
+    total_weight: float
+    total_energy_MeV: float
+    avg_energy_MeV: float
+    max_energy_MeV: float
+
+    @staticmethod
+    def null():
+        return TemperatureResult(
+            T_keV=0.0,
+            sigma_T=0.0,
+            total_weight=0.0,
+            total_energy_MeV=0.0,
+            avg_energy_MeV=0.0,
+            max_energy_MeV=0.0
+        )
+
+
 @cached_op(file_dep="particle")
-def compute_run_tail_metrics(
+def compute_run_temperature_metrics(
         run: 'SimulationRunSingle',
-        is_final: bool,
-        f_low: float,
-        f_high: Optional[float] = None
-) -> Dict[str, float]:
+        step_index: int
+) -> TemperatureResult:
     """
-    计算单个 Run 在指定能量区间 [f_low*T, f_high*T] 内的物理度量。并执行极其严谨的统计学误差传递。
+    计算单个 Run 的温度和温度误差。并执行极其严谨的统计学误差传递。
 
     参数:
         run: 单次模拟数据对象
-        is_final: 是否为最终时刻
-        f_low: 区间下限倍数 (E > f_low * T)
-        f_high: 区间上限倍数 (E < f_high * T)，若为 None 则表示到正无穷
+        step_index: 步骤的索引
     """
-    step_index = -1 if is_final else 0
     spec = run.get_spectrum(step_index)
 
     if spec is None or spec.weights.size == 0:
-        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'propagated_uncertainty': 0.0, 'threshold_MeV': 0.0}
+        return TemperatureResult.null()
 
     # =========================================================================
     # 0. 精确基础统计与有效粒子数 (Effective Sample Size)
     # =========================================================================
-    total_energy_MeV = np.sum(spec.energies_MeV * spec.weights)
+    total_energy_MeV: Any = np.sum(spec.energies_MeV * spec.weights)
     total_weight = np.sum(spec.weights)
 
     if total_weight == 0 or total_energy_MeV <= 0:
-        return {'T_keV': 0.0, 'excess_ratio': 0.0, 'propagated_uncertainty': 0.0, 'threshold_MeV': 0.0}
+        return TemperatureResult.null()
 
     avg_energy_MeV = total_energy_MeV / total_weight
+    max_energy_MeV = np.max(spec.energies_MeV)
 
     # PIC 加权统计中的关键：有效粒子数 N_eff
     V1 = total_weight
@@ -82,7 +99,59 @@ def compute_run_tail_metrics(
     dT_dE = (T_plus - T_minus) / (2 * delta_E)
     sigma_T = abs(dT_dE) * sigma_avg_E
 
-    max_sim_energy_MeV = np.max(spec.energies_MeV)
+    return TemperatureResult(
+        T_keV=T_keV,
+        sigma_T=sigma_T,
+        total_weight=total_weight,
+        total_energy_MeV=total_energy_MeV,
+        avg_energy_MeV=avg_energy_MeV,
+        max_energy_MeV=max_energy_MeV
+    )
+
+
+class TailResult(NamedTuple):
+    """特定能段的尾部超额指标"""
+    excess_ratio: float
+    propagated_uncertainty: float
+    threshold_low_MeV: float
+    threshold_high_MeV: float
+
+    @staticmethod
+    def null():
+        return TailResult(
+            excess_ratio=0.0,
+            propagated_uncertainty=0.0,
+            threshold_low_MeV=0.0,
+            threshold_high_MeV=0.0
+        )
+
+
+@cached_op(file_dep="particle")
+def compute_run_tail_metrics(
+        run: 'SimulationRunSingle',
+        step_index: int,
+        temperature_metrics: TemperatureResult,
+        f_low: float,
+        f_high: Optional[float] = None
+) -> TailResult:
+    """
+    计算单个 Run 在指定能量区间 [f_low*T, f_high*T] 内的物理度量。并执行极其严谨的统计学误差传递。
+
+    参数:
+        run: 单次模拟数据对象
+        f_low: 区间下限倍数 (E > f_low * T)
+        f_high: 区间上限倍数 (E < f_high * T)，若为 None 则表示到正无穷
+    """
+    spec = run.get_spectrum(step_index)
+
+    T_keV = temperature_metrics.T_keV
+    sigma_T = temperature_metrics.sigma_T
+    total_weight = temperature_metrics.total_weight
+    total_energy_MeV = temperature_metrics.total_energy_MeV
+    max_sim_energy_MeV = temperature_metrics.max_energy_MeV
+
+    if T_keV <= 0 or total_energy_MeV <= 0:
+        return TailResult.null()
 
     # =========================================================================
     # 3. 步骤三：定义理论尾部能量函数，并计算其误差 sigma_Eth
@@ -148,13 +217,12 @@ def compute_run_tail_metrics(
     # 转换为占比的相对误差
     propagated_uncertainty = sigma_excess_energy / total_energy_MeV
 
-    return {
-        'T_keV': T_keV,
-        'excess_ratio': excess_ratio,
-        'propagated_uncertainty': propagated_uncertainty,  # <--- 这是我们手算出来的终极理论误差！
-        'threshold_low_MeV': e_low_th,
-        'threshold_high_MeV': e_high_th if f_high else max_sim_energy_MeV
-    }
+    return TailResult(
+        excess_ratio=excess_ratio,
+        propagated_uncertainty=propagated_uncertainty,  # <--- 这是我们手算出来的终极理论误差！
+        threshold_low_MeV=e_low_th,
+        threshold_high_MeV=e_high_th if f_high else max_sim_energy_MeV
+    )
 
 
 class MultiBandTailStatisticsModule(BaseComparisonModule):
@@ -252,7 +320,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                        'final': [], 'final_err': [], 'final_th_err': []}
                    for i in range(len(self.intervals))}
 
-        # 温度不随 tail_factor 改变，只需存一份
+        # 温度不随能段的选择改变，只需存一份
         temps = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
 
         console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
@@ -265,7 +333,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 m_init = self._get_metrics_with_error(run, is_final=False, low=low, high=high)
                 m_final = self._get_metrics_with_error(run, is_final=True, low=low, high=high)
 
-                # 只在第一个 factor 时记录温度
+                # 只在第一个能段时记录温度
                 if f_idx == 0:
                     temps['init'].append(m_init['T_keV'])
                     temps['init_err'].append(m_init['T_keV_err'])
