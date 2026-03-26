@@ -15,3 +15,4 @@ __pycache__/
 /sim_jobs/
 /plasma_simulation.egg-info/
 utils/.env.warpx
+*.env
