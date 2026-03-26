@@ -112,57 +112,38 @@ def perform_conversion_logic(input_csv_path, output_jsonl_path, params_info, par
     通用转换逻辑
     :param param_processor: 一个函数 func(params) -> params，用于在Hash前修改参数
     """
-    output_base_dir = output_jsonl_path.parent
     tasks_to_write = []
 
     try:
         with open(input_csv_path, 'r', newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
-                if not any(str(v).strip() for v in row.values()): continue  # 跳过空行
+                if not any(str(v).strip() for v in row.values()): continue
 
                 raw_name = row.pop(COLUMN_TASK_NAME, '').strip() or "sim"
-
-                # 1. 基础转换
                 task_params = parse_csv_row(row, params_info)
 
-                # 2. 调用钩子 (如果有)
                 if param_processor:
-                    try:
-                        task_params = param_processor(task_params, line_num=i + 2)
-                    except ValueError as ve:
-                        print(f"❌ 错误 (行 {i + 2}): {ve}", file=sys.stderr)
-                        sys.exit(1)
+                    task_params = param_processor(task_params, line_num=i + 2)
 
-                # 3. 生成 Hash 和 输出路径
+                # 生成 Hash
                 p_hash = generate_param_hash(task_params)
-
-                # 强制拼接：原始名字_哈希
-                # 即使在 CSV 里名字写重复了，只要参数不一样，后缀就会区分开
                 final_task_name = f"{raw_name}_{p_hash}"
 
-                sim_output_dir = output_base_dir / "sim_results" / final_task_name
-                # 转换为WSL可以使用的字符串格式
-                wsl_path_str = str(sim_output_dir).replace('\\', '/')
-
+                # 我们不再生成 WSL 路径，只记录任务标识和参数
                 tasks_to_write.append({
-                    "params": task_params,
-                    "output_dir": wsl_path_str
+                    "hash": p_hash,
+                    "task_name": final_task_name,
+                    "params": task_params
                 })
 
-    except Exception as e:
-        print(f"❌ 处理 CSV 失败: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # 写入文件
-    try:
         output_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_jsonl_path, 'w', encoding='utf-8') as f:
             for task in tasks_to_write:
                 f.write(json.dumps(task) + '\n')
-        print(f"✅ 转换完成: {len(tasks_to_write)} 个任务 -> '{output_jsonl_path.name}'")
+        print(f"[SUCCESS] 转换完成: {len(tasks_to_write)} 个任务已加入队列。")
     except Exception as e:
-        print(f"❌ 写入 JSONL 失败: {e}", file=sys.stderr)
+        print(f"[ERROR] 错误: {e}")
         sys.exit(1)
 
 
@@ -187,10 +168,10 @@ def handle_generate_template(args):
             default_row = ['example_run_1'] + [params_info[name]['default'] for name in param_order]
             writer.writerow(default_row)
 
-        print(f"✅ 成功生成 CSV 模板文件: '{output_path}'")
+        print(f"[SUCCESS] 成功生成 CSV 模板文件: '{output_path}'")
         print("   现在你可以用电子表格软件打开它，并根据需要添加更多的任务行。")
     except Exception as e:
-        print(f"❌ 错误: 生成模板文件失败。错误: {e}", file=sys.stderr)
+        print(f"[ERROR] 错误: 生成模板文件失败。错误: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -200,7 +181,7 @@ def handle_convert(args, param_processor=None):
     """
     input_csv_path = Path(args.input_csv)
     if not input_csv_path.exists():
-        print(f"❌ 错误: 文件不存在: '{input_csv_path}'", file=sys.stderr)
+        print(f"[ERROR] 错误: 文件不存在: '{input_csv_path}'", file=sys.stderr)
         sys.exit(1)
 
     # 确定输出路径并获取其绝对父目录（默认输出文件在输入文件旁边）
@@ -258,6 +239,7 @@ def setup_parser():
     parser_conv.set_defaults(func=handle_convert)
 
     return parser
+
 
 if __name__ == "__main__":
     parser = setup_parser()

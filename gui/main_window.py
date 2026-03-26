@@ -333,53 +333,30 @@ class SimulationControllerGUI(QMainWindow):
 
         self.save_job_config()  # 运行前保存当前参数
 
-        # 0. 预准备
-        conda_cmd = get_conda_activation_command()
+        # 1. 在本地 Windows 环境执行转换
+        self.log("\n>>> 步骤 1: 正在本地转换任务清单...")
+        script_path = PROJECT_ROOT / "batch" / self.script_name_entry.text().strip()
+        csv_path = self.current_job_dir / FILENAME_TASKS_CSV
 
-        spack_env_path = "/home/cof/spack/var/spack/environments/warpx-2d"
-        spack_cmd = get_spack_activation_command(spack_env_path)
-
-        # 1. 转换 (使用 WSL)
-        self.log("\n>>> 步骤 1: 转换任务清单...")
-        wsl_csv = get_wsl_path(self.current_job_dir / FILENAME_TASKS_CSV)
-        script_name = self.script_name_entry.text().strip()
-        wsl_script = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/{script_name}"
-        extra_args = self.extra_args_entry.text().strip()
-
-        cmd_convert = f"{spack_cmd} && python {wsl_script} convert {wsl_csv} {extra_args}"
-
-        convert_result = subprocess.run(
-            ["wsl.exe", "-e", "bash", "-l", "-c", cmd_convert],
-            capture_output=True, text=True, encoding='utf-8'
-        )
-        self.log(convert_result.stdout)
-        if convert_result.returncode != 0:
-            self.log(f"转换失败: {convert_result.stderr}")
+        # 直接用当前 Python 运行本地 csv_tool
+        cmd_convert = [sys.executable, str(script_path), "convert", str(csv_path)]
+        res = subprocess.run(cmd_convert, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        self.log(res.stdout)
+        if res.returncode != 0:
+            self.log(f"转换失败: {res.stderr}")
             return
 
-        # 2. 运行 batch_runner
-        self.log("\n>>> 步骤 2: 启动批处理引擎...")
-        wsl_job_dir = get_wsl_path(self.current_job_dir)
-        wsl_runner = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/batch_runner.py"
-
-        cmd_runner = (
-            f"export TERM=dumb && "
-            f"{spack_cmd} && "
-            f"echo \"PID:$$\"; "
-            f"exec python {wsl_runner} '{wsl_job_dir}'"
-        )
-
-        wsl_cmd = ["wsl.exe", "-e", "bash", "-l", "-c", cmd_runner]
+        # 2. 启动本地批处理引擎 (batch_runner.py)
+        self.log("\n>>> 步骤 2: 启动本地批处理调度器...")
+        runner_path = PROJECT_ROOT / "batch" / "batch_runner.py"
 
         self.batch_process = QProcess()
         self.batch_process.setProcessChannelMode(QProcess.MergedChannels)
         self.batch_process.readyReadStandardOutput.connect(self.handle_output)
         self.batch_process.finished.connect(self.on_finished)
 
-        self.batch_process.start(wsl_cmd[0], wsl_cmd[1:])
-
-        self.btn_start.setEnabled(False)
-        self.btn_start.setText("正在运行...")
+        # 运行本地 python batch_runner.py
+        self.batch_process.start(sys.executable, [str(runner_path), str(self.current_job_dir)])
 
         self.btn_start.setEnabled(False)
         self.btn_start.setText("正在运行...")
@@ -406,26 +383,34 @@ class SimulationControllerGUI(QMainWindow):
     def open_current_job_dir(self):
         if self.current_job_dir: os.startfile(self.current_job_dir)
 
+    def _set_ui_running(self, is_running: bool):
+        """统一管理 UI 状态归位"""
+        self.btn_start.setEnabled(not is_running)
+        self.btn_start.setText("正在运行..." if is_running else "开始批处理运行")
+        self.btn_stop.setEnabled(is_running)
+        self.btn_reload.setEnabled(not is_running)
+        self.btn_create_template.setEnabled(not is_running)
+        # 运行期间禁止切换脚本配置
+        self.script_name_entry.setReadOnly(is_running)
+        self.extra_args_entry.setReadOnly(is_running)
+
     def stop_batch_run(self):
-        if not self.batch_process or self.batch_process.state() == QProcess.NotRunning:
-            self.log("日志: 没有正在运行的任务。")
-            return
+        # 停止本地调度器，Manager 会负责清理 WSL 内部
+        if self.batch_process and self.batch_process.state() != QProcess.NotRunning:
+            self.log("\n[GUI] 正在尝试终止批处理引擎...")
 
-        if self.wsl_pid:
-            self.log(f"日志: 正在通过 WSL kill 命令终止进程组 {self.wsl_pid}...")
-            kill_command = ["wsl.exe", "kill", "-9", f"-{self.wsl_pid}"]
-            result = subprocess.run(kill_command, capture_output=True, text=True)
-            if result.returncode == 0:
-                self.log("日志: 进程组终止信号已成功发送。")
-            else:
-                self.log(f"日志: 发送终止信号失败: {result.stderr or result.stdout}")
+            # 1. 尝试优雅终止 (SIGTERM)
+            self.batch_process.terminate()
+
+            # 2. 如果 1 秒内没停下，强制杀死 (SIGKILL)
+            if not self.batch_process.waitForFinished(1000):
+                self.log("[GUI] 引擎未响应，正在强制结束进程...")
+                self.batch_process.kill()
+
+            # 注意：finished 信号会自动触发 on_finished，所以这里不需要手动调归位
         else:
-            self.log("警告: 未能捕获到WSL PID，将尝试常规终止。")
-
-        self.batch_process.terminate()  # 尝试优雅终止
-        self.batch_process.waitForFinished(1000)  # 等待1秒
-        if self.batch_process:
-            self.batch_process.kill()  # 强制终止
+            self.log("[GUI] 没有正在运行的任务。")
+            self._set_ui_running(False)
 
 
 if __name__ == "__main__":
