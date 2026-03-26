@@ -59,10 +59,6 @@ class GongjiComputeManager(BaseComputeManager):
 
     def _fetch_incremental_events(self) -> list[str]:
         """私有方法：抓取增量系统事件并格式化为日志行"""
-        if not self.point_id:
-            self._update_point_id()  # 尝试拿 point_id
-            return []
-
         try:
             resp = requests.get(f"{self.base_url}/api/deployment/task/pod_event",
                                 headers=self._get_headers(), params={"point_id": self.point_id}, timeout=5)
@@ -219,9 +215,12 @@ class GongjiComputeManager(BaseComputeManager):
 
         combined_output = []
 
+        if not self.point_id:
+            self._update_point_id()
+
         # --- 1. 获取系统事件 (如调度、拉镜像) ---
-        # 只要还没出过真正的业务日志，或者还在 Pending，我们就去刷事件
-        if self.last_log_line_count == 0 or self._status == JobStatus.PENDING:
+        # 只要不是终端状态就持续获取
+        if self._status not in [JobStatus.SUCCESS, JobStatus.FAILED, JobStatus.CANCELLED]:
             events = self._fetch_incremental_events()
             combined_output.extend(events)
 

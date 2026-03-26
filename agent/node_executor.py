@@ -7,6 +7,7 @@ import os
 import time
 import urllib.request
 import urllib.parse
+import urllib.error
 from pathlib import Path
 
 AGENT_DIR = Path(__file__).resolve().parent
@@ -54,8 +55,12 @@ def self_destruct(task_name, token, base_url):
             else:
                 print(f"[Agent] 获取任务列表失败: {res_data.get('message')}")
 
+    except urllib.error.HTTPError as e:
+        print(f"[Agent] HTTP 错误: {e.code} - {e.reason}", flush=True)
+        error_body = e.read().decode()
+        print(f"[Agent] 错误详情: {error_body}", flush=True)
     except Exception as e:
-        print(f"[Agent] 自我销毁流程异常 (urllib): {e}", flush=True)
+        print(f"[Agent] 自我销毁异常: {e}", flush=True)
 
 
 def run_node():
@@ -80,6 +85,7 @@ def run_node():
     )
 
     ret_code = process.wait()
+    print(f"[Agent] main.py 退出码: {ret_code}", flush=True)
 
     # 无论成功失败，尝试自杀以节省算力费
     token = os.getenv("GONGJI_TOKEN")
