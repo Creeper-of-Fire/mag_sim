@@ -1,6 +1,7 @@
 # gui/main_window.py
 
 import csv
+import io
 import json
 import os
 import re
@@ -8,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QProcess
+from PySide6.QtCore import Qt, QProcess, QProcessEnvironment
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -19,14 +20,17 @@ from PySide6.QtWidgets import (
 
 from gui.app_config import DATA_DIR
 from utils.project_config import (
-    PROJECT_ROOT, FILENAME_HISTORY, get_conda_activation_command,
-    PROJECT_ROOT_WSL, FILENAME_TASKS_CSV, STATUS_FAILED, STATUS_COMPLETED,
-    STATUS_PENDING, get_wsl_path, COLUMN_TASK_NAME, get_spack_activation_command
+    PROJECT_ROOT, FILENAME_HISTORY, FILENAME_TASKS_CSV, STATUS_FAILED, STATUS_COMPLETED,
+    STATUS_PENDING, COLUMN_TASK_NAME
 )
 
 # 常量定义
 GLOBAL_STATE_FILE = os.path.join(DATA_DIR, "gui_state.json")
 JOB_CONFIG_NAME = "job_config.json"
+
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 
 class SimulationControllerGUI(QMainWindow):
@@ -328,6 +332,7 @@ class SimulationControllerGUI(QMainWindow):
         if not self.current_job_dir:
             QMessageBox.warning(self, "错误", "请先选择工作目录。")
             return
+
         if self.batch_process and self.batch_process.state() != QProcess.NotRunning:
             QMessageBox.information(self, "提示", "批处理任务已在运行中。")
 
@@ -354,6 +359,11 @@ class SimulationControllerGUI(QMainWindow):
         self.batch_process.setProcessChannelMode(QProcess.MergedChannels)
         self.batch_process.readyReadStandardOutput.connect(self.handle_output)
         self.batch_process.finished.connect(self.on_finished)
+
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONIOENCODING", "utf-8")
+        env.insert("PYTHONUTF8", "1")
+        self.batch_process.setProcessEnvironment(env)
 
         # 运行本地 python batch_runner.py
         self.batch_process.start(sys.executable, [str(runner_path), str(self.current_job_dir)])

@@ -37,16 +37,6 @@ def log_system_message(log_file_handle, message):
         log_file_handle.flush()
 
 
-def create_task_hash(params: dict) -> str:
-    """
-    为参数字典创建一个稳定、唯一的SHA256哈希值。
-    通过对键进行排序来确保哈希的一致性。
-    """
-    # 将字典转换为规范的JSON字符串（排序键，无空格）
-    param_string = json.dumps(params, sort_keys=True, separators=(',', ':'))
-    return hashlib.sha256(param_string.encode('utf-8')).hexdigest()
-
-
 def load_history_hashes(history_file_path: str) -> set:
     """
     从 history.jsonl 文件中加载所有已完成任务的哈希值。
@@ -74,6 +64,10 @@ def run_batch(work_dir_win: str):
         print(f"错误: 队列文件 {FILENAME_QUEUE} 不存在。")
         return
 
+    # 加载历史记录
+    history_hashes = load_history_hashes(history_file)
+    print(f"[Batch] 已加载 {len(history_hashes)} 条历史记录")
+
     with open(queue_file, 'r', encoding='utf-8') as f:
         tasks = [json.loads(line) for line in f]
 
@@ -84,6 +78,11 @@ def run_batch(work_dir_win: str):
         task_hash = task['hash']
         task_params = task['params']
         task_name = task['task_name']
+
+        # 检查是否已执行过
+        if task_hash in history_hashes:
+            print(f"[Batch] >>> 跳过任务: {task_name} (Hash: {task_hash[:8]}...) 已在历史记录中")
+            continue
 
         print(f"\n[Batch] >>> 准备启动任务: {task_name}")
 
