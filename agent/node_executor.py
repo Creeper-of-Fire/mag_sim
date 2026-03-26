@@ -5,7 +5,8 @@ import subprocess
 import sys
 import os
 import time
-import requests
+import urllib.request
+import urllib.parse
 from pathlib import Path
 
 AGENT_DIR = Path(__file__).resolve().parent
@@ -14,39 +15,47 @@ REPO_ROOT = AGENT_DIR.parent
 
 def self_destruct(task_name, token, base_url):
     """
-    通过 task_name 找到自己的 task_id 并销毁任务。
+    使用 Python 原生 urllib 实现自我销毁，无需安装 requests。
     """
     print(f"\n[Agent] 任务完成，正在尝试自我销毁 (Task Name: {task_name})...", flush=True)
+
     headers = {
         "token": token,
         "timestamp": str(int(time.time() * 1000)),
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "Content-Type": "application/json"
     }
 
     try:
-        # 1. 在列表中根据名字搜寻 ID
-        list_url = f"{base_url}/api/deployment/task/list"
-        resp = requests.get(list_url, headers=headers, params={"task_name": task_name})
-        data = resp.json()
+        # 1. 在列表中根据名字搜寻 ID (GET 请求)
+        list_url = f"{base_url}/api/deployment/task/list?task_name={urllib.parse.quote(task_name)}"
+        req = urllib.request.Request(list_url, headers=headers)
 
-        if data.get("code") == "0000":
-            tasks = data.get("data", {}).get("results", [])
-            my_task = next((t for t in tasks if t['task_name'] == task_name), None)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_data = json.loads(response.read().decode())
 
-            if my_task:
-                task_id = my_task['task_id']
-                print(f"[Agent] 确认 Task ID: {task_id}. 发送删除指令...", flush=True)
+            if res_data.get("code") == "0000":
+                tasks = res_data.get("data", {}).get("results", [])
+                my_task = next((t for t in tasks if t['task_name'] == task_name), None)
 
-                # 2. 发送删除请求
-                del_url = f"{base_url}/api/deployment/task/delete"
-                del_resp = requests.post(del_url, headers=headers, json={"task_id": task_id})
-                print(f"[Agent] 删除请求结果: {del_resp.text}", flush=True)
+                if my_task:
+                    task_id = my_task['task_id']
+                    print(f"[Agent] 确认 Task ID: {task_id}. 发送删除指令...", flush=True)
+
+                    # 2. 发送删除请求 (POST 请求)
+                    del_url = f"{base_url}/api/deployment/task/delete"
+                    del_payload = json.dumps({"task_id": task_id}).encode('utf-8')
+                    del_req = urllib.request.Request(del_url, data=del_payload, headers=headers, method='POST')
+
+                    with urllib.request.urlopen(del_req, timeout=10) as del_response:
+                        print(f"[Agent] 删除请求响应: {del_response.read().decode()}", flush=True)
+                else:
+                    print("[Agent] 未在列表中找到匹配的任务名称。")
             else:
-                print("[Agent] 未在列表中找到匹配的任务名称，可能已被手动删除。")
-        else:
-            print(f"[Agent] 获取任务列表失败: {data.get('message')}")
+                print(f"[Agent] 获取任务列表失败: {res_data.get('message')}")
+
     except Exception as e:
-        print(f"[Agent] 自我销毁流程异常: {e}")
+        print(f"[Agent] 自我销毁流程异常 (urllib): {e}", flush=True)
 
 
 def run_node():
