@@ -17,10 +17,13 @@ if not load_dotenv(ENV_FILE_PATH):
     print(f"[Config] 警告: 未找到配置文件: {ENV_FILE_PATH}", file=sys.stderr)
 
 # --- 3. 跨平台/环境常量 ---
-# WSL 环境配置
+# 环境配置
 PROJECT_ROOT_WSL = os.getenv('PROJECT_ROOT_WSL')
 CONDA_INIT_PATH = os.getenv('CONDA_INIT_PATH')
 CONDA_ENV_NAME = os.getenv('CONDA_ENV_NAME')
+
+SPACK_ROOT = os.getenv('SPACK_ROOT')
+SPACK_ENV_NAME = os.getenv('SPACK_ENV_NAME')
 
 MAIN_SCRIPT_PATH = os.path.join(PROJECT_ROOT_WSL, 'main.py')
 
@@ -42,11 +45,21 @@ STATUS_RUNNING = "运行中"  # 预留
 
 
 # --- 4. 路径工具函数 ---
-def get_spack_activation_command(env_path):
-    # 1. 显式指定你的 Spack 安装根目录
-    spack_root = "/home/cof/spack"
-    # 2. 拼接环境激活命令
-    return f"source /home/cof/spack/share/spack/setup-env.sh && spack env activate {env_path}"
+def get_spack_activation_command(env_path: str = None) -> str:
+    """获取激活 Spack 环境的 Bash 命令前缀"""
+    if env_path is None:
+        env_path = SPACK_ENV_NAME
+
+    # 检查 spack 环境文件是否存在
+    spack_setup = os.path.join(SPACK_ROOT, 'share', 'spack', 'setup-env.sh')
+
+    if not os.path.exists(spack_setup):
+        return "echo 'Error: Spack not found at {SPACK_ROOT}' && exit 1"
+
+    return (
+        f"source {spack_setup} && "
+        f"spack env activate {env_path}"
+    )
 
 def get_wsl_path(win_path: str | Path) -> str:
     """
