@@ -187,7 +187,6 @@ class SmartCache:
                 return f"__MODULE_{obj.__class__.__name__}__"
             return obj
 
-
         # 清洗 args 和 kwargs，防止 dill.dumps 爆炸
         safe_args = tuple(sanitize(a) for a in args)
         safe_kwargs = {k: sanitize(v) for k, v in kwargs.items()}

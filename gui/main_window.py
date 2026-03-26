@@ -21,7 +21,7 @@ from gui.app_config import DATA_DIR
 from utils.project_config import (
     PROJECT_ROOT, FILENAME_HISTORY, get_conda_activation_command,
     PROJECT_ROOT_WSL, FILENAME_TASKS_CSV, STATUS_FAILED, STATUS_COMPLETED,
-    STATUS_PENDING, get_wsl_path, COLUMN_TASK_NAME
+    STATUS_PENDING, get_wsl_path, COLUMN_TASK_NAME, get_spack_activation_command
 )
 
 # 常量定义
@@ -134,7 +134,7 @@ class SimulationControllerGUI(QMainWindow):
 
         # 1. 参数详情预览
         detail_group = QGroupBox("选中任务详情")
-        detail_group.setMaximumHeight(250) # 限制详情框的最大高度，防止挤压日志
+        detail_group.setMaximumHeight(250)  # 限制详情框的最大高度，防止挤压日志
         detail_v_layout = QVBoxLayout(detail_group)
 
         self.scroll_area = QScrollArea()
@@ -336,6 +336,9 @@ class SimulationControllerGUI(QMainWindow):
         # 0. 预准备
         conda_cmd = get_conda_activation_command()
 
+        spack_env_path = "/home/cof/spack/var/spack/environments/warpx-2d"
+        spack_cmd = get_spack_activation_command(spack_env_path)
+
         # 1. 转换 (使用 WSL)
         self.log("\n>>> 步骤 1: 转换任务清单...")
         wsl_csv = get_wsl_path(self.current_job_dir / FILENAME_TASKS_CSV)
@@ -343,10 +346,10 @@ class SimulationControllerGUI(QMainWindow):
         wsl_script = f"{PROJECT_ROOT_WSL.rstrip('/')}/batch/{script_name}"
         extra_args = self.extra_args_entry.text().strip()
 
-        cmd_convert = f"{conda_cmd} && python {wsl_script} convert {wsl_csv} {extra_args}"
+        cmd_convert = f"{spack_cmd} && python {wsl_script} convert {wsl_csv} {extra_args}"
 
         convert_result = subprocess.run(
-            ["wsl.exe", "-e", "bash", "-c", cmd_convert],
+            ["wsl.exe", "-e", "bash", "-l", "-c", cmd_convert],
             capture_output=True, text=True, encoding='utf-8'
         )
         self.log(convert_result.stdout)
@@ -361,12 +364,12 @@ class SimulationControllerGUI(QMainWindow):
 
         cmd_runner = (
             f"export TERM=dumb && "
-            f"{conda_cmd} && "
+            f"{spack_cmd} && "
             f"echo \"PID:$$\"; "
             f"exec python {wsl_runner} '{wsl_job_dir}'"
         )
 
-        wsl_cmd = ["wsl.exe", "-e", "bash", "-c", cmd_runner]
+        wsl_cmd = ["wsl.exe", "-e", "bash", "-l", "-c", cmd_runner]
 
         self.batch_process = QProcess()
         self.batch_process.setProcessChannelMode(QProcess.MergedChannels)
@@ -423,6 +426,7 @@ class SimulationControllerGUI(QMainWindow):
         self.batch_process.waitForFinished(1000)  # 等待1秒
         if self.batch_process:
             self.batch_process.kill()  # 强制终止
+
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication

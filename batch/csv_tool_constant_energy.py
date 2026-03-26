@@ -2,9 +2,16 @@
 
 import math
 import sys
+from pathlib import Path
 
 # 引入物理常数用于计算
 from scipy.constants import m_e, c, e, mu_0
+
+# 获取当前脚本所在目录的父目录
+root_dir = Path(__file__).resolve().parent.parent
+# 强制添加到系统路径中
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
 
 from batch import csv_tool
 from utils.project_config import PROJECT_ROOT
