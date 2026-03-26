@@ -50,11 +50,7 @@ def get_spack_activation_command(env_path: str = None) -> str:
     if env_path is None:
         env_path = SPACK_ENV_NAME
 
-    # 检查 spack 环境文件是否存在
-    spack_setup = os.path.join(SPACK_ROOT, 'share', 'spack', 'setup-env.sh')
-
-    if not os.path.exists(spack_setup):
-        return "echo 'Error: Spack not found at {SPACK_ROOT}' && exit 1"
+    spack_setup = f"{SPACK_ROOT}/share/spack/setup-env.sh"
 
     return (
         f"source {spack_setup} && "
