@@ -2,7 +2,6 @@
 
 import argparse
 import datetime
-import hashlib
 import json
 import os
 import sys
@@ -13,8 +12,9 @@ root_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-from batch.manager_api import JobStatus
-from batch.wsl_manager import WSLComputeManager
+from batch.gongji_manager import GongjiComputeManager
+
+from batch.manager_api import JobStatus, BaseComputeManager
 
 from utils.project_config import FILENAME_QUEUE, FILENAME_HISTORY
 
@@ -73,7 +73,7 @@ def run_batch(work_dir_win: str):
 
     for task in tasks:
         # 1. 实例化 Manager (这里是唯一可以手动指定实现类的地方)
-        manager = WSLComputeManager()
+        manager: BaseComputeManager = GongjiComputeManager()
 
         task_hash = task['hash']
         task_params = task['params']
@@ -89,18 +89,26 @@ def run_batch(work_dir_win: str):
         # 2. 提交
         manager.submit(task_hash, task_params, task_name)
 
+        print(f"[Batch] 正在等待云端初始化...", flush=True)
+
         # 3. 监控日志与状态
         while True:
-            # 实时获取增量日志
-            new_logs = manager.get_logs()
-            for line in new_logs:
+            # 统一获取“信息流”（包含系统事件和业务日志）
+            new_lines = manager.get_logs()
+            for line in new_lines:
                 print(line, end='', flush=True)
 
             status = manager.get_status()
-            if status != JobStatus.RUNNING:
+
+            # 只要没结束，就一直等
+            if status not in [JobStatus.RUNNING, JobStatus.PENDING]:
                 break
 
-            sleep(0.5)
+            # 4. 判断退出条件
+            if status not in [JobStatus.RUNNING, JobStatus.PENDING]:
+                break
+
+            sleep(2)
 
         # 4. 记录历史记录
         print(f"\n[Batch] >>> 任务结束。最终状态: {status.name}")

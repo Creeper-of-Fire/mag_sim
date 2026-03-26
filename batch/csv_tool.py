@@ -5,6 +5,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -28,7 +29,10 @@ def generate_param_hash(params: dict):
     """根据参数内容生成唯一指纹"""
     # 确保 key 排序一致，序列化为字符串
     param_str = json.dumps(params, sort_keys=True, separators=(',', ':'))
-    return hashlib.sha256(param_str.encode('utf-8')).hexdigest()
+    hash = hashlib.sha256(param_str.encode('utf-8')).hexdigest()[:12].strip('-')
+    hash = re.sub(r'[_.]', '-', hash)
+    hash = re.sub(r'[^a-z0-9-]', '', hash)
+    return hash
 
 def get_simulation_params_info():
     """
@@ -131,7 +135,7 @@ def perform_conversion_logic(input_csv_path, output_jsonl_path, params_info, par
 
                 # 生成 Hash
                 p_hash = generate_param_hash(task_params)
-                final_task_name = f"{raw_name}_{p_hash}"
+                final_task_name = f"{raw_name}-{p_hash}"
 
                 # 我们不再生成 WSL 路径，只记录任务标识和参数
                 tasks_to_write.append({
