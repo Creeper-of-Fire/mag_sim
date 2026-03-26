@@ -3,6 +3,7 @@
 import argparse
 import csv
 import hashlib
+import io
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,9 @@ except ImportError as e:
     print(f"详细错误: {e}", file=sys.stderr)
     sys.exit(1)
 
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # --- 辅助函数 ---
 
@@ -24,8 +28,7 @@ def generate_param_hash(params: dict):
     """根据参数内容生成唯一指纹"""
     # 确保 key 排序一致，序列化为字符串
     param_str = json.dumps(params, sort_keys=True, separators=(',', ':'))
-    return hashlib.sha256(param_str.encode()).hexdigest()[:12]  # 取12位足够了
-
+    return hashlib.sha256(param_str.encode('utf-8')).hexdigest()
 
 def get_simulation_params_info():
     """

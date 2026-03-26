@@ -35,6 +35,8 @@ class WSLComputeManager(BaseComputeManager):
         # 显式使用 bash -l 确保环境加载，并强制 Python 以 UTF-8 输出
         cmd = (
             f"export PYTHONIOENCODING=utf-8 && "
+            f"export LANG=C.UTF-8 && "  # 添加这行
+            f"export LC_ALL=C.UTF-8 && "  # 添加这行
             f"{self.spack_cmd} && "
             f"python {self.agent_path} "
             f"--hash {task_hash} --out_name {output_dir_name} --config '{config_json}'"
