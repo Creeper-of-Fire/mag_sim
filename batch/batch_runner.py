@@ -5,15 +5,15 @@ import datetime
 import hashlib
 import json
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 root_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-from utils.project_config import DIRNAME_LOGS, FILENAME_QUEUE, FILENAME_HISTORY, MAIN_SCRIPT_PATH, get_conda_activation_command
+from utils.project_config import DIRNAME_LOGS, FILENAME_QUEUE, FILENAME_HISTORY, MAIN_SCRIPT_PATH, get_spack_activation_command
 
 
 # --- 系统日志格式化 ---
@@ -129,9 +129,9 @@ def run_batch(work_dir: str):
                 config_json_str = json.dumps(task_params)
 
                 # 构建在 WSL 内部执行的完整命令
-                conda_cmd = get_conda_activation_command()
+                spack_cmd = get_spack_activation_command()
                 command_in_wsl = (
-                    f"{conda_cmd} && "
+                    f"{spack_cmd} && "
                     f"exec python {MAIN_SCRIPT_PATH} -o '{output_dir}' -c '{config_json_str}'"
                 )
 
