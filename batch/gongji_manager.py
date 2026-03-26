@@ -38,45 +38,83 @@ class GongjiComputeManager(BaseComputeManager):
     def _find_existing_task(self, name):
         """在线上搜索同名任务，实现持久化找回"""
         try:
-            resp = requests.get(f"{self.base_url}/api/deployment/task/list",
-                                headers=self._get_headers(), params={"task_name": name})
-            tasks = resp.json().get("data", {}).get("results", [])
+            resp = requests.get(
+                f"{self.base_url}/api/deployment/task/search",
+                headers=self._get_headers(),
+                params={
+                    "type": "Deployment",
+                    "status": "Running,Pending,Paused,End",  # 包括所有状态
+                    "search_value": name,
+                    "page": 1,
+                    "page_size": 100
+                }
+            )
+
+            if resp.status_code != 200:
+                print(f"[DEBUG] 获取任务列表失败，状态码: {resp.status_code}")
+                return None
+
+            res_json = resp.json()
+            # 安全地提取 data 字段
+            data = res_json.get("data") or {}
+
+            # 安全地提取 results 列表
+            tasks = data.get("results", [])
+            if not tasks:
+                return None
+
             for t in tasks:
-                if t['task_name'] == name:
-                    return t['task_id']
-        except:
-            pass
-        return None
+                if t.get('task_name') == name:
+                    return t.get('task_id')
+
+            return None
+
+        except Exception as e:
+            print(f"[DEBUG] 查询任务列表发生异常: {e}")
+            return None
 
     def _update_point_id(self):
-        try:
-            resp = requests.get(f"{self.base_url}/api/deployment/task/point_list",
-                                headers=self._get_headers(), params={"task_id": self.task_id})
-            points = resp.json().get("data", {}).get("results", [])
-            if points: self.point_id = points[0]["point_id"]
-        except:
-            pass
+        resp = requests.get(
+            f"{self.base_url}/api/deployment/task/points",
+            headers=self._get_headers(),
+            params={
+                "task_id": self.task_id,
+                "status": "Running,Pending,Failed,End",
+                "page": 1,
+                "page_size": 10
+            }
+        )
+
+        if resp.status_code != 200:
+            print(f"[DEBUG] 获取任务节点列表失败，状态码: {resp.status_code}")
+            return
+
+        data = resp.json().get("data") or {}
+        points = data.get("results", [])
+        if points: self.point_id = points[0]["point_id"]
 
     def _fetch_incremental_events(self) -> list[str]:
         """私有方法：抓取增量系统事件并格式化为日志行"""
-        try:
-            resp = requests.get(f"{self.base_url}/api/deployment/task/pod_event",
-                                headers=self._get_headers(), params={"point_id": self.point_id}, timeout=5)
-            events = resp.json().get("data", [])
-            if not isinstance(events, list): return []
-
-            new_events = events[self._last_event_count:]
-            self._last_event_count = len(events)
-
-            results = []
-            for e in new_events:
-                reason = e.get('reason', 'Event')
-                msg = e.get('message', '')
-                # 将事件包装成看起来像日志的样子
-                results.append(f">>> [CLOUD_SYSTEM] {reason}: {msg}\n")
-            return results
-        except:
+        resp = requests.get(
+            f"{self.base_url}/api/deployment/task/pod_event",
+            headers=self._get_headers(),
+            params={"point_id": self.point_id},
+            timeout=5
+        )
+        events = resp.json().get("data") or {}
+        if not isinstance(events, list):
             return []
+
+        new_events = events[self._last_event_count:]
+        self._last_event_count = len(events)
+
+        results = []
+        for e in new_events:
+            reason = e.get('reason', 'Event')
+            msg = e.get('message', '')
+            # 将事件包装成看起来像日志的样子
+            results.append(f">>> [CLOUD_SYSTEM] {reason}: {msg}\n")
+        return results
 
     def submit(self, task_hash: str, params: dict, output_dir_name: str):
         """
@@ -167,16 +205,14 @@ class GongjiComputeManager(BaseComputeManager):
             raise Exception(f"云端提交失败: {res.get('message')}")
 
     def get_status(self) -> JobStatus:
-        if not self.task_id: return self._status
+        if not self.task_id:
+            return self._status
 
         try:
-            resp = requests.get(f"{self.base_url}/api/deployment/task/details",
+            resp = requests.get(f"{self.base_url}/api/deployment/task/detail",
                                 headers=self._get_headers(), params={"task_id": self.task_id})
             res_json = resp.json()
             data = res_json.get("data")
-
-            # 调试打印，看看云端到底返回了什么
-            # print(f"[Debug] Cloud Status: {data.get('status') if data else 'None'}")
 
             if data is None:
                 # 如果刚提交不到 5 秒，即使找不到任务也不要判定为成功，可能是同步延迟
@@ -187,6 +223,7 @@ class GongjiComputeManager(BaseComputeManager):
             # 更新 ID 链路
             if data.get("services"):
                 self.service_id = data["services"][0]["service_id"]
+                print(f"[Gongji] 获取服务 ID: {self.service_id}")
 
             status_map = {
                 "Pending": JobStatus.PENDING,
@@ -227,32 +264,45 @@ class GongjiComputeManager(BaseComputeManager):
         # --- 2. 获取业务日志 ---
         # 必须有 service_id 和 point_id 才能拿日志
         if self.service_id and self.point_id:
-            try:
-                log_resp = requests.get(
-                    f"{self.base_url}/api/deployment/task/point_log",
-                    headers=self._get_headers(),
-                    params={
-                        "task_id": self.task_id,
-                        "point_id": self.point_id,
-                        "service_id": self.service_id
-                    },
-                    timeout=5
-                )
-                all_text = log_resp.json().get("data", "")
-                if all_text:
-                    lines = all_text.splitlines()
-                    new_business_logs = lines[self.last_log_line_count:]
-                    self.last_log_line_count = len(lines)
-                    # 业务日志保持原样
-                    combined_output.extend([l + "\n" for l in new_business_logs])
-            except:
-                pass  # 网络波动暂时忽略
+            log_resp = requests.get(
+                f"{self.base_url}/api/deployment/task/point_log",
+                headers=self._get_headers(),
+                params={
+                    "task_id": self.task_id,
+                    "point_id": self.point_id,
+                    "service_id": self.service_id
+                },
+                timeout=5
+            )
+            all_text = log_resp.json().get("data", "")
+            if all_text:
+                lines = all_text.splitlines()
+                new_business_logs = lines[self.last_log_line_count:]
+                self.last_log_line_count = len(lines)
+                # 业务日志保持原样
+                combined_output.extend([l + "\n" for l in new_business_logs])
 
         return combined_output
 
     def interrupt(self):
         if self.task_id:
             print(f"[Gongji] 正在强制停止云端任务 {self.task_id}...")
-            requests.post(f"{self.base_url}/api/deployment/task/delete",
-                          headers=self._get_headers(), json={"task_id": self.task_id})
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/api/deployment/task/pause",
+                    headers=self._get_headers(),
+                    json={"task_id": self.task_id}
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("code") == "0000":
+                        print(f"[Gongji] 任务 {self.task_id} 已成功停止")
+                    else:
+                        print(f"[Gongji] 停止任务失败: {data.get('message')}")
+                else:
+                    print(f"[Gongji] 停止任务请求失败，状态码: {resp.status_code}")
+            except Exception as e:
+                print(f"[Gongji] 停止任务异常: {e}")
+
             self._status = JobStatus.CANCELLED

@@ -93,18 +93,14 @@ def run_batch(work_dir_win: str):
 
         # 3. 监控日志与状态
         while True:
+            status = manager.get_status()
+
             # 统一获取“信息流”（包含系统事件和业务日志）
             new_lines = manager.get_logs()
             for line in new_lines:
                 print(line, end='', flush=True)
 
-            status = manager.get_status()
-
             # 只要没结束，就一直等
-            if status not in [JobStatus.RUNNING, JobStatus.PENDING]:
-                break
-
-            # 4. 判断退出条件
             if status not in [JobStatus.RUNNING, JobStatus.PENDING]:
                 break
 
