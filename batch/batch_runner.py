@@ -13,6 +13,7 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
 from batch.agent.gongji.gongji_manager import GongjiComputeManager
+from batch.agent.yingbo.yingbo_manager import YingboComputeManager
 
 from batch.manager_api import JobStatus, BaseComputeManager
 
@@ -73,7 +74,7 @@ def run_batch(work_dir_win: str):
 
     for task in tasks:
         # 1. 实例化 Manager (这里是唯一可以手动指定实现类的地方)
-        manager: BaseComputeManager = GongjiComputeManager()
+        manager: BaseComputeManager = YingboComputeManager()
 
         task_hash = task['hash']
         task_params = task['params']
