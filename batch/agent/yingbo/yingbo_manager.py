@@ -52,11 +52,17 @@ class YingboComputeManager(BaseComputeManager):
             f"--hash {task_hash} --out_name {output_dir_name} --config '{config_json}'"
         )
 
+        env_vars = [
+            # 让 Python 日志不进入缓冲区，直接实时输出到 K8S 日志流
+            client.V1EnvVar(name="PYTHONUNBUFFERED", value="1"),
+        ]
+
         # 2. 定义 Job 对象
         container = client.V1Container(
             name="warpx-worker",
             image=os.getenv("DOCKER_IMAGE"),
             command=["bash", "-c", cmd],
+            env=env_vars,
             resources=client.V1ResourceRequirements(
                 limits={
                     "nvidia.com/gpu": "1",
