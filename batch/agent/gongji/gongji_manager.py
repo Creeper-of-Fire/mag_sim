@@ -142,7 +142,7 @@ class GongjiComputeManager(BaseComputeManager):
             f"spack env activate warpx-4090 && "
             f"export GONGJI_TOKEN={self.token} && "
             f"export GONGJI_BASE_URL={self.base_url} && "
-            f"python3 /mnt/warpx/mag_sim/batch/agent/node_executor_gongji.py " # 唯一一个需要硬编码的.py文件地址，其他的都可以自动检测
+            f"python3 /mnt/warpx/mag_sim/batch/agent/gongji/node_executor_gongji.py " # 唯一一个需要硬编码的.py文件地址，其他的都可以自动检测
             f"--hash {task_hash} --out_name {self.task_name} --config '{config_json}'"
         )
 
