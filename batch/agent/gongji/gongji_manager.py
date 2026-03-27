@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from .manager_api import BaseComputeManager, JobStatus
+from batch.manager_api import BaseComputeManager, JobStatus
 
 current_dir = Path(__file__).resolve().parent
 env_path = current_dir / ".service.env"
@@ -142,7 +142,7 @@ class GongjiComputeManager(BaseComputeManager):
             f"spack env activate warpx-4090 && "
             f"export GONGJI_TOKEN={self.token} && "
             f"export GONGJI_BASE_URL={self.base_url} && "
-            f"python3 /mnt/warpx/mag_sim/agent/node_executor.py "
+            f"python3 /mnt/warpx/mag_sim/batch/agent/node_executor_gongji.py " # 唯一一个需要硬编码的.py文件地址，其他的都可以自动检测
             f"--hash {task_hash} --out_name {self.task_name} --config '{config_json}'"
         )
 
@@ -274,7 +274,7 @@ class GongjiComputeManager(BaseComputeManager):
                 },
                 timeout=5
             )
-            all_text = log_resp.json().get("data", "")
+            all_text = log_resp.json().get("data", "").get("logs")
             if all_text:
                 lines = all_text.splitlines()
                 new_business_logs = lines[self.last_log_line_count:]

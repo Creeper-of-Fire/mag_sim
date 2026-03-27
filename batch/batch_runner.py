@@ -12,7 +12,7 @@ root_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-from batch.gongji_manager import GongjiComputeManager
+from batch.agent.gongji.gongji_manager import GongjiComputeManager
 
 from batch.manager_api import JobStatus, BaseComputeManager
 

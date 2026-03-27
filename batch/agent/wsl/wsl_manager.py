@@ -1,12 +1,11 @@
 # batch/wsl_manager.py
 import queue
 import subprocess
-import os
 import json
 import threading
 
-from .manager_api import BaseComputeManager, JobStatus
-from utils.project_config import get_spack_activation_command, MAIN_SCRIPT_PATH, PROJECT_ROOT_WSL
+from batch.manager_api import BaseComputeManager, JobStatus
+from batch.agent.wsl.project_config_wsl import PROJECT_ROOT_WSL, get_spack_activation_command
 
 
 class WSLComputeManager(BaseComputeManager):
