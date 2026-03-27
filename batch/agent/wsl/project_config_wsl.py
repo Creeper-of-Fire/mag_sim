@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 current_dir = Path(__file__).resolve().parent
 
-# --- 2. 环境配置加载 ---
+# --- 环境配置加载 ---
 ENV_FILE_PATH = current_dir / '.wsl.service.env'
 if not load_dotenv(ENV_FILE_PATH):
     print(f"[Config] 警告: 未找到配置文件: {ENV_FILE_PATH}", file=sys.stderr)
