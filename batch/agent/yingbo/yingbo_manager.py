@@ -48,7 +48,7 @@ class YingboComputeManager(BaseComputeManager):
         cmd = (
             f"source {spack_setup} && "
             f"spack env activate warpx-a800 && "
-            f"python3 /mnt/warpx/mag_sim/batch/agent/node_executor_yingbo.py "
+            f"python3 /mnt/warpx/mag_sim/batch/agent/yingbo/node_executor_yingbo.py "
             f"--hash {task_hash} --out_name {output_dir_name} --config '{config_json}'"
         )
 
