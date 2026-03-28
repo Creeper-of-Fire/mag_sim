@@ -303,9 +303,6 @@ def main():
         selected_dirs = select_directories()
         if not selected_dirs:
             return
-        if len(selected_dirs) < 2:
-            console.print("[yellow]警告: 对比分析至少需要选择两个模拟目录。操作已取消。[/yellow]")
-            return
 
         selected_mods = _select_modules_from_list(comparison_modules)
 
