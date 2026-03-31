@@ -1,21 +1,18 @@
 # batch/wsl_manager.py
 import queue
 import subprocess
-import json
 import threading
 
+import node_executor_wsl as wsl_agent
 from batch.manager_api import BaseComputeManager, JobStatus
-from batch.agent.wsl.project_config_wsl import PROJECT_ROOT_WSL, get_spack_activation_command
+from project_config_wsl import PROJECT_ROOT_WSL, get_spack_activation_command
 
 
 class WSLComputeManager(BaseComputeManager):
     def __init__(self):
         self.process = None
         self._status = JobStatus.PENDING
-        self.log_queue = queue.Queue() # 存放日志的队列
-        # 远端代理脚本在 WSL 里的路径
-        self.spack_cmd = get_spack_activation_command()
-        self.agent_path = f"{PROJECT_ROOT_WSL}/agent/node_executor.py"
+        self.log_queue = queue.Queue()  # 存放日志的队列
 
     def _read_stream(self):
         """后台线程：将标准输出实时灌入队列"""
@@ -26,8 +23,18 @@ class WSLComputeManager(BaseComputeManager):
                     self.log_queue.put(line)
             self.process.stdout.close()
 
-    def submit(self, task_hash: str, params: dict, output_dir_name: str):
-        config_json = json.dumps(params)
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
+        spack_cmd = get_spack_activation_command()
+
+        agent_cmd = self.build_node_command(
+            executor_module=wsl_agent,
+            remote_root=PROJECT_ROOT_WSL,  # 直接使用 .env 配置的根目录
+            task_hash=task_hash,
+            output_dir_name=output_dir_name,
+            rel_job_path=rel_job_path,
+            params=params,
+            python_exe="python"
+        )
 
         # 构建 WSL 内部执行命令
         # 激活环境 -> 运行代理脚本
@@ -36,9 +43,8 @@ class WSLComputeManager(BaseComputeManager):
             f"export PYTHONIOENCODING=utf-8 && "
             f"export LANG=C.UTF-8 && "  # 添加这行
             f"export LC_ALL=C.UTF-8 && "  # 添加这行
-            f"{self.spack_cmd} && "
-            f"python {self.agent_path} "
-            f"--hash {task_hash} --out_name {output_dir_name} --config '{config_json}'"
+            f"{spack_cmd} && "
+            f"{agent_cmd}"
         )
 
         self.process = subprocess.Popen(
