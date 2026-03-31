@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from utils.project_config import COLUMN_TASK_NAME, PROJECT_ROOT
+from utils.project_config import COLUMN_TASK_NAME, PROJECT_ROOT, FILENAME_QUEUE
 
 try:
     # 尝试从 simulation 模块导入参数类
@@ -192,7 +192,7 @@ def handle_convert(args, param_processor=None):
         sys.exit(1)
 
     # 确定输出路径并获取其绝对父目录（默认输出文件在输入文件旁边）
-    output_jsonl_path = Path(args.output or input_csv_path.parent / 'queue.jsonl').resolve()
+    output_jsonl_path = Path(args.output or input_csv_path.parent / FILENAME_QUEUE).resolve()
 
     params_info, _ = get_simulation_params_info()
 

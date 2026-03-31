@@ -1,17 +1,14 @@
 # # batch/agent/gongji/node_executor_gongji.py
 import argparse
 import json
+import os
 import subprocess
 import sys
-import os
 import time
-import urllib.request
-import urllib.parse
 import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
-
-AGENT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = AGENT_DIR.parent.parent.parent
 
 
 def self_destruct(task_name, token, base_url):
@@ -77,16 +74,17 @@ def self_destruct(task_name, token, base_url):
 def run_node():
     parser = argparse.ArgumentParser()
     parser.add_argument("--hash", required=True)
-    parser.add_argument("--out_name", required=True)  # 对应 Manager 侧的 task_name
+    parser.add_argument("--out_name", required=True)
+    parser.add_argument("--work_dir", required=True)
+    parser.add_argument("--main_py", required=True)
     parser.add_argument("--config", required=True)
     args = parser.parse_args()
 
-    # 这里的 work_dir 设置在共享存储内，方便持久化查看
-    work_dir = REPO_ROOT / "results" / args.out_name
+    work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
     # 创建日志目录
-    log_dir = REPO_ROOT / "logs"
+    log_dir = work_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # 生成带时间戳的日志文件名
@@ -95,9 +93,6 @@ def run_node():
 
     print(f"[Agent] 核心任务启动: {args.hash}", flush=True)
     print(f"[Agent] 日志将保存至: {log_file}", flush=True)
-
-    # 调用核心模拟脚本 (main.py)
-    main_py = REPO_ROOT / "main.py"
 
     ret_code = 0
 
@@ -112,7 +107,7 @@ def run_node():
             f.write("=" * 60 + "\n\n")
 
             process = subprocess.Popen(
-                [sys.executable, str(main_py), "-o", str(work_dir), "-c", args.config],
+                [sys.executable, args.main_py, "-o", str(work_dir), "-c", args.config],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # 合并 stderr 到 stdout
                 bufsize=0,

@@ -248,7 +248,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             (15.0, None)
         ]
 
-    def _get_metrics_with_error(self, run_or_group, is_final: bool, low: float, high: Optional[float]) -> Dict[str, float]:
+    def _get_metrics_with_error(self, run_or_group:'SimulationRun', is_final: bool, low: float, high: Optional[float]) -> Dict[str, float]:
         """
         核心分发器...
         """
@@ -257,11 +257,17 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         if isinstance(run_or_group, SimulationRunGroup):
             t_list, ratio_list, th_err_list = [], [], []
             for single_run in run_or_group.runs:
-                # 这里会光速命中缓存，返回极小的字典！
-                metrics = compute_run_tail_metrics(single_run, is_final, low, high)
-                t_list.append(metrics['T_keV'])
-                ratio_list.append(metrics['excess_ratio'])
-                th_err_list.append(metrics['propagated_uncertainty'])
+                temp_metrics = compute_run_temperature_metrics(single_run, step_index=0 if not is_final else -1)
+                metrics = compute_run_tail_metrics(
+                    single_run,
+                    step_index=0 if not is_final else -1,
+                    temperature_metrics=temp_metrics,
+                    f_low=low,
+                    f_high=high
+                )
+                t_list.append(temp_metrics.T_keV)
+                ratio_list.append(metrics.excess_ratio)
+                th_err_list.append(metrics.propagated_uncertainty)
 
             # 计算平均值和标准差（Error Bar）
             return {
@@ -274,13 +280,15 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             }
         else:
             # 它是单次模拟
-            metrics = compute_run_tail_metrics(run_or_group, is_final, low, high)
+            step_idx = -1 if is_final else 0
+            temp_metrics = compute_run_temperature_metrics(run_or_group, step_idx)
+            metrics = compute_run_tail_metrics(run_or_group, step_idx, temp_metrics, low, high)
             return {
-                'T_keV': metrics['T_keV'],
+                'T_keV': temp_metrics.T_keV,
                 'T_keV_err': 0.0,
-                'excess_ratio': metrics['excess_ratio'],
+                'excess_ratio': metrics.excess_ratio,
                 'excess_ratio_err': 0.0,
-                'propagated_uncertainty': metrics['propagated_uncertainty']
+                'propagated_uncertainty': metrics.propagated_uncertainty
             }
 
     # =========================================================================

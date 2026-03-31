@@ -1,5 +1,4 @@
 # batch/agent/gongji/gongji_manager.py
-import json
 import os
 import time
 from pathlib import Path
@@ -7,6 +6,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+import node_executor_gongji as gongji_agent
 from batch.manager_api import BaseComputeManager, JobStatus
 
 current_dir = Path(__file__).resolve().parent
@@ -116,7 +116,7 @@ class GongjiComputeManager(BaseComputeManager):
             results.append(f">>> [CLOUD_SYSTEM] {reason}: {msg}\n")
         return results
 
-    def submit(self, task_hash: str, params: dict, output_dir_name: str):
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
         """
         提交任务到共绩云平台
         """
@@ -132,7 +132,16 @@ class GongjiComputeManager(BaseComputeManager):
 
         # 1. 构造云端执行命令 (在容器内执行)
         # 激活环境 -> 设置 Token -> 运行 Agent
-        config_json = json.dumps(params).replace("'", "'\\''")
+        remote_root = "/mnt/warpx/mag_sim"
+
+        agent_cmd = self.build_node_command(
+            executor_module=gongji_agent,
+            remote_root=remote_root,
+            task_hash=task_hash,
+            output_dir_name=output_dir_name,
+            rel_job_path=rel_job_path,
+            params=params
+        )
 
         # spack 的 setup 脚本路径
         spack_setup = "/root/spack/share/spack/setup-env.sh"
@@ -142,8 +151,7 @@ class GongjiComputeManager(BaseComputeManager):
             f"spack env activate warpx-4090 && "
             f"export GONGJI_TOKEN={self.token} && "
             f"export GONGJI_BASE_URL={self.base_url} && "
-            f"python3 /mnt/warpx/mag_sim/batch/agent/gongji/node_executor_gongji.py " # 唯一一个需要硬编码的.py文件地址，其他的都可以自动检测
-            f"--hash {task_hash} --out_name {self.task_name} --config '{config_json}'"
+            f"{agent_cmd}"
         )
 
         # 2. 构造 API Payload (严格对应你提供的文档结构)

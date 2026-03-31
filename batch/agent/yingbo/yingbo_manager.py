@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from kubernetes import client, config, watch
 
+import node_executor_yingbo as yingbo_agent
 from batch.manager_api import BaseComputeManager, JobStatus
 
 current_dir = Path(__file__).resolve().parent
@@ -13,6 +14,7 @@ current_dir = Path(__file__).resolve().parent
 ENV_FILE_PATH = current_dir / '.yingbo.service.env'
 if not load_dotenv(ENV_FILE_PATH):
     print(f"[Config] 警告: 未找到配置文件: {ENV_FILE_PATH}", file=sys.stderr)
+
 
 class YingboComputeManager(BaseComputeManager):
     def __init__(self):
@@ -29,7 +31,7 @@ class YingboComputeManager(BaseComputeManager):
         self._status = JobStatus.PENDING
         self.last_log_line_count = 0
 
-    def submit(self, task_hash: str, params: dict, output_dir_name: str):
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
         # 刚才测试成功的 A800 规格
         EB_A800_SPEC = {
             "label": "A800_NVLINK_80GB",
@@ -41,15 +43,22 @@ class YingboComputeManager(BaseComputeManager):
         self.job_name = f"sim-{task_hash[:8]}-{int(time.time())}"
 
         # 1. 构造容器启动命令
-        import json
-        config_json = json.dumps(params).replace("'", "'\\''")
-        spack_setup = "/root/spack/share/spack/setup-env.sh"
+        remote_root = "/mnt/warpx/mag_sim"  # 挂载点约定
+        agent_cmd = self.build_node_command(
+            executor_module=yingbo_agent,
+            remote_root=remote_root,
+            task_hash=task_hash,
+            output_dir_name=output_dir_name,
+            rel_job_path=rel_job_path,
+            params=params,
+            python_exe="python3"
+        )
 
+        spack_setup = "/root/spack/share/spack/setup-env.sh"
         cmd = (
             f"source {spack_setup} && "
             f"spack env activate warpx-a800 && "
-            f"python3 /mnt/warpx/mag_sim/batch/agent/yingbo/node_executor_yingbo.py "
-            f"--hash {task_hash} --out_name {output_dir_name} --config '{config_json}'"
+            f"{agent_cmd}"
         )
 
         env_vars = [
