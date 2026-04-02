@@ -3,9 +3,9 @@ import queue
 import subprocess
 import threading
 
-import node_executor_wsl as wsl_agent
+import batch.agent.wsl.node_executor_wsl as wsl_agent
 from batch.manager_api import BaseComputeManager, JobStatus
-from project_config_wsl import PROJECT_ROOT_WSL, get_spack_activation_command
+from batch.agent.wsl.project_config_wsl import PROJECT_ROOT_WSL, get_spack_activation_command
 
 
 class WSLComputeManager(BaseComputeManager):

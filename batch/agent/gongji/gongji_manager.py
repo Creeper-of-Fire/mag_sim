@@ -6,7 +6,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-import node_executor_gongji as gongji_agent
+import batch.agent.gongji.node_executor_gongji as gongji_agent
 from batch.manager_api import BaseComputeManager, JobStatus
 
 current_dir = Path(__file__).resolve().parent

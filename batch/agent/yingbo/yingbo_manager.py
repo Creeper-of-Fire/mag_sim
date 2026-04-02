@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from kubernetes import client, config, watch
 
-import node_executor_yingbo as yingbo_agent
+import batch.agent.yingbo.node_executor_yingbo as yingbo_agent
 from batch.manager_api import BaseComputeManager, JobStatus
 
 current_dir = Path(__file__).resolve().parent
