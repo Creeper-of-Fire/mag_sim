@@ -108,7 +108,7 @@ def run_batch(job_dir_win: str):
 
 
         # 实例化 Manager (这里是唯一可以手动指定实现类的地方)
-        manager: BaseComputeManager = WSLComputeManager()
+        manager: BaseComputeManager = YingboComputeManager()
 
         # 提交
         manager.submit(

@@ -697,23 +697,23 @@ class MatplotlibReporter(Reporter):
 # =============================================================================
 if __name__ == "__main__":
 
-    test_scenario = PlasmaScenario(
-        name="Deuterium Bottleneck (84keV)",
-        n_e=7.28e33,
-        T_eV=84480.0,
-        NX=256, LX=100.0, LT=100.0, DT=0.2, dims=3
-    )
-
-    validators = [TimescaleValidator(),TimescaleValidatorV2(),]  # 仅测试修改的部分
-
-    print(f"\n分析场景: {test_scenario.name}")
-    print("-" * 70)
-    for v in validators:
-        for res in v.validate(test_scenario):
-            print(f"[{res.status.name:7}] {res.title:30} : {res.message}")
-            if res.formula: print(f"{'':10} 说明: {res.formula}")
-
-    exit()
+    # test_scenario = PlasmaScenario(
+    #     name="Deuterium Bottleneck (84keV)",
+    #     n_e=7.28e33,
+    #     T_eV=84480.0,
+    #     NX=256, LX=100.0, LT=100.0, DT=0.2, dims=3
+    # )
+    #
+    # validators = [TimescaleValidator(),TimescaleValidatorV2(),]  # 仅测试修改的部分
+    #
+    # print(f"\n分析场景: {test_scenario.name}")
+    # print("-" * 70)
+    # for v in validators:
+    #     for res in v.validate(test_scenario):
+    #         print(f"[{res.status.name:7}] {res.title:30} : {res.message}")
+    #         if res.formula: print(f"{'':10} 说明: {res.formula}")
+    #
+    # exit()
 
     # --- 1. 定义参数扫描的各个维度 ---
 
