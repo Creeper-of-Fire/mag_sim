@@ -482,23 +482,24 @@ class PlasmaSimulation(object):
             bucket_params=bucket_thermal_positron
         ))
 
-        # --- 电子 (束流) ---
-        species_wrappers.append(SpeciesWrapper(
-            name="electrons_beam",
-            initial_distribution=picmi.UniformDistribution(density=n_beam),
-            method='LLRK4',
-            layout_config=beam_layout_factory,
-            bucket_params=bucket_beam_electron
-        ))
+        if self.beam_fraction > 0:
+            # --- 电子 (束流) ---
+            species_wrappers.append(SpeciesWrapper(
+                name="electrons_beam",
+                initial_distribution=picmi.UniformDistribution(density=n_beam),
+                method='LLRK4',
+                layout_config=beam_layout_factory,
+                bucket_params=bucket_beam_electron
+            ))
 
-        # --- 正电子 (束流) ---
-        species_wrappers.append(SpeciesWrapper(
-            name="positrons_beam",
-            initial_distribution=picmi.UniformDistribution(density=n_beam),
-            method='LLRK4',
-            layout_config=beam_layout_factory,
-            bucket_params=bucket_beam_positron
-        ))
+            # --- 正电子 (束流) ---
+            species_wrappers.append(SpeciesWrapper(
+                name="positrons_beam",
+                initial_distribution=picmi.UniformDistribution(density=n_beam),
+                method='LLRK4',
+                layout_config=beam_layout_factory,
+                bucket_params=bucket_beam_positron
+            ))
 
         # --- 光子 ---
         species_wrappers.append(SpeciesWrapper(
@@ -619,9 +620,9 @@ class PlasmaSimulation(object):
             )
         simulation.time_step_size = self.dt
         simulation.max_steps = self.total_steps
-        simulation.current_deposition_algo = "direct"
-        simulation.particle_shape = 1
-        simulation.use_filter = False
+        simulation.current_deposition_algo = "esirkepov"
+        simulation.particle_shape = 2
+        simulation.use_filter = True
         simulation.verbose = self.verbose
 
         #######################################################################
