@@ -622,7 +622,7 @@ class PlasmaSimulation(object):
         simulation.max_steps = self.total_steps
         simulation.current_deposition_algo = "esirkepov"
         simulation.particle_shape = 2
-        simulation.use_filter = True
+        simulation.use_filter = False
         simulation.verbose = self.verbose
 
         #######################################################################
