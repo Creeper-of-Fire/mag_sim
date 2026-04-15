@@ -284,19 +284,31 @@ def get_run_parameters(run: Any) -> Dict[str, Any]:
 
     params = {}
 
-    # 1. 尝试从 run.sim 提取基础参数 (转换为普通字典，丢弃复杂对象和私有属性)
-    if hasattr(run, 'sim') and run.sim is not None:
-        for k, v in vars(run.sim).items():
-            if isinstance(v, (int, float, str, bool)) and not k.startswith('_'):
-                params[k] = v
-
+    # 获取基本路径
     if not hasattr(run, 'path') or not run.path:
         return params
-
     run_path = Path(run.path).resolve()
-    history_path = run_path.parent.parent / filename_history
 
-    # 2. 读取全局 history 缓存 (极其高效，只读一次)
+    # --- 1. 识别身份与溯源 ---
+    local_params = {}
+    lookup_name = run_path.name  # 默认使用目录名
+
+    local_param_file = run_path / "custom_params.json"
+    if local_param_file.exists():
+        try:
+            with open(local_param_file, 'r', encoding='utf-8') as f:
+                local_params = json.load(f)
+                # 如果是虚拟切片，剥离后缀以查找原始物理参数
+                # 例如: "density_0.1_slice_000500" -> "density_0.1"
+                if local_params.get("_is_virtual_slice"):
+                    lookup_name = re.sub(r'_slice_\d+$', '', run_path.name)
+        except Exception:
+            pass
+
+    # --- 2. 从 history.jsonl 获取物理参数 ---
+    # 物理参数是在模拟提交时记录的，最干净且最能代表物理初值
+    history_path = run_path.parent.parent / FILENAME_HISTORY
+
     if history_path not in _HISTORY_FILE_CACHE and history_path.exists():
         _HISTORY_FILE_CACHE[history_path] = {}
         try:
@@ -306,6 +318,7 @@ def get_run_parameters(run: Any) -> Dict[str, Any]:
                         record = json.loads(line)
                         out_dir = record.get('output_dir', '')
                         if out_dir:
+                            # 记录原始模拟名对应的参数字典
                             r_name = Path(out_dir).name
                             _HISTORY_FILE_CACHE[history_path][r_name] = record.get('params', {})
                     except Exception:
@@ -313,19 +326,13 @@ def get_run_parameters(run: Any) -> Dict[str, Any]:
         except Exception:
             pass
 
-    # 3. 合并 history.jsonl 中的记录
-    if history_path in _HISTORY_FILE_CACHE and run_path.name in _HISTORY_FILE_CACHE[history_path]:
-        params.update(_HISTORY_FILE_CACHE[history_path][run_path.name])
+    # 注入 history 记录的参数
+    if history_path in _HISTORY_FILE_CACHE and lookup_name in _HISTORY_FILE_CACHE[history_path]:
+        params.update(_HISTORY_FILE_CACHE[history_path][lookup_name])
 
-    # 4. 合并 custom_params.json (最高优先级)
-    local_param_file = run_path / "custom_params.json"
-    if local_param_file.exists():
-        try:
-            with open(local_param_file, 'r', encoding='utf-8') as f:
-                local_params = json.load(f)
-                params.update(local_params)
-        except Exception:
-            pass
+    # --- 3. 合并本地 custom_params.json (覆盖/补充) ---
+    # 这步很重要，它注入了 slice_step, current_time 等切片特有的“准参数”
+    params.update(local_params)
 
     return params
 

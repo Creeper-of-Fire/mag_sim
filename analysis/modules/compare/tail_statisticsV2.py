@@ -1,13 +1,16 @@
 # analysis/modules/single/tail_statisticsV2.py
 
 import warnings
-from typing import List, Dict, Optional, NamedTuple, Any
+from typing import List, Dict, Optional, NamedTuple, Any, Tuple
 
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.constants import mu_0, e, epsilon_0
 from scipy.integrate import quad, IntegrationWarning
 
 from analysis.core.cache import cached_op
+from analysis.core.data_loader import _get_step_from_filename
 from analysis.core.param_display_names import get_param_display
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
@@ -225,6 +228,47 @@ def compute_run_tail_metrics(
     )
 
 
+@cached_op(file_dep="auto")
+def _get_mean_u_mag(run: 'SimulationRunSingle', fpath: str) -> float:
+    """
+    极速计算单个 HDF5 场文件中的全空间总磁场能量 (焦耳)。
+    参数中包含 fpath，缓存会自动只绑定该单独文件，实现帧级别的精细复用。
+    """
+    step = _get_step_from_filename(fpath)
+    with h5py.File(fpath, 'r') as f:
+        bp = f"/data/{step}/fields/B"
+        # 不管是 2D 还是 3D，直接对全数组取均值
+        b_sq_mean = np.mean(f[bp + '/x'][:] ** 2 + f[bp + '/y'][:] ** 2 + f[bp + '/z'][:] ** 2)
+    return float(b_sq_mean / (2 * mu_0))
+
+
+@cached_op(file_dep="auto")
+def _get_mean_u_elec(run: 'SimulationRunSingle', fpath: str) -> float:
+    """计算全空间平均电场能量密度 (0.5 * epsilon_0 * E^2)"""
+    step = _get_step_from_filename(fpath)
+    with h5py.File(fpath, 'r') as f:
+        ep = f"/data/{step}/fields/E"
+        e_sq_mean = np.mean(f[ep + '/x'][:] ** 2 + f[ep + '/y'][:] ** 2 + f[ep + '/z'][:] ** 2)
+    return float(0.5 * epsilon_0 * e_sq_mean)
+
+
+def compute_run_energy_partition(run: 'SimulationRunSingle', step_index: int) -> Tuple[float, float, float]:
+    """返回 (磁能占比, 电能占比, 总场能占比)"""
+    t_metrics = compute_run_temperature_metrics(run, step_index)
+    if t_metrics.avg_energy_MeV <= 0: return np.nan, np.nan, np.nan
+
+    u_kin = (2.0 * run.sim.n_plasma) * (t_metrics.avg_energy_MeV * e * 1e6)  # TODO pair plasma 总密度是 2 * n_plasma，但是前提是我们没有引入beam
+    files = run.field_files
+    idx = step_index if step_index >= 0 else len(files) + step_index
+    if not (0 <= idx < len(files)): return np.nan, np.nan, np.nan
+
+    u_mag = _get_mean_u_mag(run, files[idx])
+    u_elec = _get_mean_u_elec(run, files[idx])
+    u_total = u_kin + u_mag + u_elec
+
+    return float(u_mag / u_total), float(u_elec / u_total), float((u_mag + u_elec) / u_total)
+
+
 class MultiBandTailStatisticsModule(BaseComparisonModule):
     @property
     def name(self) -> str:
@@ -248,7 +292,24 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             (15.0, None)
         ]
 
-    def _get_metrics_with_error(self, run_or_group:'SimulationRun', is_final: bool, low: float, high: Optional[float]) -> Dict[str, float]:
+    def _get_field_metrics(self, run_or_group: 'SimulationRun', is_final: bool) -> Dict[str, Tuple[float, float]]:
+        from analysis.core.simulationGroup import SimulationRunGroup
+        step_idx = -1 if is_final else 0
+        if isinstance(run_or_group, SimulationRunGroup):
+            res = [compute_run_energy_partition(sr, step_idx) for sr in run_or_group.runs]
+            m_vals = [v[0] for v in res if not np.isnan(v[0])]
+            e_vals = [v[1] for v in res if not np.isnan(v[1])]
+            s_vals = [v[2] for v in res if not np.isnan(v[2])]
+            return {
+                'mag': (float(np.mean(m_vals)), float(np.std(m_vals, ddof=1)) if len(m_vals) > 1 else 0.0),
+                'elec': (float(np.mean(e_vals)), float(np.std(e_vals, ddof=1)) if len(e_vals) > 1 else 0.0),
+                'sum': (float(np.mean(s_vals)), float(np.std(s_vals, ddof=1)) if len(s_vals) > 1 else 0.0)
+            }
+        else:
+            m, e_v, s = compute_run_energy_partition(run_or_group, step_idx)
+            return {'mag': (m, 0.0), 'elec': (e_v, 0.0), 'sum': (s, 0.0)}
+
+    def _get_metrics_with_error(self, run_or_group: 'SimulationRun', is_final: bool, low: float, high: Optional[float]) -> Dict[str, float]:
         """
         核心分发器...
         """
@@ -328,13 +389,25 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                        'final': [], 'final_err': [], 'final_th_err': []}
                    for i in range(len(self.intervals))}
 
-        # 温度不随能段的选择改变，只需存一份
         temps = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
+        mag_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
+        elec_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
+        sum_field_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
 
         console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
 
         for i, run in enumerate(sorted_runs):
             console.print(f"    [{run.name}] {x_label_key}={x_vals[i]}")
+
+            # 获取场比例
+            fr_final = self._get_field_metrics(run, is_final=True)
+
+            mag_ratios['final'].append(fr_final['mag'][0])
+            mag_ratios['final_err'].append(fr_final['mag'][1])
+            elec_ratios['final'].append(fr_final['elec'][0])
+            elec_ratios['final_err'].append(fr_final['elec'][1])
+            sum_field_ratios['final'].append(fr_final['sum'][0])
+            sum_field_ratios['final_err'].append(fr_final['sum'][1])
 
             # 对各个能段进行遍历计算
             for f_idx, (low, high) in enumerate(self.intervals):
@@ -356,7 +429,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 results[f_idx]['final_err'].append(m_final['excess_ratio_err'])
                 results[f_idx]['final_th_err'].append(m_final['propagated_uncertainty'])
 
-        num_plots = len(self.intervals) + 1
+        num_plots = len(self.intervals) + 4
 
         # =========================================================================
         # 绘图逻辑：N个能段的 Excess 占比图 + 1个温度图
@@ -413,8 +486,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                     if i < num_plots - 1:
                         ax.set_xticklabels([])
 
-            # --- 最后一个图: 温度变化 ---
-            ax_temp = axes[-1]
+            # --- 温度变化 ---
+            ax_temp = axes[-4]
             ax_temp.errorbar(scaled_x, temps['final'], yerr=np.array(temps['final_err']),
                              fmt='-s', capsize=4, color=style.color_comparison_secondary, lw=style.lw_base, label='最终温度 $T$')
 
@@ -431,6 +504,36 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             if not is_num:
                 ax_temp.set_xticks(scaled_x)
                 ax_temp.set_xticklabels(x_vals, rotation=45)
+
+            # --- 磁场能量占比 ---
+            ax_mag = axes[-3]
+            ax_mag.errorbar(scaled_x, mag_ratios['final'], yerr=np.array(mag_ratios['final_err']),
+                            fmt='-d', capsize=4, color='darkorange', label='磁能占比 $E_B$')
+            # ax_mag.errorbar(scaled_x, energy_ratios['init'], yerr=np.array(energy_ratios['init_err']),
+            #                 fmt='--d', capsize=4, color='gray', lw=style.lw_base, label='初始时刻 $t=0$')
+
+            ax_mag.set_ylabel(r"$E_B / E_{total}$")
+            ax_mag.set_xlabel(final_x_label)
+            ax_mag.legend(fontsize='small', loc='best')
+
+            # --- 电场比例图 ---
+            ax_elec = axes[-2]
+            ax_elec.errorbar(scaled_x, elec_ratios['final'], yerr=np.array(elec_ratios['final_err']), fmt='-^', capsize=4, color='crimson',
+                             label='电能占比 $E_E$')
+            ax_elec.set_ylabel(r"$E_E / E_{total}$")
+            ax_elec.set_xlabel(final_x_label)
+            ax_elec.legend(fontsize='small')
+            ax_elec.grid(True, alpha=0.3)
+
+            # 总场能图 (Mag + Elec)
+            ax_s = axes[-1]
+            ax_s.errorbar(scaled_x, sum_field_ratios['final'], yerr=sum_field_ratios['final_err'], fmt='-P', color='indigo', label='总场能 (B+E)')
+            ax_s.set_ylabel(r"$(E_B + E_E) / E_{total}$")
+            ax_s.set_xlabel(final_x_label)
+
+            if not is_num:
+                ax_mag.set_xticks(scaled_x)
+                ax_mag.set_xticklabels(x_vals, rotation=45)
 
             plt.subplots_adjust(hspace=0.25)
 

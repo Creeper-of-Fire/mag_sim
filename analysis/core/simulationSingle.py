@@ -115,7 +115,7 @@ class SimulationRunSingle(SimulationRun):
 
     def get_spectrum(self, step_index: int = -1) -> Optional['SpectrumData']:
         """
-        获取特定时间步的能谱 (Cached)。
+        获取特定时间步的能谱。
 
         Args:
             step_index: 帧索引。-1 表示最后一帧，0 表示第一帧。
