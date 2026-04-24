@@ -269,6 +269,37 @@ def compute_run_energy_partition(run: 'SimulationRunSingle', step_index: int) ->
     return float(u_mag / u_total), float(u_elec / u_total), float((u_mag + u_elec) / u_total)
 
 
+def compute_run_energy_densities_normalized(run: 'SimulationRunSingle', step_index: int) -> Tuple[float, float, float, float]:
+    """
+    返回归一化能量密度 (以 n₀·mₑc² 为单位)
+    """
+    t_metrics = compute_run_temperature_metrics(run, step_index)
+    if t_metrics.avg_energy_MeV <= 0:
+        return 0.0, 0.0, 0.0, 0.0
+
+    m_e_c2_J = 8.1871e-14  # 电子静止能量, J
+    n0 = run.sim.n_plasma  # m^-3
+    norm_factor = n0 * m_e_c2_J  # J/m^3, 归一化因子
+
+    # 动能密度 (J/m^3) -> 归一化
+    u_kin_J = (2.0 * n0) * (t_metrics.avg_energy_MeV * e * 1e6)
+    u_kin_norm = u_kin_J / norm_factor
+
+    files = run.field_files
+    idx = step_index if step_index >= 0 else len(files) + step_index
+    if not (0 <= idx < len(files)):
+        return u_kin_norm, 0.0, 0.0, u_kin_norm
+
+    u_mag_J = _get_mean_u_mag(run, files[idx])
+    u_elec_J = _get_mean_u_elec(run, files[idx])
+
+    u_mag_norm = u_mag_J / norm_factor
+    u_elec_norm = u_elec_J / norm_factor
+    u_total_norm = u_kin_norm + u_mag_norm + u_elec_norm
+
+    return u_kin_norm, u_mag_norm, u_elec_norm, u_total_norm
+
+
 class MultiBandTailStatisticsModule(BaseComparisonModule):
     @property
     def name(self) -> str:
@@ -352,6 +383,38 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 'propagated_uncertainty': metrics.propagated_uncertainty
             }
 
+    def _get_energy_densities(self, run_or_group: 'SimulationRun', is_final: bool) -> Dict[str, Tuple[float, float]]:
+        """获取各能量密度, 返回均值和标准差"""
+        from analysis.core.simulationGroup import SimulationRunGroup
+        step_idx = -1 if is_final else 0
+        if isinstance(run_or_group, SimulationRunGroup):
+            res = [compute_run_energy_densities_normalized(sr, step_idx) for sr in run_or_group.runs]
+            kin_vals = [v[0] for v in res if not np.isnan(v[0])]
+            mag_vals = [v[1] for v in res if not np.isnan(v[1])]
+            elec_vals = [v[2] for v in res if not np.isnan(v[2])]
+            tot_vals = [v[3] for v in res if not np.isnan(v[3])]
+
+            def _mean_std(lst):
+                if len(lst) == 0: return (0.0, 0.0)
+                m = float(np.mean(lst))
+                s = float(np.std(lst, ddof=1)) if len(lst) > 1 else 0.0
+                return (m, s)
+
+            return {
+                'kin': _mean_std(kin_vals),
+                'mag': _mean_std(mag_vals),
+                'elec': _mean_std(elec_vals),
+                'total': _mean_std(tot_vals)
+            }
+        else:
+            kin, mag, elec, tot = compute_run_energy_densities_normalized(run_or_group, step_idx)
+            return {
+                'kin': (kin, 0.0),
+                'mag': (mag, 0.0),
+                'elec': (elec, 0.0),
+                'total': (tot, 0.0)
+            }
+
     # =========================================================================
     # 运行与绘图
     # =========================================================================
@@ -393,6 +456,13 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         mag_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
         elec_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
         sum_field_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
+        # 能量密度 (eV) 数据容器
+        energy_densities = {
+            'kin': {'final': [], 'final_err': []},
+            'mag': {'final': [], 'final_err': []},
+            'elec': {'final': [], 'final_err': []},
+            'total': {'final': [], 'final_err': []}
+        }
 
         console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
 
@@ -408,6 +478,12 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             elec_ratios['final_err'].append(fr_final['elec'][1])
             sum_field_ratios['final'].append(fr_final['sum'][0])
             sum_field_ratios['final_err'].append(fr_final['sum'][1])
+
+            # 获取能量密度
+            ed_final = self._get_energy_densities(run, is_final=True)
+            for key in ['kin', 'mag', 'elec', 'total']:
+                energy_densities[key]['final'].append(ed_final[key][0])
+                energy_densities[key]['final_err'].append(ed_final[key][1])
 
             # 对各个能段进行遍历计算
             for f_idx, (low, high) in enumerate(self.intervals):
@@ -429,7 +505,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 results[f_idx]['final_err'].append(m_final['excess_ratio_err'])
                 results[f_idx]['final_th_err'].append(m_final['propagated_uncertainty'])
 
-        num_plots = len(self.intervals) + 4
+        num_plots = len(self.intervals) + 4 + 4
 
         # =========================================================================
         # 绘图逻辑：N个能段的 Excess 占比图 + 1个温度图
@@ -487,7 +563,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                         ax.set_xticklabels([])
 
             # --- 温度变化 ---
-            ax_temp = axes[-4]
+            ax_temp = axes[-8]
             ax_temp.errorbar(scaled_x, temps['final'], yerr=np.array(temps['final_err']),
                              fmt='-s', capsize=4, color=style.color_comparison_secondary, lw=style.lw_base, label='最终温度 $T$')
 
@@ -506,7 +582,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 ax_temp.set_xticklabels(x_vals, rotation=45)
 
             # --- 磁场能量占比 ---
-            ax_mag = axes[-3]
+            ax_mag = axes[-7]
             ax_mag.errorbar(scaled_x, mag_ratios['final'], yerr=np.array(mag_ratios['final_err']),
                             fmt='-d', capsize=4, color='darkorange', label='磁能占比 $E_B$')
             # ax_mag.errorbar(scaled_x, energy_ratios['init'], yerr=np.array(energy_ratios['init_err']),
@@ -517,7 +593,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             ax_mag.legend(fontsize='small', loc='best')
 
             # --- 电场比例图 ---
-            ax_elec = axes[-2]
+            ax_elec = axes[-6]
             ax_elec.errorbar(scaled_x, elec_ratios['final'], yerr=np.array(elec_ratios['final_err']), fmt='-^', capsize=4, color='crimson',
                              label='电能占比 $E_E$')
             ax_elec.set_ylabel(r"$E_E / E_{total}$")
@@ -526,7 +602,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             ax_elec.grid(True, alpha=0.3)
 
             # 总场能图 (Mag + Elec)
-            ax_s = axes[-1]
+            ax_s = axes[-5]
             ax_s.errorbar(scaled_x, sum_field_ratios['final'], yerr=sum_field_ratios['final_err'], fmt='-P', color='indigo', label='总场能 (B+E)')
             ax_s.set_ylabel(r"$(E_B + E_E) / E_{total}$")
             ax_s.set_xlabel(final_x_label)
@@ -534,6 +610,63 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             if not is_num:
                 ax_mag.set_xticks(scaled_x)
                 ax_mag.set_xticklabels(x_vals, rotation=45)
+
+            # --- 能量密度图 (eV) ---
+            color_kin = 'steelblue'
+            color_mag = 'darkorange'
+            color_elec = 'crimson'
+            color_tot = 'darkgreen'
+
+            # 动能密度
+            ax_e_kin = axes[-4]
+            ax_e_kin.errorbar(scaled_x, energy_densities['kin']['final'],
+                              yerr=np.array(energy_densities['kin']['final_err']),
+                              fmt='-o', capsize=4, color=color_kin, label='动能密度')
+            ax_e_kin.set_ylabel(r"$U_{kin} / (n_0 m_e c^2)$")
+            ax_e_kin.legend(fontsize='small', loc='best')
+            ax_e_kin.grid(True, linestyle=':', alpha=0.4)
+            ax_e_kin.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+            # 磁能密度
+            ax_e_mag = axes[-3]
+            ax_e_mag.errorbar(scaled_x, energy_densities['mag']['final'],
+                              yerr=np.array(energy_densities['mag']['final_err']),
+                              fmt='-d', capsize=4, color=color_mag, label='磁能密度')
+            ax_e_mag.set_ylabel(r"$U_B / (n_0 m_e c^2)$")
+            ax_e_mag.legend(fontsize='small', loc='best')
+            ax_e_mag.grid(True, linestyle=':', alpha=0.4)
+            ax_e_mag.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+            # 电能密度
+            ax_e_elec = axes[-2]
+            ax_e_elec.errorbar(scaled_x, energy_densities['elec']['final'],
+                               yerr=np.array(energy_densities['elec']['final_err']),
+                               fmt='-^', capsize=4, color=color_elec, label='电能密度')
+            ax_e_elec.set_ylabel(r"$U_E / (n_0 m_e c^2)$")
+            ax_e_elec.legend(fontsize='small', loc='best')
+            ax_e_elec.grid(True, linestyle=':', alpha=0.4)
+            ax_e_elec.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+            # 总能量密度
+            ax_e_tot = axes[-1]
+            ax_e_tot.errorbar(scaled_x, energy_densities['total']['final'],
+                              yerr=np.array(energy_densities['total']['final_err']),
+                              fmt='-s', capsize=4, color=color_tot, linewidth=2, label='总能量密度')
+            ax_e_tot.set_ylabel(r"$U_{total} / (n_0 m_e c^2)$")
+            ax_e_tot.set_xlabel(final_x_label)
+            ax_e_tot.legend(fontsize='small', loc='best')
+            ax_e_tot.grid(True, linestyle=':', alpha=0.4)
+            ax_e_tot.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+            if not is_num:
+                ax_e_kin.set_xticks(scaled_x)
+                ax_e_kin.set_xticklabels([])
+                ax_e_mag.set_xticks(scaled_x)
+                ax_e_mag.set_xticklabels([])
+                ax_e_elec.set_xticks(scaled_x)
+                ax_e_elec.set_xticklabels([])
+                ax_e_tot.set_xticks(scaled_x)
+                ax_e_tot.set_xticklabels(x_vals, rotation=45)
 
             plt.subplots_adjust(hspace=0.25)
 
