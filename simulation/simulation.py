@@ -580,7 +580,7 @@ class PlasmaSimulation(object):
             all_charged_species = [
                 w.instance for w in species_wrappers if w.name != "photons"
             ]
-            all_collisions = self.create_collision_pairs(all_charged_species, ndt=1)
+            all_collisions = self.create_collision_pairs(all_charged_species, ndt=self.p.ndt)
             simulation_args.warpx_collisions = all_collisions  # 传递包含多个碰撞对象的列表
             print(f"--- 总共 {len(all_collisions)} 个碰撞对已添加到模拟中。 ---\n")
 
