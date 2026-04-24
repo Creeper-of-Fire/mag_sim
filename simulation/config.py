@@ -20,6 +20,9 @@ class SimulationParameters:
 
     particle_total_step = 40
 
+    # 碰撞频率
+    ndt = 5
+
     # --- 1. 基础物理参数 (Independent Physical Parameters) ---
     # 维度
     dim = 2
