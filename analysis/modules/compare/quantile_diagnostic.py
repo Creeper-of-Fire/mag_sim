@@ -51,7 +51,6 @@ class QuantileDiagnosticModule(BaseComparisonModule):
 
         ctx = ComparisonContext(loaded_runs, "quantile_diag")
         runs, x_scaled = ctx.unpack
-        x_raw, _, x_label = ctx.x
 
         # 准备数据容器
         ratios = []  # E_99.9 / E_50
