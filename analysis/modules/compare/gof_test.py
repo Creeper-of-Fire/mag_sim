@@ -131,7 +131,7 @@ class GoodnessOfFitModule(BaseComparisonModule):
 
         ctx = ComparisonContext(loaded_runs, "gof_test")
         runs, x_scaled = ctx.unpack
-        x_raw, _, x_label = ctx.x
+        x_raw = ctx.x_raw
 
         # 数据容器
         results_D_ks = []

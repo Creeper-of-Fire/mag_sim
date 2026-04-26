@@ -421,7 +421,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
 
         ctx = ComparisonContext(loaded_runs, "multiband_tail")
         runs, x_scaled = ctx.unpack
-        x_raw, _, x_label = ctx.x
+        x_raw = ctx.x_raw
+        x_label_key = ctx.x_label_key
 
         # 数据结构初始化
         # results[factor] = {'init': [], 'init_err': [], 'init_th_err': [], 'final': [], 'final_err': [], 'final_th_err': []}
@@ -444,7 +445,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
 
         for i, run in enumerate(runs):
-            console.print(f"    [{run.name}] {x_label}={x_raw[i]}")
+            console.print(f"    [{run.name}] {x_label_key}={x_raw[i]}")
 
             # 获取场比例
             fr_final = self._get_field_metrics(run, is_final=True)

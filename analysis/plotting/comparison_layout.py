@@ -4,7 +4,7 @@ from typing import Optional, Any, NamedTuple
 from numpy import ndarray
 
 from .layout import AnalysisLayout
-from ..core.param_display_names import get_param_display
+from ..core.param_display_names import get_param_display, ParamInfo
 from ..core.parameter_selector import ParameterSelector
 from ..core.simulation import SimulationRun
 from ..modules.utils.spectrum_tools import filter_valid_runs
@@ -62,9 +62,9 @@ class ComparisonContext:
         x_label_key, x_vals, sorted_runs = selector.select()
         final_filename = selector.generate_filename(x_label_key, sorted_runs, prefix=base_filename)
 
-        x_axis_info = get_param_display(x_label_key)
+        x_label_info = get_param_display(x_label_key)
 
-        x_scaled, final_x_label, is_num = x_axis_info.prepare_axis(x_vals)
+        x_scaled, final_x_label, is_num = x_label_info.prepare_axis(x_vals)
         # --- 公开属性 ---
         self.runs: list[SimulationRun] = sorted_runs
         """排序后的有效模拟列表"""
@@ -75,7 +75,13 @@ class ComparisonContext:
         self.x_scaled: ndarray = x_scaled
         """X 轴缩放后的数值（用于绘图定位）"""
 
-        self.x_label: str = final_x_label
+        self.x_label_key: str = x_label_key
+        """X 轴参数的原始键名（如 "target_sigma", "B0"）"""
+
+        self.x_label_info: ParamInfo = x_label_info
+        """X 轴标签的完整 ParamInfo 对象，可访问 .name_cn, .symbol, .unit 等"""
+
+        self.x_label_str: str = final_x_label
         """X 轴标签（已包含单位与数量级）"""
 
         self.is_num: bool = is_num
@@ -85,9 +91,15 @@ class ComparisonContext:
         """完整的输出文件名（含哈希前缀），传给 AnalysisLayout"""
 
     @property
-    def x(self) -> tuple[list[Any], ndarray, str]:
-        """一次获取 X 轴全部信息: (x_raw, x_scaled, x_label)"""
-        return self.x_raw, self.x_scaled, self.x_label
+    def x(self) -> tuple[list[Any], ndarray]:
+        """一次获取 X 轴全部信息: (x_raw, x_scaled)"""
+        return self.x_raw, self.x_scaled
+
+    @property
+    def x_label(self) -> tuple[str, str, ParamInfo, bool]:
+        """X 轴标签信息: (x_label_str, x_label_key, x_label_info, is_num)"""
+        return self.x_label_str, self.x_label_key, self.x_label_info, self.is_num
+
 
     @property
     def unpack(self) -> tuple[list[SimulationRun], ndarray]:
