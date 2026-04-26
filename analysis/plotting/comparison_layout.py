@@ -149,7 +149,7 @@ class ComparisonLayout(AnalysisLayout):
 
         # 仅为最后一个轴设置 X 轴标签
         if self.plot_axes:
-            self.plot_axes[-1].set_xlabel(self._ctx.x_label)
+            self.plot_axes[-1].set_xlabel(self._ctx.x_label_str)
 
         # 委托父类完成参数表绘制、双版本保存和资源清理
         return super().__exit__(None, None, None)
