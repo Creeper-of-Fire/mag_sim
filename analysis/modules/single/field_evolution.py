@@ -6,8 +6,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.field_plotter import FieldRmsPlotter, FieldMeanPlotter, FieldMagnitudePlotter
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.layout import AnalysisLayout
 
 
 class FieldEvolutionModule(BaseAnalysisModule):
@@ -32,22 +31,43 @@ class FieldEvolutionModule(BaseAnalysisModule):
             return
 
         for i, run in enumerate(valid_runs):
-            output_name = f"{run.name}_analysis_field_evolution.png"
             console.print(f"  ({i + 1}/{len(valid_runs)}) 正在绘制 [bold]{run.name}[/bold]...")
-            self._generate_single_run_plot(run, output_name)
+            self._generate_single_run_plot(run)
 
-    def _generate_single_run_plot(self, run: SimulationRun, output_name: str):
-        # --- 实例化绘图器 ---
-        rms_plotter = FieldRmsPlotter()
-        mean_plotter = FieldMeanPlotter()
-        mag_plotter = FieldMagnitudePlotter()
+    def _generate_single_run_plot(self, run: SimulationRun):
+        with AnalysisLayout(run, "analysis_field_evolution") as layout:
+            data = run.field_data
+            label_suffix = f" ({run.name})" if run.name else ""
+            ax_rms = layout.request_axes()
+            ax_mean = layout.request_axes()
+            ax_mag = layout.request_axes()
 
-        with create_analysis_figure(run, "analysis_field_evolution", num_plots=3, figsize=(12, 15)) as (fig, (ax_rms, ax_mean, ax_mag)):
-            rms_plotter.plot(ax_rms, run, run.name)
-            rms_plotter.setup_axes(ax_rms)
+            ax_rms.plot(data.time, data.b_rms_x_normalized, '-', label='RMS(Bx)' + label_suffix)
+            ax_rms.plot(data.time, data.b_rms_y_normalized, '--', label='RMS(By)' + label_suffix)
+            ax_rms.plot(data.time, data.b_rms_z_normalized, ':', label='RMS(Bz)' + label_suffix)
 
-            mean_plotter.plot(ax_mean, run, run.name)
-            mean_plotter.setup_axes(ax_mean)
+            ax_rms.set_title('磁场分量RMS值演化 (湍流各向异性分析)', fontsize=14)
+            ax_rms.set_ylabel('分量RMS值 / B_norm')
+            ax_rms.set_yscale('log')
+            ax_rms.legend(loc='best', fontsize='small')
+            ax_rms.grid(True, which="both", ls="--", alpha=0.5)
 
-            mag_plotter.plot(ax_mag, run, run.name)
-            mag_plotter.setup_axes(ax_mag)
+            ax_mean.plot(data.time, data.b_mean_x_normalized, '-', label='<Bx>' + label_suffix)
+            ax_mean.plot(data.time, data.b_mean_y_normalized, '--', label='<By>' + label_suffix)
+            ax_mean.plot(data.time, data.b_mean_z_normalized, ':', label='<Bz>' + label_suffix)
+            ax_mean.axhline(0.0, color='black', linestyle='-', linewidth=1, alpha=0.7)
+
+            ax_mag.set_title('磁场分量平均值 <B> 演化 (宏观各向异性分析)', fontsize=14)
+            ax_mag.set_ylabel('平均磁场分量 <B_i> / B_norm')
+            ax_mag.legend(loc='best', fontsize='small')
+            ax_mag.grid(True, which="both", ls="--", alpha=0.5)
+
+            ax_mag.plot(data.time, data.b_mean_abs_normalized, '-', label='<|B|>' + label_suffix)
+            ax_mag.plot(data.time, data.b_max_normalized, '--', alpha=0.9, label='Max|B|' + label_suffix)
+
+            ax_mag.set_title('磁场强度演化 (增长与饱和分析)', fontsize=14)
+            ax_mag.set_xlabel('时间 (s)', fontsize=12)
+            ax_mag.set_ylabel('磁场强度 |B| / B_norm')
+            ax_mag.set_yscale('log')
+            ax_mag.legend(loc='best', fontsize='small')
+            ax_mag.grid(True, which="both", ls="--", alpha=0.5)
