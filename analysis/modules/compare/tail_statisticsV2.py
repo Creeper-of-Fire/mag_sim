@@ -1,5 +1,6 @@
 # analysis/modules/single/tail_statisticsV2.py
 
+import gc
 import warnings
 from typing import List, Dict, Optional, NamedTuple, Any, Tuple
 
@@ -356,6 +357,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 t_list.append(temp_metrics.T_keV)
                 ratio_list.append(metrics.excess_ratio)
                 th_err_list.append(metrics.propagated_uncertainty)
+                gc.collect()
 
             # 计算平均值和标准差（Error Bar）
             return {
