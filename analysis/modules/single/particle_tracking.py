@@ -14,7 +14,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.layout import AnalysisLayout
 
 # 物理常量
 ME_C2_J = m_e * c ** 2
@@ -48,6 +48,7 @@ def get_robust_dataset(h5_item: h5py.Group, component_path: str) -> np.ndarray:
             return item[ds_name][:]
 
     return np.array([])
+
 
 def _read_species_tracking_data(fpath: str) -> Tuple[Optional[str], Optional[np.ndarray], Optional[np.ndarray]]:
     """
@@ -205,10 +206,9 @@ class ParticleTrackingModule(BaseAnalysisModule):
         bulk_history = metrics["bulk_history"]
         tail_history = metrics["tail_history"]
 
-        filename_override = f"{run.name}_particle_tracking"
-
-        with create_analysis_figure(run, "particle_tracking", num_plots=2, figsize=(12, 5), override_filename=filename_override) as (fig, axes):
-            ax_traj, ax_hist = axes
+        with AnalysisLayout(run, "particle_tracking") as layout:
+            ax_traj = layout.request_axes()
+            ax_hist = layout.request_axes()
 
             # ==========================================
             # Plot 1: 粒子能量演化轨迹 (Energy Trajectories)

@@ -8,7 +8,6 @@
 # 定义 SimulationRun 和其他用于在分析模块之间传递数据的标准数据类。
 #
 
-import typing
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
@@ -86,6 +85,3 @@ class SimulationRun(ABC):
     @property
     def final_spectrum(self):
         return self.get_spectrum(-1)
-
-
-

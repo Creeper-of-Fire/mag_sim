@@ -9,8 +9,7 @@ from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure, AnalysisLayout
-from analysis.plotting.styles import get_style
+from analysis.plotting.layout import AnalysisLayout
 
 
 class SpectrumGainModule(BaseComparisonModule):

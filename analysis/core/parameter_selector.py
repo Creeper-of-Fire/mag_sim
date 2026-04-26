@@ -1,13 +1,11 @@
 # analysis/core/parameter_selector.py
 import hashlib
 import json
-from pathlib import Path
 from typing import List, Any, Dict, Tuple, Optional
 
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from utils.project_config import FILENAME_HISTORY
 from .param_display_names import get_param_display
 from .selector import SimpleTableSelector
 from .simulation import SimulationRun
@@ -38,7 +36,7 @@ class ParameterSelector:
         groups = {}
         for item in self.raw_data_items:
             params = item['params'].copy()
-            params.pop('run_id', None) # 忽略 run_id
+            params.pop('run_id', None)  # 忽略 run_id
             # 使用参数字典的 JSON 字符串作为 key，确保可哈希且唯一
             key = json.dumps(params, sort_keys=True)
             if key not in groups:
@@ -112,7 +110,7 @@ class ParameterSelector:
             # 这里我们强制单选，因为一次只能处理一个参数
             target_key = self._prompt_select_parameter(varying_keys, varying_details)
             if not target_key:
-                continue # 如果没选或取消
+                continue  # 如果没选或取消
 
             console.print(f"\n你选择了参数: [bold magenta]{target_key}[/bold magenta]")
 
@@ -198,7 +196,6 @@ class ParameterSelector:
 
         console.print(f"[green]已保留 {len(values_to_keep)} 组参数值。[/green]")
         console.print(f"[dim]模拟数量从 {before_count} 减少到 {after_count}。[/dim]\n")
-
 
     # --- 辅助功能 ---
 

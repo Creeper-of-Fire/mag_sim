@@ -1,18 +1,21 @@
 # modules/base_module.py
 
 from abc import ABC, abstractmethod
-from typing import List, Set
+from typing import List
 
 # 导入类型提示，避免循环导入
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from analysis.core.simulation import SimulationRun
+
 
 class BaseAnalysisModule(ABC):
     """
     所有分析模块的抽象基类。
     它定义了所有分析模块必须提供的标准接口。
     """
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -39,6 +42,7 @@ class BaseAnalysisModule(ABC):
         """
         pass
 
+
 class BaseComparisonModule(BaseAnalysisModule, ABC):
     """
     所有【对比】分析模块的抽象基类。
@@ -46,6 +50,7 @@ class BaseComparisonModule(BaseAnalysisModule, ABC):
     通过继承 BaseAnalysisModule，它自动获得了统一的接口。
     """
     pass
+
 
 class BaseVideoModule(BaseAnalysisModule, ABC):
     """

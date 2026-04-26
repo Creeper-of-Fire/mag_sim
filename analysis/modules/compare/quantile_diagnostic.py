@@ -3,12 +3,10 @@ from typing import List
 import numpy as np
 from scipy.interpolate import interp1d
 
-from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
-from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
 

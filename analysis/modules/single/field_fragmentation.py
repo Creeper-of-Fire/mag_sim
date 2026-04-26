@@ -11,7 +11,7 @@ from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.layout import AnalysisLayout
 
 
 def _compute_spectrum_1d(field_2d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -137,11 +137,11 @@ class FieldFragmentationModule(BaseAnalysisModule):
         final_spectrum = metrics["final_spectrum"]
 
         # --- 绘图 ---
-        # 3个子图：尺度演化、峰度演化、能谱对比
-        filename_override = f"{run.name}_analysis_fragmentation"
-
-        with create_analysis_figure(run, "analysis_fragmentation", num_plots=3, figsize=(10, 12), override_filename=filename_override) as (fig, axes):
-            ax_scale, ax_kurt, ax_spec = axes
+        with AnalysisLayout(run, "field_fragmentation") as layout:
+            # 3个子图：尺度演化、峰度演化、能谱对比
+            ax_scale = layout.request_axes()
+            ax_kurt = layout.request_axes()
+            ax_spec = layout.request_axes()
 
             # Plot 1: 特征尺度演化
             ax_scale.plot(times, characteristic_scales, 'o-', color='teal', lw=2)

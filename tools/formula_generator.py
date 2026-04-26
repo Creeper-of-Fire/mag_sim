@@ -1,11 +1,9 @@
 # formula_generator.py
 import matplotlib.pyplot as plt
+from rich import print as rprint
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
-from rich.text import Text
-from rich import print as rprint
-import sys
 
 from analysis.utils import setup_chinese_font
 

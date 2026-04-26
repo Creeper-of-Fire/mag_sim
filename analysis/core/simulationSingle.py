@@ -1,6 +1,5 @@
 import glob
 import os
-import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -8,9 +7,9 @@ from typing import List, Optional
 import numpy as np
 
 from analysis.core.cache import SmartCache, cached_op
+from analysis.core.data_loader import EnergyEvolutionData, FieldEvolutionData, SpectrumData
 from analysis.core.simulation import SimulationRun
 
-from analysis.core.data_loader import EnergyEvolutionData, FieldEvolutionData, SpectrumData
 
 @dataclass
 class SimulationRunSingle(SimulationRun):

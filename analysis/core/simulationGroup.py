@@ -1,13 +1,11 @@
-import typing
 from dataclasses import fields
 from typing import List, Optional
 
 import numpy as np
 
 from analysis.core.simulationSingle import SimulationRunSingle
-from .simulation import SimulationRun
-
 from .data_loader import FieldEvolutionData, EnergyEvolutionData, SpectrumData
+from .simulation import SimulationRun
 
 
 class SimulationRunGroup(SimulationRun):
