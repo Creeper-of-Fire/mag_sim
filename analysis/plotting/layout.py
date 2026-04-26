@@ -1,13 +1,12 @@
 # plotting/layout.py
 
 from contextlib import contextmanager
-from typing import List, Tuple, Any, Generator, Optional, Union
+from typing import List, Generator, Optional
+from warnings import deprecated
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.transforms import Bbox
 
 from .styles import get_style
 from ..core.param_table import plot_parameter_table, plot_comparison_parameter_table
@@ -16,7 +15,7 @@ from ..core.utils import save_figure
 
 
 def _get_table_actual_height_inch(
-        run_or_runs: Union[SimulationRun, List[SimulationRun]],
+        run_or_runs: SimulationRun | list[SimulationRun],
         figure_width_inch: float
 ) -> float:
     """
@@ -65,150 +64,161 @@ def _get_table_actual_height_inch(
     return table_height
 
 
+class AnalysisLayout:
+    """
+    动态分析图布局管理器。
+
+    使用方法:
+        with AnalysisLayout(run, "spectrum") as layout:
+            ax1 = layout.add_axes(ratio=2)   # 高度比例2
+            ax2 = layout.add_axes()          # 默认比例1
+            ax1.plot(...)
+            ax2.plot(...)
+        # 退出时自动绘制参数表，保存带表/不带表两个版本
+    """
+
+    def __init__(
+            self,
+            run_or_runs: SimulationRun | list[SimulationRun],
+            base_filename: str,
+            plot_ratio: Optional[tuple[float, float]] = None,  # 单个绘图区的宽高比
+            override_filename: Optional[str] = None,
+    ):
+        self.run_or_runs = run_or_runs
+        self.base_filename = base_filename
+        self.override_filename = override_filename
+
+        # --- 标题和输出文件名 ---
+        if self.override_filename:
+            self.output_name = f"{self.override_filename}.png"
+        else:
+            is_comp = isinstance(run_or_runs, list)
+            if is_comp:
+                if not run_or_runs:
+                    raise ValueError("对比分析至少需要一个 SimulationRun 实例。")
+                names = tuple(sorted(r.name for r in run_or_runs))
+                short = hex(abs(hash(names)))[2:8]
+                self.output_name = f"{short}_{base_filename}.png"
+            else:
+                self.output_name = f"{run_or_runs.name}_{base_filename}.png"
+
+        # --- 画布宽度 ---
+        style = get_style()
+        base_width, base_height = style.figsize
+        self.plot_width = base_width
+        if plot_ratio is None:
+            prop_w, prop_h = base_width, base_height
+        else:
+            prop_w, prop_h = plot_ratio
+
+        # 单个绘图单元的高度 = 宽度按比例换算
+        self._unit_height = base_width * (prop_h / prop_w)
+
+        # --- 预计算表格高度 ---
+        self.table_height_inch = _get_table_actual_height_inch(run_or_runs, self.plot_width)
+
+        # --- 动态状态 ---
+        self.fig: Figure = plt.figure(figsize=(self.plot_width, 0.1))  # 临时高度
+        self.plot_axes: List[Axes] = []  # 按添加顺序
+        self.plot_heights: List[float] = []  # 英寸
+        self.table_ax: Optional[Axes] = None
+
+    def request_axes(self, ratio: float = 1.0) -> Axes:
+        """
+        申请一个绘图轴并立即返回。
+
+        Args:
+            ratio: 相对于 unit_plot_height 的高度比例，越大轴越高。
+        Returns:
+            Axes 对象，可直接在其上绘图。
+        """
+        height = ratio * self._unit_height
+        self.plot_heights.append(height)
+
+        # 扩展画布高度
+        total = sum(self.plot_heights) + self.table_height_inch
+        self.fig.set_size_inches(self.plot_width, total)
+
+        # 创建新轴（占位坐标，待统一重排）
+        ax = self.fig.add_axes((0, 0, 1, 0))
+        self.plot_axes.append(ax)
+        self._reposition_all()
+        return ax
+
+    def _reposition_all(self):
+        """根据当前绘图轴列表和表格高度，重新计算所有轴的归一化位置。"""
+        total_h = sum(self.plot_heights) + self.table_height_inch
+        # 表格始终位于底部
+        table_bottom = 0.0
+        table_height_frac = self.table_height_inch / total_h
+
+        # 如果表格轴还不存在，创建它
+        if self.table_ax is None:
+            self.table_ax = self.fig.add_axes(
+                (0.1, table_bottom, 0.8, table_height_frac)
+            )
+        else:
+            self.table_ax.set_position((0.1, table_bottom, 0.8, table_height_frac))
+
+        # 从表格上方开始依次放置绘图轴
+        cur_bottom = table_height_frac
+        for ax, h_inch in zip(self.plot_axes, self.plot_heights):
+            h_frac = h_inch / total_h
+            ax.set_position((0.1, cur_bottom, 0.8, h_frac))
+            cur_bottom += h_frac
+
+    def __enter__(self) -> "AnalysisLayout":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            plt.close(self.fig)
+            return False  # 传播异常
+
+        # --- 绘制参数表 ---
+        is_comp = isinstance(self.run_or_runs, list)
+        if is_comp:
+            plot_comparison_parameter_table(self.table_ax, self.run_or_runs)
+        else:
+            plot_parameter_table(self.table_ax, self.run_or_runs)
+
+        # --- 保存带表格版本 ---
+        save_figure(self.fig, self.output_name, run_or_runs=self.run_or_runs, subfolder="with_table")
+
+        # --- 保存不带表格版本 ---
+        self.table_ax.set_visible(False)
+        save_figure(self.fig, self.output_name, run_or_runs=self.run_or_runs, subfolder="without_table")
+
+        plt.close(self.fig)
+        return False  # 不抑制异常
+
+
+@deprecated("请改用 AnalysisLayout 上下文管理器")
 @contextmanager
 def create_analysis_figure(
-        run_or_runs: SimulationRun | List[SimulationRun],
+        run_or_runs: SimulationRun | list[SimulationRun],
         base_filename: str,
         num_plots: int,
         plot_ratios: List[int] = None,
-        figsize: Optional[Tuple[float, float]] = None,
-        override_filename: Optional[str] = None
-) -> Generator[tuple[Any, Any] | tuple[Any, tuple[Any, ...]], Any, None]:
+        figsize: Optional[tuple[float, float]] = None,
+        override_filename: Optional[str] = None,
+) -> Generator[tuple[Figure, Axes] | tuple[Figure, tuple[Axes, ...]], None, None]:
     """
-    一个用于标准分析图的上下文管理器，自动处理布局、双版本保存和资源清理。
-
-    它会创建一个包含N个数据图和一个参数表区域的画布。在退出时，
-    它会自动保存两个版本的图：一个带参数表，一个不带。
-
-    用法:
-        with create_analysis_figure(run, "spectrum", num_plots=1) as (fig, axes):
-            ax_plot, ax_table = axes
-            # ... 在 ax_plot 和 ax_table 上绘图 ...
-        # 此处不需要调用 save_figure 或 plt.close
-
-    Args:
-        run_or_runs: 单个 SimulationRun 对象或一个列表。用于标题、文件名和参数表。
-        base_filename (str): 输出文件的基础名称 (例如 "analysis_spectrum")。
-        num_plots (int): 需要的数据绘图区域数量。
-        plot_ratios (List[int], optional): 各个数据图的高度比例。默认为等分。
-        table_ratio (int, optional): 参数表的高度比例。默认为 3。
-        figsize (Tuple[float, float], optional): 画布尺寸。
-
-    Yields:
-        Tuple[Figure, Tuple[Axes, ...]]: Matplotlib Figure 对象和所有 Axes 对象的元组。
-                                          最后一个 Axes 始终是为参数表准备的。
+    传统固定数量的上下文管理器，内部委托给 AnalysisLayout。
+    用于向后兼容，不推荐新代码使用。
     """
-    # --- 文件名生成逻辑 ---
-    if override_filename:
-        # 如果提供了覆盖文件名，则优先使用它
-        output_name = f"{override_filename}.png"
-        # 标题仍然可以自动生成
-        is_comparison = isinstance(run_or_runs, list)
-        if is_comparison:
-            title = f"对比分析: {base_filename.replace('_', ' ').title()}"
-        else:
-            title = f"分析: {base_filename.replace('_', ' ').title()} for: {run_or_runs.name}"
-
-    else:
-        # 否则，使用现有的自动命名逻辑
-        is_comparison = isinstance(run_or_runs, list)
-        if is_comparison:
-            if not run_or_runs:
-                raise ValueError("对比分析至少需要一个 SimulationRun 实例。")
-            run_names = tuple(sorted([r.name for r in run_or_runs]))
-            short_hash = hex(abs(hash(run_names)))[2:8]
-            output_name = f"{short_hash}_{base_filename}.png"
-            title = f"对比分析: {base_filename.replace('_', ' ').title()}"
-        else:
-            output_name = f"{run_or_runs.name}_{base_filename}.png"
-            title = f"分析: {base_filename.replace('_', ' ').title()} for: {run_or_runs.name}"
-
-    # --- 根据样式和传入的比例计算最终尺寸 ---
-
-    style = get_style()
-    base_width, base_height = style.figsize  # 获取样式的边界框
-
-    if figsize is None:
-        # 如果用户未提供figsize，则直接使用样式定义的标准尺寸
-        plot_figsize = (base_width, base_height)
-    else:
-        # --- 取最大缩放比例 (Cover) ---
-
-        req_w, req_h = figsize
-
-        # 计算两个维度的缩放因子
-        # 例如：基准是 10x6
-        # 情况1：请求 12x15。
-        #       scale_w = 10/12 ≈ 0.83
-        #       scale_h = 6/15 = 0.4
-        #       我们应该选 0.83 (让宽度撑满10，高度随之变成 12.5)，而不是选 0.4 (让高度缩到6，宽度变成4.8)
-
-        scale_w = base_width / req_w
-        scale_h = base_height / req_h
-
-        # 取 max，保证图像足够大，至少有一边能撑满基准尺寸
-        scale = max(scale_w, scale_h)
-
-        final_plot_width = req_w * scale
-        final_plot_height = req_h * scale
-
-        plot_figsize = (final_plot_width, final_plot_height)
-
-    # --- 1. 精确计算布局 ---
-    plot_width, plot_height = plot_figsize
-
-    # a. 通过预渲染精确计算表格的实际高度
-    actual_table_height = _get_table_actual_height_inch(run_or_runs, plot_width)
-
-    # b. 计算带表格时的总画布高度
-    total_height_with_table = plot_height + actual_table_height
-
-    # c. 计算 gridspec 的高度比例，现在基于精确的物理尺寸
     if plot_ratios is None:
         plot_ratios = [1] * num_plots
-    total_plot_ratio_units = sum(plot_ratios)
 
-    # 将物理尺寸转换为比例
-    final_plot_ratios = [(r / total_plot_ratio_units) * plot_height for r in plot_ratios]
-    height_ratios = final_plot_ratios + [actual_table_height]
-
-    # --- 2. 创建主画布 ---
-    fig, axes_array = plt.subplots(
-        num_plots + 1, 1,
-        figsize=(plot_width, total_height_with_table),
-        gridspec_kw={'height_ratios': height_ratios},
-        constrained_layout=True
+    layout = AnalysisLayout(
+        run_or_runs,
+        base_filename,
+        plot_ratio=figsize,
+        override_filename=override_filename,
     )
-    if num_plots > 0 and not isinstance(axes_array, (list, np.ndarray)):
-        axes_array = [axes_array]
-
-    plot_axes = axes_array[:-1] if num_plots > 0 else []
-    table_ax = axes_array[-1]
-
-    try:
-        # --- 3. 将控制权和【仅绘图区】交给调用者 ---
+    with layout:
+        axes = [layout.request_axes(ratio=r) for r in plot_ratios]
         if num_plots == 1:
-            yield fig, plot_axes[0]
+            yield layout.fig, axes[0]
         else:
-            yield fig, tuple(plot_axes)
-
-        # --- 4. 调用者完成绘图，收回控制权，绘制参数表 ---
-        if is_comparison:
-            plot_comparison_parameter_table(table_ax, run_or_runs)
-        else:
-            plot_parameter_table(table_ax, run_or_runs)
-
-        # --- 5. 保存带表格的版本 ---
-        # 此时布局已经最终确定
-        save_figure(fig, output_name, run_or_runs=run_or_runs, subfolder="with_table")
-
-        # --- 6. 准备并保存不带表格的版本 ---
-        table_ax.set_visible(False)
-
-        # `save_figure` 函数中的 `bbox_inches='tight'` 会自动裁剪掉
-        # 因表格不可见而产生的底部空白区域，同时保持绘图区的几何形状不变。
-        save_figure(fig, output_name, run_or_runs=run_or_runs, subfolder="without_table")
-
-    finally:
-        # --- 6. 清理资源 ---
-        plt.close(fig)
+            yield layout.fig, tuple(axes)

@@ -11,6 +11,7 @@ from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
+from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
 from analysis.plotting.layout import create_analysis_figure
 
 # 最小计数阈值，避免 1/1 或 0/0 产生噪音
@@ -83,47 +84,33 @@ class ParametricFluxModule(BaseComparisonModule):
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 参数扫描能谱通量热力图...[/bold magenta]")
 
-        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
-        if len(valid_runs) < 2:
-            console.print("[red]错误: 至少需要 2 个模拟。[/red]")
-            return
+        ctx = ComparisonContext(loaded_runs, "scan_flux")
+        runs = ctx.runs
 
-        # 1. 统一分箱 (Y轴)
+        # 统一分箱 (Y轴)
         try:
-            bins, centers, widths = create_common_energy_bins(valid_runs)
+            bins, centers, widths = create_common_energy_bins(runs)
         except ValueError as e:
             console.print(f"[red]{e}[/red]")
             return
-
-        # 2. 使用 Selector 准备数据
-        selector = ParameterSelector(valid_runs)
-        x_label, x_vals, sorted_runs = selector.select()
-        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="scan_flux")
 
         # 3. 构建数据矩阵 Z
         # 矩阵形状: (Energy_Bins, Parameters)
         z_matrix_list = []
 
         console.print(f"  正在构建热力图矩阵...")
-        for run in sorted_runs:
+        for run in runs:
             log_gain = self._calculate_log_gain(run, bins, widths)
             z_matrix_list.append(log_gain)
 
         # 转置: 行是能量(Y)，列是参数(X)
         Z = np.array(z_matrix_list).T
 
-        # 4. 处理 X 轴坐标
-        try:
-            # 尝试转为数值型坐标
-            x_coords = np.array([float(v) for v in x_vals])
-            is_numeric_x = True
-        except (ValueError, TypeError):
-            # 如果是字符串，使用索引 0, 1, 2...
-            x_coords = np.arange(len(x_vals))
-            is_numeric_x = False
+        x_coords = ctx.x_scaled
 
         # 5. 绘图
-        with create_analysis_figure(sorted_runs, "scan_flux", num_plots=1, figsize=(11, 7), override_filename=final_filename) as (fig, ax):
+        with ComparisonLayout(ctx, plot_ratio=(11, 7)) as layout:
+            ax = layout.request_axes()
 
             # 设置颜色映射：红蓝发散色，中间(0)为白色
             cmap = plt.cm.RdBu_r
@@ -132,14 +119,14 @@ class ParametricFluxModule(BaseComparisonModule):
 
             # 网格生成
             # 如果是数值型X，我们希望方块居中，所以需要计算边界
-            if is_numeric_x and len(x_coords) > 1:
+            if ctx.is_num and len(x_coords) > 1:
                 # 简单的中间点插值法估算边界
                 # 这对于非均匀网格也能工作
                 x_mid = (x_coords[:-1] + x_coords[1:]) / 2
                 x_edges = np.concatenate(([x_coords[0] - (x_mid[0] - x_coords[0])], x_mid, [x_coords[-1] + (x_coords[-1] - x_mid[-1])]))
             else:
                 # 均匀或者单个点
-                x_edges = np.arange(len(x_vals) + 1) - 0.5
+                x_edges = np.arange(len(ctx.x_raw) + 1) - 0.5
 
             X_grid, Y_grid = np.meshgrid(x_edges, bins)  # Y_grid 用 bins 边界
 
@@ -163,7 +150,7 @@ class ParametricFluxModule(BaseComparisonModule):
                 ax.contour(X_cntr, Y_cntr, Z_masked, levels=[1], colors='black', linewidths=1.0, linestyles=':')
 
             # 颜色条
-            cbar = fig.colorbar(mesh, ax=ax, pad=0.02)
+            cbar = layout.fig.colorbar(mesh, ax=ax, pad=0.02)
             cbar.set_label(r"Log$_{10}$ (Gain Ratio) = $\log_{10}(f_{final}/f_{initial})$")
             # 在颜色条上标记物理意义
             cbar.ax.text(1.3, 1.5, "Inflow (Heating)", color='darkred', ha='left', va='center', rotation=90, fontsize=9)
@@ -173,17 +160,10 @@ class ParametricFluxModule(BaseComparisonModule):
             # 坐标轴设置
             ax.set_yscale('log')
             ax.set_ylabel("动能 (MeV)")
-            ax.set_title(f"能谱通量图: 加速区间 vs {x_label}", fontsize=14)
 
-            if is_numeric_x:
-                ax.set_xlabel(x_label)
-                # 如果是 log 分布的参数，把 X 轴设为 log
-                if x_coords.min() > 0 and (x_coords.max() / x_coords.min() > 10):
-                    ax.set_xscale('log')
-            else:
-                ax.set_xticks(x_coords)
-                ax.set_xticklabels(x_vals, rotation=45, ha='right')
-                ax.set_xlabel("Simulation Case")
+            # 如果参数跨度大，X 轴也用 log
+            if ctx.is_num and x_coords.min() > 0 and (x_coords.max() / x_coords.min() > 10):
+                ax.set_xscale('log')
 
             # 在图上添加注释
             ax.text(0.02, 0.95, "Red = Net Particle Gain", color='darkred', transform=ax.transAxes, fontweight='bold')

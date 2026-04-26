@@ -7,6 +7,7 @@ from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
 from analysis.plotting.layout import create_analysis_figure
 from analysis.plotting.styles import get_style
 
@@ -50,9 +51,9 @@ class QuantileDiagnosticModule(BaseComparisonModule):
         style = get_style()
         console.print("\n[bold magenta]执行: 分位数诊断 (判断是否存在隐形尾巴)...[/bold magenta]")
 
-        selector = ParameterSelector(loaded_runs)
-        x_label, x_vals, sorted_runs = selector.select()
-        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="quantile_diag")
+        ctx = ComparisonContext(loaded_runs, "quantile_diag")
+        runs, x_scaled = ctx.unpack
+        x_raw, _, x_label = ctx.x
 
         # 准备数据容器
         ratios = []  # E_99.9 / E_50
@@ -60,7 +61,7 @@ class QuantileDiagnosticModule(BaseComparisonModule):
         e_heade = []  # E_99.9%
         e_medians = []  # E_50%
 
-        for run in sorted_runs:
+        for run in runs:
             spec = run.final_spectrum
             if spec is None:
                 ratios.append(0)
@@ -87,20 +88,14 @@ class QuantileDiagnosticModule(BaseComparisonModule):
 
             console.print(f"  [{run.name}] Ratio(99.9%/50%)={ratio:.2f} | E_med={e_500 * 1000:.1f} keV, E_top={e_999 * 1000:.1f} keV")
 
-        # 绘图
-        try:
-            x_num = [float(v) for v in x_vals]
-            is_num = True
-        except:
-            x_num = range(len(x_vals))
-            is_num = False
-
-        with create_analysis_figure(sorted_runs, "quantile_diag", num_plots=2, override_filename=final_filename) as (fig, (ax1, ax2)):
+        with ComparisonLayout(ctx) as layout:
+            ax1 = layout.request_axes()
+            ax2 = layout.request_axes()
 
             # --- 图1: 能量不平等度 (Acceleration Indicator) ---
             # 如果这条线是平的或者下降的，说明没有非热加速。
             # 如果这条线向上翘，说明虽然肉眼看不出，但尾部确实相对于头部在变长。
-            ax1.plot(x_num, ratios, marker='o', color=style.color_comparison_primary, lw=2, label='$E_{99.9\%} / E_{median}$')
+            ax1.plot(x_scaled, ratios, marker='o', color=style.color_comparison_primary, lw=2, label='$E_{99.9\%} / E_{median}$')
 
             ax1.set_ylabel("能谱硬度比\n($E_{99.9\%} / E_{50\%}$)")
             ax1.grid(True, linestyle='--', alpha=0.5)
@@ -108,26 +103,13 @@ class QuantileDiagnosticModule(BaseComparisonModule):
 
             # --- 图2: 绝对能量演化 (Heating Indicator) ---
             # 用半对数坐标看数量级
-            ax2.semilogy(x_num, np.array(e_maxs) * 1000, marker='x', linestyle='--', color='gray', alpha=0.6, label='$E_{max}$')
-            ax2.semilogy(x_num, np.array(e_heade) * 1000, marker='s', color=style.color_comparison_primary, label='$E_{99.9\%}$ (Head)')
-            ax2.semilogy(x_num, np.array(e_medians) * 1000, marker='^', color=style.color_comparison_secondary, label='$E_{50\%}$ (Body)')
+            ax2.semilogy(x_scaled, np.array(e_maxs) * 1000, marker='x', linestyle='--', color='gray', alpha=0.6, label='$E_{max}$')
+            ax2.semilogy(x_scaled, np.array(e_heade) * 1000, marker='s', color=style.color_comparison_primary, label='$E_{99.9\%}$ (Head)')
+            ax2.semilogy(x_scaled, np.array(e_medians) * 1000, marker='^', color=style.color_comparison_secondary, label='$E_{50\%}$ (Body)')
 
-            # TODO 这里是临时的，之后改成一个映射表的形式
-            if x_label == "target_sigma":
-                x_label_name = "磁能占比 $\sigma$"
-            else:
-                x_label_name = x_label
-
-            ax2.set_xlabel(x_label_name if is_num else "模拟案例")
             ax2.set_ylabel("能量 (keV)")
             ax2.grid(True, linestyle='--', alpha=0.5, which='both')
             ax2.legend()
-
-            if not is_num:
-                ax1.set_xticks(x_num)
-                ax1.set_xticklabels(x_vals, rotation=45)
-                ax2.set_xticks(x_num)
-                ax2.set_xticklabels(x_vals, rotation=45)
 
             console.print("\n[bold yellow]诊断指南:[/bold yellow]")
             console.print("1. 看图1 (Ratio):")
