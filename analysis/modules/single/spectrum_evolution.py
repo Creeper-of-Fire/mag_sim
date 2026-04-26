@@ -13,7 +13,7 @@ from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
 from analysis.modules.utils import physics_mj
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.layout import AnalysisLayout
 
 # --- 物理常量 ---
 ME_C2_J = m_e * c ** 2
@@ -140,10 +140,10 @@ class SpectrumEvolutionModule(BaseAnalysisModule):
         max_energies = data["max_E_MeV"]
 
         # --- 绘图 ---
-        filename_override = f"{run.name}_analysis_spectrum_evolution"
-        with create_analysis_figure(run, "spectrum_evolution", num_plots=3,
-                                    figsize=(10, 12), override_filename=filename_override) as (fig, axes):
-            ax_temp, ax_excess, ax_max_e = axes
+        with (AnalysisLayout(run, "spectrum_evolution") as layout):
+            ax_temp = layout.request_axes()
+            ax_excess = layout.request_axes()
+            ax_max_e = layout.request_axes()
 
             # 图1: 等效温度 (整体加热)
             ax_temp.plot(times, temps_keV, 'o-', color='darkorange', label='等效温度')

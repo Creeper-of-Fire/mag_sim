@@ -1,18 +1,15 @@
 # analysis/modules/parametric_flux.py
 
-from typing import List, Tuple
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
-from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
-from analysis.plotting.layout import create_analysis_figure
 
 # 最小计数阈值，避免 1/1 或 0/0 产生噪音
 MIN_COUNTS = 5

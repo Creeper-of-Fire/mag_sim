@@ -1,8 +1,6 @@
 from collections import Counter
 from typing import Dict, Any, List, Tuple, Callable
 
-import matplotlib.pyplot as plt
-import numpy as np
 import sympy
 from matplotlib.axes import Axes
 from matplotlib.table import Table as mpl_Table
@@ -52,6 +50,7 @@ def _get_theoretical_formula(sim: Any) -> str:
                 rf"$\quad (|\mathbf{{B}}_i| \equiv B_0, \text{{random dir}})$")
 
     return r"$\text{Custom Field}$"
+
 
 # =============================================================================
 # 辅助函数：物理公式生成与格式化
@@ -231,7 +230,7 @@ def plot_parameter_table(ax: Axes, run: SimulationRun) -> mpl_Table:
     # 2. 在表格下方单独绘制具体的合成公式
     if expr_str:
         display_text = (
-            "磁场分布公式: " + expr_str
+                "磁场分布公式: " + expr_str
         )
 
         ax.text(0.0, -0.50,  # 放在表格下方 (y < 0)

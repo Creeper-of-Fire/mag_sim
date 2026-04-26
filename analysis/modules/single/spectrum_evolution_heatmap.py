@@ -3,12 +3,11 @@ from typing import List
 
 import numpy as np
 from matplotlib.colors import LogNorm
-from tqdm import tqdm
 
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.layout import AnalysisLayout
 
 
 class SpectrumEvolutionHeatmapModule(BaseAnalysisModule):
@@ -51,9 +50,9 @@ class SpectrumEvolutionHeatmapModule(BaseAnalysisModule):
         X, Y = np.meshgrid(time_edges, energy_edges)
 
         # 4. 绘图
-        filename_override = f"{run.name}_analysis_spectrum_heatmap"
-        with create_analysis_figure(run, "spectrum_evolution_heatmap", num_plots=1, figsize=(10, 7), override_filename=filename_override) as (fig, ax):
-            fig.suptitle(f"能谱演化热力图: {run.name}", fontsize=16)
+        with AnalysisLayout(run, "spectrum_evolution_heatmap") as layout:
+            ax = layout.request_axes()
+            fig = layout.fig
 
             # 使用对数颜色映射，并处理0值
             # vmin 设为最大值的百万分之一，防止颜色条范围过大

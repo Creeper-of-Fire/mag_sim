@@ -1,9 +1,10 @@
 import abc
-from typing import List, TypeVar, Generic, Optional, Any, Callable
+from typing import List, TypeVar, Generic, Optional, Callable
+
+from rich import box
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
-from rich import box
 
 console = Console()
 T = TypeVar('T')

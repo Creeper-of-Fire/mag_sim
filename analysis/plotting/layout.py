@@ -1,8 +1,6 @@
 # plotting/layout.py
 
-from contextlib import contextmanager
-from typing import List, Generator, Optional
-from warnings import deprecated
+from typing import List, Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -191,34 +189,3 @@ class AnalysisLayout:
 
         plt.close(self.fig)
         return False  # 不抑制异常
-
-
-@deprecated("请改用 AnalysisLayout 上下文管理器")
-@contextmanager
-def create_analysis_figure(
-        run_or_runs: SimulationRun | list[SimulationRun],
-        base_filename: str,
-        num_plots: int,
-        plot_ratios: List[int] = None,
-        figsize: Optional[tuple[float, float]] = None,
-        override_filename: Optional[str] = None,
-) -> Generator[tuple[Figure, Axes] | tuple[Figure, tuple[Axes, ...]], None, None]:
-    """
-    传统固定数量的上下文管理器，内部委托给 AnalysisLayout。
-    用于向后兼容，不推荐新代码使用。
-    """
-    if plot_ratios is None:
-        plot_ratios = [1] * num_plots
-
-    layout = AnalysisLayout(
-        run_or_runs,
-        base_filename,
-        plot_ratio=figsize,
-        override_filename=override_filename,
-    )
-    with layout:
-        axes = [layout.request_axes(ratio=r) for r in plot_ratios]
-        if num_plots == 1:
-            yield layout.fig, axes[0]
-        else:
-            yield layout.fig, tuple(axes)

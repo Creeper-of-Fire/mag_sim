@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import abc
 import random
-import time
 import typing
 from enum import Enum
 
@@ -15,10 +14,12 @@ comm = mpi.COMM_WORLD
 
 enable_mpi_print()
 
+
 class Dim(Enum):
     """模拟维度枚举"""
     D2 = 2
     D3 = 3
+
 
 class InitialMagneticField(abc.ABC):
     """
@@ -206,7 +207,7 @@ class GaussianField(InitialMagneticField):
         self.num_gaussians = num_gaussians
         self.gaussian_width_de_ratio = gaussian_width_de_ratio
 
-        super().__init__(Lx, Ly, Lz, B_target_rms,dim)
+        super().__init__(Lx, Ly, Lz, B_target_rms, dim)
 
     def _analytical_normalization(self) -> float:
         """
@@ -257,7 +258,7 @@ class GaussianField(InitialMagneticField):
         # 物理参数
         w = self.gaussian_width_de_ratio * self.d_e
 
-        final_params_list  = None
+        final_params_list = None
         if comm.rank == 0:
             # 1. Rank 0 计算确定的峰值振幅
             B_peak = self._analytical_normalization()
@@ -270,11 +271,11 @@ class GaussianField(InitialMagneticField):
                 if self.dim == Dim.D3:
                     y0 = random.uniform(-self.Ly / 2.0, self.Ly / 2.0)
                 else:
-                    y0 = 0.0 # 2D 模式下 y 坐标无意义（或者是 invariant 方向）
+                    y0 = 0.0  # 2D 模式下 y 坐标无意义（或者是 invariant 方向）
 
                 z0 = random.uniform(-self.Lz / 2.0, self.Lz / 2.0)
                 # 生成单位方向向量
-                rand_vec = np.array([random.gauss(0, 1) for _ in range(3)]) # 使用高斯分布更均匀
+                rand_vec = np.array([random.gauss(0, 1) for _ in range(3)])  # 使用高斯分布更均匀
                 norm = np.linalg.norm(rand_vec)
                 if norm < 1e-30:
                     norm_vec = np.array([1.0, 0.0, 0.0])  # 避免除以零

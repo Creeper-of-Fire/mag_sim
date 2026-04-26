@@ -10,7 +10,6 @@ import numpy as np
 from scipy.constants import k as kB, c, m_e, e
 from scipy.integrate import IntegrationWarning, quad
 from scipy.optimize import root_scalar
-from scipy.special import kn as bessel_k
 from scipy.special import kve as bessel_kve
 
 # --- 物理常量 (可供其他模块导入) ---
@@ -22,6 +21,7 @@ J_PER_MEV = e * 1e6
 
 J_TO_KEV = 1.0 / (e * 1e3)
 """1 焦耳等于多少 keV"""
+
 
 # --- 核心物理函数 ---
 
@@ -64,7 +64,7 @@ def solve_mj_temperature_kev(avg_ek_mev: float | np.floating, guess_T_keV: Optio
         theta = (kB * T_K) / ME_C2_J
         # 避免在极低温度下出现数值问题
         if theta < 1e-9:
-             return 1.5 * kB * T_K # 在数值极限下退化为经典情况
+            return 1.5 * kB * T_K  # 在数值极限下退化为经典情况
 
         # 使用 kve 代替 bessel_k，彻底消除大参数下溢！
         # K1(z)/K2(z) == bessel_kve(1, z)/bessel_kve(2, z)
@@ -83,7 +83,7 @@ def solve_mj_temperature_kev(avg_ek_mev: float | np.floating, guess_T_keV: Optio
         sol = root_scalar(
             lambda t: mj_avg_energy(t) - target_avg_ek_j,
             x0=T_guess_K,
-            bracket=[T_guess_K * 0.01, T_guess_K * 100.0], # 扩大搜索范围
+            bracket=[T_guess_K * 0.01, T_guess_K * 100.0],  # 扩大搜索范围
             method='brentq'
         )
         # 将结果从开尔文转回 keV

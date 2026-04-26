@@ -2,20 +2,14 @@
 from typing import List
 
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
 from scipy.stats import kstwo
 
 from analysis.core.cache import cached_op
-from analysis.core.param_display_names import get_param_display
-from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils import physics_mj
-from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
-from analysis.plotting.layout import create_analysis_figure, AnalysisLayout
 from analysis.plotting.styles import get_style
 
 
