@@ -9,7 +9,7 @@ from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.layout import create_analysis_figure, AnalysisLayout
 from analysis.plotting.styles import get_style
 
 
@@ -44,16 +44,8 @@ class SpectrumGainModule(BaseComparisonModule):
             return
 
         # 2. 绘图
-        # 使用 create_analysis_figure 管理画布和参数表
-        with create_analysis_figure(
-                valid_runs,
-                "comparison_spectrum_gain",
-                num_plots=1,
-                figsize=(10, 6)
-        ) as (fig, ax):
-
-            style = get_style()
-
+        with AnalysisLayout(valid_runs, "comparison_spectrum_gain") as layout:
+            ax = layout.request_axes()
             # 绘制基准线 y=1 (无变化)
             ax.axhline(1, color='black', linestyle='-', linewidth=1, alpha=0.5, label='无变化 (Ratio=1)')
 

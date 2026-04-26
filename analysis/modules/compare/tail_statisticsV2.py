@@ -4,22 +4,18 @@ import warnings
 from typing import List, Dict, Optional, NamedTuple, Any, Tuple
 
 import h5py
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import mu_0, e, epsilon_0
 from scipy.integrate import quad, IntegrationWarning
 
 from analysis.core.cache import cached_op
 from analysis.core.data_loader import _get_step_from_filename
-from analysis.core.param_display_names import get_param_display
-from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationSingle import SimulationRunSingle
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils import physics_mj
-from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
 from analysis.plotting.styles import get_style
 
 
@@ -395,10 +391,10 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             tot_vals = [v[3] for v in res if not np.isnan(v[3])]
 
             def _mean_std(lst):
-                if len(lst) == 0: return (0.0, 0.0)
+                if len(lst) == 0: return 0.0, 0.0
                 m = float(np.mean(lst))
                 s = float(np.std(lst, ddof=1)) if len(lst) > 1 else 0.0
-                return (m, s)
+                return m, s
 
             return {
                 'kin': _mean_std(kin_vals),
@@ -423,28 +419,9 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         style = get_style()
         console.print(f"\n[bold magenta]执行: {self.name}...[/bold magenta]")
 
-        valid_runs = filter_valid_runs(loaded_runs, require_particles=True, min_particle_files=2)
-        if len(valid_runs) < 1:
-            console.print("[red]错误: 没有足够的数据进行对比。[/red]")
-            return
-
-        selector = ParameterSelector(valid_runs)
-        x_label_key, x_vals, sorted_runs = selector.select()
-        final_filename = selector.generate_filename(x_label_key, sorted_runs, prefix="multiband_tail")
-
-        # 获取X轴的显示信息
-        x_axis_info = get_param_display(x_label_key)
-
-        # X 轴处理与格式化
-        try:
-            raw_x_num = np.array([float(v) for v in x_vals])
-            is_num = True
-            # 拿到缩放后的 X 数组，以及包含量级的 Label
-            scaled_x, final_x_label = x_axis_info.format_axis(raw_x_num)
-        except ValueError:
-            raw_x_num = np.arange(len(x_vals))
-            is_num = False
-            scaled_x, final_x_label = raw_x_num, x_axis_info.ToLabel
+        ctx = ComparisonContext(loaded_runs, "multiband_tail")
+        runs, x_scaled = ctx.unpack
+        x_raw, _, x_label = ctx.x
 
         # 数据结构初始化
         # results[factor] = {'init': [], 'init_err': [], 'init_th_err': [], 'final': [], 'final_err': [], 'final_th_err': []}
@@ -466,8 +443,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
 
         console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
 
-        for i, run in enumerate(sorted_runs):
-            console.print(f"    [{run.name}] {x_label_key}={x_vals[i]}")
+        for i, run in enumerate(runs):
+            console.print(f"    [{run.name}] {x_label}={x_raw[i]}")
 
             # 获取场比例
             fr_final = self._get_field_metrics(run, is_final=True)
@@ -505,21 +482,15 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 results[f_idx]['final_err'].append(m_final['excess_ratio_err'])
                 results[f_idx]['final_th_err'].append(m_final['propagated_uncertainty'])
 
-        num_plots = len(self.intervals) + 4 + 4
-
         # =========================================================================
         # 绘图逻辑：N个能段的 Excess 占比图 + 1个温度图
         # =========================================================================
 
-        with create_analysis_figure(sorted_runs, "multiband_tail", num_plots=num_plots, override_filename=final_filename, figsize=(10, 3.5 * num_plots)) as (
-                fig, axes):
-
-            # 确保 axes 是可迭代的列表
-            if num_plots == 1: axes = [axes]
+        with ComparisonLayout(ctx, plot_ratio=(10, 3.5)) as layout:
 
             # --- 图 1 到 N: 各能段 Excess Ratio ---
             for i, (low, high) in enumerate(self.intervals):
-                ax = axes[i]
+                ax = layout.request_axes()
                 d = results[i]
 
                 # 将区间标注移入图内，作为图的说明
@@ -528,24 +499,24 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                         ha='right', va='top', fontsize='medium', fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
 
                 # 绘制理论误差带 (阴影)
-                # ax.fill_between(scaled_x,
+                # ax.fill_between(x_scaled,
                 #                 (np.array(d['init']) - np.array(d['init_th_err'])) * 100,
                 #                 (np.array(d['init']) + np.array(d['init_th_err'])) * 100,
                 #                 color=style.color_baseline_secondary, alpha=0.15,
                 #                 label='初始理论散粒误差 (Shot Noise)')
 
-                ax.fill_between(scaled_x,
+                ax.fill_between(x_scaled,
                                 (np.array(d['final']) - np.array(d['final_th_err'])) * 100,
                                 (np.array(d['final']) + np.array(d['final_th_err'])) * 100,
                                 color=style.color_comparison_primary, alpha=0.1,
                                 label='最终理论传递误差')
 
                 # 绘制实测值误差棒
-                ax.errorbar(scaled_x, np.array(d['final']) * 100, yerr=np.array(d['final_err']) * 100,
+                ax.errorbar(x_scaled, np.array(d['final']) * 100, yerr=np.array(d['final_err']) * 100,
                             fmt='-o', capsize=4, elinewidth=1.5,
                             color=style.color_comparison_primary, label='最终时刻 $t_{end}$')
 
-                # ax.errorbar(scaled_x, np.array(d['init']) * 100, yerr=np.array(d['init_err']) * 100,
+                # ax.errorbar(x_scaled, np.array(d['init']) * 100, yerr=np.array(d['init_err']) * 100,
                 #             fmt='--x', capsize=4, alpha=0.7,
                 #             color=style.color_baseline_secondary, label='初始时刻 $t=0$')
 
@@ -556,60 +527,36 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
                 ax.legend(fontsize='x-small', loc='upper left', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
-                # 隐藏非底部的 X 轴标签以保持整洁
-                if not is_num:
-                    ax.set_xticks(scaled_x)
-                    if i < num_plots - 1:
-                        ax.set_xticklabels([])
-
             # --- 温度变化 ---
-            ax_temp = axes[-8]
-            ax_temp.errorbar(scaled_x, temps['final'], yerr=np.array(temps['final_err']),
+            ax_temp = layout.request_axes()
+            ax_temp.errorbar(x_scaled, temps['final'], yerr=np.array(temps['final_err']),
                              fmt='-s', capsize=4, color=style.color_comparison_secondary, lw=style.lw_base, label='最终温度 $T$')
-
-            # ax_temp.errorbar(x_num, temps['init'], yerr=np.array(temps['init_err']),
-            #                  fmt='--s', capsize=4, color=style.color_baseline_secondary, lw=style.lw_base, label='初始温度 $T$')
-
             ax_temp.set_ylabel("$T_{eff}$ (keV)")
-
-            ax_temp.set_xlabel(final_x_label)
-
             ax_temp.legend(fontsize='small', loc='best')
             ax_temp.grid(True, linestyle='--', alpha=0.5)
 
-            if not is_num:
-                ax_temp.set_xticks(scaled_x)
-                ax_temp.set_xticklabels(x_vals, rotation=45)
-
             # --- 磁场能量占比 ---
-            ax_mag = axes[-7]
-            ax_mag.errorbar(scaled_x, mag_ratios['final'], yerr=np.array(mag_ratios['final_err']),
+            ax_mag = layout.request_axes()
+            ax_mag.errorbar(x_scaled, mag_ratios['final'], yerr=np.array(mag_ratios['final_err']),
                             fmt='-d', capsize=4, color='darkorange', label='磁能占比 $E_B$')
-            # ax_mag.errorbar(scaled_x, energy_ratios['init'], yerr=np.array(energy_ratios['init_err']),
+            # ax_mag.errorbar(x_scaled, energy_ratios['init'], yerr=np.array(energy_ratios['init_err']),
             #                 fmt='--d', capsize=4, color='gray', lw=style.lw_base, label='初始时刻 $t=0$')
 
             ax_mag.set_ylabel(r"$E_B / E_{total}$")
-            ax_mag.set_xlabel(final_x_label)
             ax_mag.legend(fontsize='small', loc='best')
 
             # --- 电场比例图 ---
-            ax_elec = axes[-6]
-            ax_elec.errorbar(scaled_x, elec_ratios['final'], yerr=np.array(elec_ratios['final_err']), fmt='-^', capsize=4, color='crimson',
+            ax_elec = layout.request_axes()
+            ax_elec.errorbar(x_scaled, elec_ratios['final'], yerr=np.array(elec_ratios['final_err']), fmt='-^', capsize=4, color='crimson',
                              label='电能占比 $E_E$')
             ax_elec.set_ylabel(r"$E_E / E_{total}$")
-            ax_elec.set_xlabel(final_x_label)
             ax_elec.legend(fontsize='small')
             ax_elec.grid(True, alpha=0.3)
 
             # 总场能图 (Mag + Elec)
-            ax_s = axes[-5]
-            ax_s.errorbar(scaled_x, sum_field_ratios['final'], yerr=sum_field_ratios['final_err'], fmt='-P', color='indigo', label='总场能 (B+E)')
+            ax_s = layout.request_axes()
+            ax_s.errorbar(x_scaled, sum_field_ratios['final'], yerr=sum_field_ratios['final_err'], fmt='-P', color='indigo', label='总场能 (B+E)')
             ax_s.set_ylabel(r"$(E_B + E_E) / E_{total}$")
-            ax_s.set_xlabel(final_x_label)
-
-            if not is_num:
-                ax_mag.set_xticks(scaled_x)
-                ax_mag.set_xticklabels(x_vals, rotation=45)
 
             # --- 能量密度图 (eV) ---
             color_kin = 'steelblue'
@@ -618,8 +565,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             color_tot = 'darkgreen'
 
             # 动能密度
-            ax_e_kin = axes[-4]
-            ax_e_kin.errorbar(scaled_x, energy_densities['kin']['final'],
+            ax_e_kin = layout.request_axes()
+            ax_e_kin.errorbar(x_scaled, energy_densities['kin']['final'],
                               yerr=np.array(energy_densities['kin']['final_err']),
                               fmt='-o', capsize=4, color=color_kin, label='动能密度')
             ax_e_kin.set_ylabel(r"$U_{kin} / (n_0 m_e c^2)$")
@@ -628,8 +575,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             ax_e_kin.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
 
             # 磁能密度
-            ax_e_mag = axes[-3]
-            ax_e_mag.errorbar(scaled_x, energy_densities['mag']['final'],
+            ax_e_mag = layout.request_axes()
+            ax_e_mag.errorbar(x_scaled, energy_densities['mag']['final'],
                               yerr=np.array(energy_densities['mag']['final_err']),
                               fmt='-d', capsize=4, color=color_mag, label='磁能密度')
             ax_e_mag.set_ylabel(r"$U_B / (n_0 m_e c^2)$")
@@ -638,8 +585,8 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             ax_e_mag.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
 
             # 电能密度
-            ax_e_elec = axes[-2]
-            ax_e_elec.errorbar(scaled_x, energy_densities['elec']['final'],
+            ax_e_elec = layout.request_axes()
+            ax_e_elec.errorbar(x_scaled, energy_densities['elec']['final'],
                                yerr=np.array(energy_densities['elec']['final_err']),
                                fmt='-^', capsize=4, color=color_elec, label='电能密度')
             ax_e_elec.set_ylabel(r"$U_E / (n_0 m_e c^2)$")
@@ -648,27 +595,14 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             ax_e_elec.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
 
             # 总能量密度
-            ax_e_tot = axes[-1]
-            ax_e_tot.errorbar(scaled_x, energy_densities['total']['final'],
+            ax_e_tot = layout.request_axes()
+            ax_e_tot.errorbar(x_scaled, energy_densities['total']['final'],
                               yerr=np.array(energy_densities['total']['final_err']),
                               fmt='-s', capsize=4, color=color_tot, linewidth=2, label='总能量密度')
             ax_e_tot.set_ylabel(r"$U_{total} / (n_0 m_e c^2)$")
-            ax_e_tot.set_xlabel(final_x_label)
             ax_e_tot.legend(fontsize='small', loc='best')
             ax_e_tot.grid(True, linestyle=':', alpha=0.4)
             ax_e_tot.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
-
-            if not is_num:
-                ax_e_kin.set_xticks(scaled_x)
-                ax_e_kin.set_xticklabels([])
-                ax_e_mag.set_xticks(scaled_x)
-                ax_e_mag.set_xticklabels([])
-                ax_e_elec.set_xticks(scaled_x)
-                ax_e_elec.set_xticklabels([])
-                ax_e_tot.set_xticks(scaled_x)
-                ax_e_tot.set_xticklabels(x_vals, rotation=45)
-
-            plt.subplots_adjust(hspace=0.25)
 
             console.print("\n[bold green]分析完成。[/bold green]")
             console.print("提示：已生成覆盖多组分的高能尾部演化图谱。")

@@ -22,7 +22,22 @@ class ParamInfo:
         else:
             return f"{self.name_cn} ({self.symbol})"
 
-    def format_axis(self, values: Union[np.ndarray, List[float]]) -> Tuple[np.ndarray, str]:
+    def prepare_axis(self, x_vals: List[str]) -> Tuple[np.ndarray, str, bool]:
+        """
+        输入原始 x_vals（字符串列表），输出：
+        1. 用于绘图的数值数组
+        2. 格式化后的 X 轴标签
+        3. 是否为数值型 X 轴
+        """
+        try:
+            raw_x_num = np.array([float(v) for v in x_vals])
+            scaled_x, label = self._format_axis(raw_x_num)
+            return scaled_x, label, True
+        except ValueError:
+            raw_x_num = np.arange(len(x_vals))
+            return raw_x_num, self.ToLabel, False
+
+    def _format_axis(self, values: Union[np.ndarray, List[float]]) -> Tuple[np.ndarray, str]:
         """
         输入原始数值，输出：
         1. 缩放后的数值（用于绘图）

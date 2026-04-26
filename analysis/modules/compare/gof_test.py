@@ -7,13 +7,15 @@ from scipy.interpolate import interp1d
 from scipy.stats import kstwo
 
 from analysis.core.cache import cached_op
+from analysis.core.param_display_names import get_param_display
 from analysis.core.parameter_selector import ParameterSelector
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils import physics_mj
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
-from analysis.plotting.layout import create_analysis_figure
+from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
+from analysis.plotting.layout import create_analysis_figure, AnalysisLayout
 from analysis.plotting.styles import get_style
 
 
@@ -133,14 +135,9 @@ class GoodnessOfFitModule(BaseComparisonModule):
         style = get_style()
         console.print("\n[bold magenta]执行: 统计学假设检验 (K-S & A-D)...[/bold magenta]")
 
-        valid_runs = filter_valid_runs(loaded_runs, require_particles=True)
-        if len(valid_runs) < 1:
-            console.print("[red]错误: 没有足够的数据进行分析。[/red]")
-            return
-
-        selector = ParameterSelector(valid_runs)
-        x_label, x_vals, sorted_runs = selector.select()
-        final_filename = selector.generate_filename(x_label, sorted_runs, prefix="gof_test")
+        ctx = ComparisonContext(loaded_runs, "gof_test")
+        runs, x_scaled = ctx.unpack
+        x_raw, _, x_label = ctx.x
 
         # 数据容器
         results_D_ks = []
@@ -150,7 +147,7 @@ class GoodnessOfFitModule(BaseComparisonModule):
 
         console.print("  正在计算每个参数点的累积分布拟合优度...")
 
-        for i, run in enumerate(sorted_runs):
+        for i, run in enumerate(runs):
             from analysis.core.simulationGroup import SimulationRunGroup
 
             # 处理组 (Group) 或 单次 Run
@@ -180,21 +177,14 @@ class GoodnessOfFitModule(BaseComparisonModule):
             results_AD_stat.append(avg_AD)
             results_N_eff.append(avg_Neff)
 
-            console.print(f"    [{run.name}] {x_label}={x_vals[i]} | N_eff={avg_Neff:.0f}")
+            console.print(f"    [{run.name}] {x_label}={x_raw[i]} | N_eff={avg_Neff:.0f}")
             console.print(f"      -> K-S 差距 D_ks : {avg_D:.5f} (P-Value: {avg_P:.2e})")
             console.print(f"      -> A-D 统计量 A²  : {avg_AD:.2f}")
 
-        # 将可能无法转为浮点数的 x 轴转换为序列
-        try:
-            x_num = [float(v) for v in x_vals]
-            is_num = True
-        except ValueError:
-            x_num = range(len(x_vals))
-            is_num = False
-        x_arr = np.array(x_num)
-
         # ---------------- 绘图 ----------------
-        with create_analysis_figure(sorted_runs, "gof_test", num_plots=2, override_filename=final_filename) as (fig, (ax1, ax2)):
+        with ComparisonLayout(ctx) as layout:
+            ax1 = layout.request_axes()
+            ax2 = layout.request_axes()
 
             # 图1：K-S 统计量 与 拒绝域 (P-Value)
             # 为了可视化 P 值，我们将极小的 P 值钳制到一个下限，以防止在对数图上消失
@@ -204,12 +194,12 @@ class GoodnessOfFitModule(BaseComparisonModule):
             ax1_twin = ax1.twinx()
 
             # 左轴：D_ks 统计量 (最大偏离度)
-            line1 = ax1.plot(x_arr, results_D_ks, marker='o', color=style.color_comparison_primary, lw=2, label='K-S 统计量 $D_{ks}$ (左轴)')
+            line1 = ax1.plot(x_scaled, results_D_ks, marker='o', color=style.color_comparison_primary, lw=2, label='K-S 统计量 $D_{ks}$ (左轴)')
             ax1.set_ylabel("K-S 最大分布偏离度 $D_{ks}$", color=style.color_comparison_primary)
             ax1.tick_params(axis='y', labelcolor=style.color_comparison_primary)
 
             # 右轴：P-Value
-            line2 = ax1_twin.plot(x_arr, safe_p_values, marker='s', linestyle='--', color='gray', alpha=0.8, label='P 值 (右轴)')
+            line2 = ax1_twin.plot(x_scaled, safe_p_values, marker='s', linestyle='--', color='gray', alpha=0.8, label='P 值 (右轴)')
             ax1_twin.set_ylabel("拒绝原假设的 $P$ 值", color='gray')
             ax1_twin.set_yscale('log')
             ax1_twin.tick_params(axis='y', labelcolor='gray')
@@ -225,10 +215,8 @@ class GoodnessOfFitModule(BaseComparisonModule):
             ax1.grid(True, linestyle='--', alpha=0.3)
 
             # 图2：A-D 尾部加权统计量
-            ax2.plot(x_arr, results_AD_stat, marker='^', color=style.color_comparison_secondary, lw=2, label='Anderson-Darling 统计量 $A^2$')
+            ax2.plot(x_scaled, results_AD_stat, marker='^', color=style.color_comparison_secondary, lw=2, label='Anderson-Darling 统计量 $A^2$')
             ax2.set_ylabel("A-D 统计量 $A^2$ (尾部偏离度)")
-            x_label_name = "磁能占比 $\sigma$" if x_label == "target_sigma" else x_label
-            ax2.set_xlabel(x_label_name if is_num else "模拟案例")
 
             # 添加文本标注解释
             ax2.text(0.02, 0.95, "提示: A² 越大代表尾部高能粒子偏离热谱越严重",
@@ -237,12 +225,6 @@ class GoodnessOfFitModule(BaseComparisonModule):
 
             ax2.legend()
             ax2.grid(True, linestyle='--', alpha=0.5)
-
-            if not is_num:
-                ax1.set_xticks(x_num)
-                ax1.set_xticklabels(x_vals, rotation=45)
-                ax2.set_xticks(x_num)
-                ax2.set_xticklabels(x_vals, rotation=45)
 
         console.print("\n[bold green]拟合优度检验完成！[/bold green]")
         console.print("- [blue]P 值 < 0.05[/blue] 意味着我们在 95% 置信度下拒绝“这是一个纯热等离子体”。")
