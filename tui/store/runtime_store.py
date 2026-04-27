@@ -5,6 +5,12 @@
 from __future__ import annotations
 from typing import Callable
 
+from pydantic import BaseModel
+
+
+class RuntimeState(BaseModel):
+    """运行时状态"""
+    is_running: bool = False
 
 class RuntimeStore:
     """运行时状态管理（单例）"""
@@ -18,35 +24,34 @@ class RuntimeStore:
         return cls._instance
 
     def _init(self):
-        self._running: bool = False
-        self._listeners: list[Callable[[bool], None]] = []
+        self._state: RuntimeState = RuntimeState()
+        self._listeners: list[Callable[[RuntimeState], None]] = []
 
     # ── 读写 ──
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return self._state.is_running
 
     def set_running(self, value: bool):
         """设置运行状态"""
-        self._running = value
-        self._notify(value)
+        self._state.is_running = value
+        self._notify()
 
     # ── 订阅 ──
 
-    def subscribe(self, callback: Callable[[bool], None]):
+    def subscribe(self, callback: Callable[[RuntimeState], None]):
         self._listeners.append(callback)
 
-    def unsubscribe(self, callback: Callable[[bool], None]):
+    def unsubscribe(self, callback: Callable[[RuntimeState], None]):
         if callback in self._listeners:
             self._listeners.remove(callback)
 
-    def _notify(self, running: bool):
+    def _notify(self):
         for listener in self._listeners:
             try:
-                listener(running)
+                listener(self._state)
             except Exception:
                 pass
-
 
 runtime_store = RuntimeStore()

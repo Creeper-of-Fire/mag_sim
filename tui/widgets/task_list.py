@@ -14,8 +14,7 @@ from textual.message import Message
 from textual.widgets import Static, ListView, ListItem
 
 from tui.controllers.csv_tool import CsvToolRunner
-from tui.store.app_store import app_store
-from tui.store.config_store import config_store
+from tui.store.app_store import app_store, AppState
 from tui.store.log_store import logger
 from utils.csv_resolver import resolve_tasks_csv
 from utils.project_config import (
@@ -33,8 +32,8 @@ class TaskList(Vertical):
 
     CSS = """
     TaskList {
-        border: solid #0f3460;
-        background: #1a1a2e;
+        border: solid $border-primary;
+        background: $bg-primary;
     }
 
     TaskList ListView {
@@ -43,8 +42,8 @@ class TaskList(Vertical):
     }
 
     ListView {
-        background: #1a1a2e;
-        color: #e0e0e0;
+        background: $bg-primary;
+        color: $text-primary;
     }
 
     ListView > ListItem {
@@ -52,8 +51,8 @@ class TaskList(Vertical):
     }
 
     ListView > ListItem.--highlight {
-        background: #0f3460;
-        color: white;
+        background: $highlight-bg;
+        color: $highlight-text;
     }
     """
 
@@ -87,8 +86,9 @@ class TaskList(Vertical):
     def on_unmount(self):
         app_store.unsubscribe(self._on_dir_changed)
 
-    def _on_dir_changed(self, path: Path):
-        self.load_from_dir(path)
+    def _on_dir_changed(self, state: AppState):
+        """AppStore 目录变化时更新显示"""
+        self.load_from_dir(Path(state.last_job_dir))
 
     @on(ListView.Selected)
     def on_list_selected(self, event: ListView.Selected):
@@ -112,7 +112,7 @@ class TaskList(Vertical):
         csv_path = resolve_tasks_csv(job_dir)
         history_path = job_dir / FILENAME_HISTORY
 
-        if csv_path is not None:
+        if csv_path is None:
             list_view.append(ListItem(Static(f"（无 {FILENAME_TASKS_CSV}），请创建模板）")))
             return
 

@@ -1,13 +1,29 @@
 """
-应用全局状态 - 当前项目目录
+应用全局状态
 持久化到 gui_state.json
 """
 from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Callable
 
+from pydantic import BaseModel, Field
+
 from utils.project_config import PROJECT_ROOT
+
+
+class AppState(BaseModel):
+    """持久化的应用状态"""
+    last_job_dir: str = Field(
+        default="",
+        description="上次打开的模拟项目目录路径"
+    )
+    theme: str = Field(
+        default="plasma-dark",
+        description="当前主题名称",
+        pattern=r"^plasma-(dark|light)$"
+    )
 
 
 class AppStore:
@@ -23,59 +39,70 @@ class AppStore:
         return cls._instance
 
     def _init(self):
-        self._job_dir: Path | None = None
-        self._listeners: list[Callable[[Path], None]] = []
+        self._state: AppState = self._load_state()
+        self._listeners: list[Callable[[AppState], None]] = []
 
-    # ── 读写 ──
+    # ── 读取 ──
+
+    @property
+    def theme(self) -> str:
+        return self._state.theme
 
     @property
     def job_dir(self) -> Path | None:
-        return self._job_dir
+        path_str = self._state.last_job_dir
+        if not path_str:
+            return None
+        path = Path(path_str)
+        return path if path.exists() and path.is_dir() else None
 
-    def set_job_dir(self, path: Path, persist: bool = True):
-        """设置当前项目目录"""
-        self._job_dir = path
+    # ── 写入 ──
+
+    def set_theme(self, theme: str, persist: bool = True):
+        self._state.theme = theme
         if persist:
             self._save_state()
-        self._notify(path)
+        self._notify()
+
+    def set_job_dir(self, path: Path, persist: bool = True):
+        self._state.last_job_dir = str(path)
+        if persist:
+            self._save_state()
+        self._notify()
 
     # ── 持久化 ──
 
-    def load_state(self) -> Path | None:
-        """加载上次的目录"""
+    def _load_state(self) -> AppState:
         if not self.STATE_FILE.exists():
-            return None
+            return AppState()
         try:
             data = json.loads(self.STATE_FILE.read_text(encoding="utf-8"))
-            path = Path(data.get("last_job_dir", ""))
-            if path.exists() and path.is_dir():
-                self._job_dir = path
-                return path
+            return AppState(**data)
         except (json.JSONDecodeError, FileNotFoundError):
-            pass
-        return None
+            return AppState()
 
     def _save_state(self):
-        """持久化到文件"""
         self.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        data = {"last_job_dir": str(self._job_dir) if self._job_dir else ""}
-        self.STATE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self.STATE_FILE.write_text(
+            self._state.model_dump_json(indent=2),
+            encoding="utf-8"
+        )
 
     # ── 订阅 ──
 
-    def subscribe(self, callback: Callable[[Path], None]):
+    def subscribe(self, callback: Callable[[AppState], None]):
+        """订阅状态变化，回调参数为 (key, value)"""
         self._listeners.append(callback)
 
-    def unsubscribe(self, callback: Callable[[Path], None]):
+    def unsubscribe(self, callback: Callable[[AppState], None]):
         if callback in self._listeners:
             self._listeners.remove(callback)
 
-    def _notify(self, path: Path):
+    def _notify(self):
         for listener in self._listeners:
             try:
-                listener(path)
+                listener(self._state)
             except Exception:
                 pass
-
 
 app_store = AppStore()

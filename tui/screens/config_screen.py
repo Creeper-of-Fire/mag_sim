@@ -38,13 +38,13 @@ class ConfigScreen(Screen):
     }
     .config_row Label {
         width: 10;
-        color: #888888;
+        color: $text-muted;
     }
     .config_row Input {
         width: 1fr;
-        background: #1a1a2e;
-        color: #00ff88;
-        border: solid #0f3460;
+        background: $bg-input;
+        color: $text-accent;
+        border: solid $border-primary;
     }
     #runner_config {
         height: auto;

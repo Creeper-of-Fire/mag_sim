@@ -1,7 +1,6 @@
 """
 Runner 配置组件 - 后端选择 + 额外参数
 """
-from textual import on
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static, Select, Input
 
@@ -19,16 +18,16 @@ class RunnerConfig(Vertical):
     }
     .runner_row Static {
         width: 14;
-        color: #888888;
+        color: $text-muted;
     }
     .runner_row Select {
         width: 40;
     }
     .runner_row Input {
         width: 1fr;
-        background: #1a1a2e;
-        color: #00ff88;
-        border: solid #0f3460;
+        background: $bg-input;
+        color: $text-accent;
+        border: solid $border-primary;
     }
     """
 

@@ -1,16 +1,16 @@
 /* 全局背景，所有 Screen 共享 */
 Screen {
-    background: #1a1a2e;
+    background: $bg-primary;
 }
 
 Header {
-    background: #16213e;
-    color: #e0e0e0;
+    background: $bg-secondary;
+    color: $text-primary;
 }
 
 Footer {
-    background: #0f3460;
-    color: #888888;
+    background: $bg-tertiary;
+    color: $text-muted;
 }
 
 /* ── 按钮全局样式 ───────────── */
@@ -23,28 +23,28 @@ Button {
 /* InputDialog 被多个地方复用 */
 InputDialog {
     align: center middle;
-    background: #16213e;
-    border: solid #0f3460;
+    background: $bg-secondary;
+    border: solid $border-primary;
     padding: 2 3;
     width: 60%;
     height: auto;
 }
 
 InputDialog Static {
-    color: #e0e0e0;
+    color: $text-primary;
     margin-bottom: 1;
 }
 
 InputDialog Input {
-    background: #1a1a2e;
-    color: #00ff88;
-    border: solid #0f3460;
+    background: $bg-input;
+    color: $text-accent;
+    border: solid $border-primary;
 }
 
 /* ── 通用面板标题 ────────────── */
 .panel_title {
-    background: #0f3460;
-    color: #e0e0e0;
+    background: $bg-tertiary;
+    color: $text-primary;
     padding: 0 1;
     text-style: bold;
     height: 1;

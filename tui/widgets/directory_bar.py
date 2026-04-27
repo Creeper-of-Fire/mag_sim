@@ -8,7 +8,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Static, Button
 
-from tui.store.app_store import app_store
+from tui.store.app_store import app_store, AppState
 from tui.store.log_store import logger
 
 
@@ -17,27 +17,27 @@ class DirectoryBar(Horizontal):
 
     DEFAULT_CSS = """
     DirectoryBar {
-        background: #16213e;
-        color: #e0e0e0;
+        background: $bg-secondary;
+        color: $text-primary;
         padding: 0 1;
         height: 3;
         max-height: 3;
         align: center middle;
-        border: solid #0f3460;
+        border: solid $border-primary;
     }
 
     DirectoryBar:focus {
-        background: #1e3a5f;
-        border: solid #e94560;
+        background: $bg-tertiary;
+        border: solid $border-focus;
     }
 
     #dir_label {
-        color: #888888;
+        color: $text-muted;
         width: 14;
     }
 
     #dir_path {
-        color: #00ff88;
+        color: $text-accent;
         width: 1fr;
     }
     """
@@ -67,9 +67,9 @@ class DirectoryBar(Horizontal):
     def on_unmount(self):
         app_store.unsubscribe(self._on_dir_changed)
 
-    def _on_dir_changed(self, path: Path):
+    def _on_dir_changed(self, state: AppState):
         """AppStore 目录变化时更新显示"""
-        self._update_display(path)
+        self._update_display(Path(state.last_job_dir))
 
     def _update_display(self, path: Path):
         """更新路径显示"""

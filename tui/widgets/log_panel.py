@@ -39,15 +39,15 @@ class LogPanel(Vertical):
 
     CSS = """
     LogPanel {
-        border: solid #0f3460;
-        background: #1a1a2e;
+        border: solid $border-primary;
+        background: $bg-primary;
     }
 
     #log_content {
         height: 1fr;
         overflow-y: auto;
-        color: #c0c0c0;
-        background: #1a1a2e;
+        color: $text-secondary;
+        background: $bg-primary;
     }
     """
 
