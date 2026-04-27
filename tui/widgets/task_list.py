@@ -3,14 +3,20 @@
 任务列表组件：读取 tasks.csv，显示任务状态，支持选择事件
 """
 import csv
-import json
 import hashlib
+import json
 from pathlib import Path
-from textual.widgets import Static, ListView, ListItem
-from textual.containers import Vertical
-from textual import on
-from textual.message import Message
 
+from textual import on
+from textual.binding import Binding
+from textual.containers import Vertical
+from textual.message import Message
+from textual.widgets import Static, ListView, ListItem
+
+from tui.controllers.csv_tool import CsvToolRunner
+from tui.store.app_store import app_store
+from tui.store.config_store import config_store
+from tui.store.log_store import logger
 from utils.project_config import (
     FILENAME_TASKS_CSV,
     FILENAME_HISTORY,
@@ -24,6 +30,36 @@ from utils.project_config import (
 class TaskList(Vertical):
     """任务列表面板"""
 
+    CSS = """
+    TaskList {
+        border: solid #0f3460;
+        background: #1a1a2e;
+    }
+
+    TaskList ListView {
+        height: 1fr;
+        overflow-y: auto;
+    }
+
+    ListView {
+        background: #1a1a2e;
+        color: #e0e0e0;
+    }
+
+    ListView > ListItem {
+        padding: 0 1;
+    }
+
+    ListView > ListItem.--highlight {
+        background: #0f3460;
+        color: white;
+    }
+    """
+
+    BINDINGS = [
+        Binding("t", "create_template", "初始化模板", priority=True),
+    ]
+
     class TaskSelected(Message):
         """任务被选中时发送的消息"""
 
@@ -32,13 +68,26 @@ class TaskList(Vertical):
             self.task_data = task_data
             self.task_index = task_index
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._tasks: list[dict] = []
+        self._csv_tool = CsvToolRunner()
+
     def compose(self):
         yield Static("📋 任务列表", classes="panel_title")
         yield ListView(id="list_view")
 
     def on_mount(self):
-        """监听 ListView 的选择变化"""
-        self._tasks = []
+        # 订阅目录变化
+        app_store.subscribe(self._on_dir_changed)
+        if app_store.job_dir:
+            self.load_from_dir(app_store.job_dir)
+
+    def on_unmount(self):
+        app_store.unsubscribe(self._on_dir_changed)
+
+    def _on_dir_changed(self, path: Path):
+        self.load_from_dir(path)
 
     @on(ListView.Selected)
     def on_list_selected(self, event: ListView.Selected):
@@ -104,3 +153,17 @@ class TaskList(Vertical):
         if idx is not None and 0 <= idx < len(self._tasks):
             return self._tasks[idx]
         return None
+
+    def action_create_template(self):
+        """初始化模板"""
+        if not app_store.job_dir:
+            logger.warn("请先选择项目目录。")
+            return
+
+        config = config_store.load()
+
+        if self._csv_tool.generate_template(app_store.job_dir, config.script_name):
+            logger.info(f"日志: {FILENAME_TASKS_CSV} 模板已生成。")
+            self.load_from_dir(app_store.job_dir)
+        else:
+            logger.error("模板生成失败。")
