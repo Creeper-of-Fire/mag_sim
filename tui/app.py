@@ -13,6 +13,8 @@ class SimulationTUI(App):
     # 加载外部 CSS 文件
     CSS_PATH = Path(__file__).parent / "app.tcss"
 
+    AUTO_FOCUS = None
+
     # 全局快捷键（在所有 Screen 都生效）
     BINDINGS = [
         ("q", "quit", "退出"),
@@ -20,8 +22,6 @@ class SimulationTUI(App):
 
     def __init__(self):
         super().__init__()
-        # 全局状态，所有 Screen 共享
-        self.current_job_dir: Path | None = None
 
     def on_mount(self):
         """应用启动后进入主界面"""

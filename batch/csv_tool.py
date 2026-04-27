@@ -199,6 +199,32 @@ def handle_convert(args, param_processor=None):
     perform_conversion_logic(input_csv_path, output_jsonl_path, params_info, param_processor)
 
 
+def handle_dump_schema(args):
+    """
+    处理 'dump-schema' 子命令：输出参数元信息的 JSON。
+    供外部工具（如 TUI）获取参数名称、类型、默认值。
+    """
+    import json as _json
+    params_info, param_order = get_simulation_params_info()
+
+    schema = {
+        "column_task_name": COLUMN_TASK_NAME,
+        "params": []
+    }
+    for name in param_order:
+        info = params_info[name]
+        type_name = info["type"].__name__
+        default = info["default"]
+        # 对于非 JSON 可序列化的默认值做处理
+        if isinstance(default, type):
+            default = str(default)
+        schema["params"].append({
+            "name": name,
+            "type": type_name,
+            "default": default
+        })
+
+    print(_json.dumps(schema, indent=2, ensure_ascii=False))
 # --- 主程序入口 ---
 
 # --- Argument Parser 封装 ---
@@ -228,6 +254,13 @@ def setup_parser():
         help='可选的JSON文件路径，用于覆盖从代码中读取的默认参数。'
     )
     parser_gen.set_defaults(func=handle_generate_template)
+
+    # --- 'dump-schema' 子命令 ---
+    parser_schema = subparsers.add_parser(
+        'dump-schema',
+        help='以 JSON 格式输出 SimulationParameters 的参数元信息（供外部工具使用）。'
+    )
+    parser_schema.set_defaults(func=handle_dump_schema)
 
     # --- 'convert' 子命令 ---
     parser_conv = subparsers.add_parser(
