@@ -113,10 +113,6 @@ class CsvEditor(Vertical):
             yield Button("添加行 (a)", id="btn_add_row", variant="primary")
             yield Button("删除行 (d)", id="btn_delete_row", variant="error")
 
-    def on_mount(self) -> None:
-        table = self.query_one("#csv_table", DataTable)
-        table.focus()
-
     # ── 数据加载 ──
 
     def load_csv(self, path: Path) -> None:
