@@ -4,6 +4,7 @@ Textual 应用入口，管理 Screen 切换和全局状态
 from pathlib import Path
 
 from textual.app import App
+from textual.binding import Binding
 from textual.theme import Theme
 
 from tui.screens.main_screen import MainScreen
@@ -20,8 +21,8 @@ class SimulationTUI(App):
     ]
 
     BINDINGS = [
-        ("ctrl+q", "quit", "退出"),
-        ("ctrl+t", "toggle_theme", "切换主题"),
+        Binding("ctrl+Q", "quit", "退出"),
+        Binding("ctrl+T,ctrl+t", "toggle_theme", "切换主题"),
     ]
 
     def __init__(self):

@@ -25,7 +25,7 @@ class LogScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("i,escape", "back_to_main", "返回主界面", priority=True)
+        Binding("I,i,escape", "back_to_main", "返回主界面", priority=True)
     ]
 
     def compose(self):

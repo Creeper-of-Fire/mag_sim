@@ -56,11 +56,10 @@ class ConfigScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("escape", "escape_handler", "取消聚焦/保存返回", priority=True),
-        Binding("s", "save_all", "保存全部", priority=True),
-        Binding("c", "save_all", "保存全部", priority=True),
-        Binding("r", "regen_template", "重新生成模板", priority=True),
-        Binding("ctrl+e", "open_csv_in_excel", "Excel打开", priority=True),
+        Binding("O,o,escape", "escape_handler", "取消聚焦/保存返回", priority=True),
+        Binding("S,s", "save_all", "保存全部", priority=True),
+        Binding("R,r", "regen_template", "重新生成模板", priority=True),
+        Binding("ctrl+E,ctrl+e", "open_csv_in_excel", "Excel打开", priority=True),
     ]
 
     def __init__(self):
