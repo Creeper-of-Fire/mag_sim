@@ -11,8 +11,8 @@ class TaskDetail(Vertical):
 
     CSS = """
     TaskDetail {
-        border: solid #0f3460;
-        background: #1a1a2e;
+        border: solid $border-primary;
+        background: $bg-primary;
     }
 
     #detail_scroll {
@@ -23,7 +23,7 @@ class TaskDetail(Vertical):
 
     #detail_content {
         padding: 0 1;
-        color: #c0c0c0;
+        color: $text-secondary;
         height: auto;
     }
     """

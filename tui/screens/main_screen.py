@@ -19,7 +19,7 @@ from tui.controllers.process_controller import BatchProcessController
 from tui.screens.config_screen import ConfigScreen
 from tui.store.app_store import app_store
 from tui.store.log_store import logger
-from tui.store.runtime_store import runtime_store
+from tui.store.runtime_store import runtime_store, RuntimeState
 from tui.widgets.directory_bar import DirectoryBar
 from tui.widgets.log_panel import LogPanel
 from tui.widgets.task_detail import TaskDetail
@@ -56,8 +56,8 @@ class MainScreen(Screen):
     CSS = """
     /* 面板通用标题 —— 被多个 Widget 引用，放 Screen 层 */
     .panel_title {
-        background: #0f3460;
-        color: #e0e0e0;
+        background: $bg-tertiary;
+        color: $text-primary;
         padding: 0 1;
         text-style: bold;
         height: 1;
@@ -135,7 +135,7 @@ class MainScreen(Screen):
         runtime_store.subscribe(self._on_runtime_changed)
 
         # 恢复上次目录
-        saved = app_store.load_state()
+        saved = app_store.job_dir
         if saved:
             app_store.set_job_dir(saved, persist=False)  # 已持久化，不重复写
         else:
@@ -155,10 +155,10 @@ class MainScreen(Screen):
         if message.task_data:
             task_detail.show_task(message.task_data)
 
-    def _on_runtime_changed(self, running: bool):
+    def _on_runtime_changed(self, state: RuntimeState):
         """运行时状态变化时更新 UI"""
         try:
-            self.query_one("#task_list", TaskList).disabled = running
+            self.query_one("#task_list", TaskList).disabled = state.is_running
         except Exception:
             pass
 

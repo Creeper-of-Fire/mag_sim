@@ -21,22 +21,22 @@ class CellEditScreen(ModalScreen[str | None]):
     CSS = """
     CellEditScreen {
         align: center middle;
-        background: rgba(0, 0, 0, 0.6);  /* 半透明遮罩，背景可见 */
+        background: $modal-overlay;  /* 半透明遮罩，背景可见 */
     }
     #cell_edit_dialog {
         width: 50;
         height: auto;
-        background: #16213e;
-        border: solid #0f3460;
+        background: $bg-secondary;
+        border: solid $border-primary;
         padding: 1 2;
     }
     #cell_edit_dialog Static {
-        color: #e0e0e0;
+        color: $text-primary;
     }
     #cell_input {
-        background: #1a1a2e;
-        color: #00ff88;
-        border: solid #0f3460;
+        background: $bg-input;
+        color: $text-accent;
+        border: solid $border-primary;
         margin: 1 0;
     }
     """
