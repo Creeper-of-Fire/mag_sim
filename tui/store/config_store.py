@@ -4,17 +4,18 @@
 """
 from __future__ import annotations
 import json
-from dataclasses import dataclass, asdict
+from pydantic import BaseModel, Field
 from pathlib import Path
 from typing import Callable
 
 from tui.store.app_store import app_store
 
 
-@dataclass
-class JobConfig:
-    script_name: str = "csv_tool_constant_energy.py"
-    extra_args: str = ""
+class JobConfig(BaseModel):
+    """项目运行配置"""
+    csv_tool_script: str = Field(default="csv_tool_constant_energy.py", description="CSV 工具的脚本名")
+    csv_tool_args: str = Field(default="", description="传给 csv_tool convert 的额外参数")
+    runner_args: str = Field(default="", description="传给 batch_runner 的额外参数")
 
 
 class ConfigStore:
@@ -37,7 +38,7 @@ class ConfigStore:
 
     @property
     def config(self) -> JobConfig:
-        return self._config
+        return self.load()
 
     def load(self) -> JobConfig:
         """从当前项目目录加载配置，不存在时自动创建默认配置"""
@@ -53,10 +54,7 @@ class ConfigStore:
 
         try:
             data = json.loads(config_path.read_text(encoding="utf-8"))
-            self._config = JobConfig(
-                script_name=data.get("script_name", self._config.script_name),
-                extra_args=data.get("extra_args", "")
-            )
+            self._config = JobConfig(**data)
         except (json.JSONDecodeError, FileNotFoundError):
             self._config = JobConfig()
 
@@ -75,7 +73,7 @@ class ConfigStore:
         config_path = job_dir / self.FILENAME
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(
-            json.dumps(asdict(self._config), indent=4, ensure_ascii=False),
+            self._config.model_dump_json(indent=4),
             encoding="utf-8"
         )
         self._notify(self._config)

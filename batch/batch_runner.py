@@ -40,13 +40,14 @@ def load_history_hashes(history_file_path: str) -> dict:
     return hash_status_map
 
 
-def run_batch(job_dir_win: str, manager_type: str = "yingbo"):
+def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list[str] | None = None):
     """
     批量执行任务
 
     Args:
         job_dir_win: Windows 格式的工作目录路径
         manager_type: 计算管理器类型 ("wsl", "gongji", "yingbo")
+        manager_args: 透传给 Manager 的额外命令行参数列表
     """
     job_path = Path(job_dir_win).resolve()
     job_name = job_path.name  # 获取 {job_name}
@@ -78,6 +79,7 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo"):
         tasks = [json.loads(line) for line in f]
 
     total_tasks = len(tasks)
+    failed_count = 0
     completed_count = 0
     skipped_count = 0
 
@@ -125,7 +127,7 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo"):
             elif manager_type == "gongji":
                 manager = GongjiComputeManager()
             elif manager_type == "yingbo":
-                manager = YingboComputeManager()
+                manager = YingboComputeManager.from_args(manager_args or [])
             else:
                 raise ValueError(f"不支持的管理器类型: {manager_type}")
 
@@ -185,7 +187,21 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo"):
             end_time = datetime.datetime.now()
             duration = (end_time - start_time).total_seconds()
 
+            # 再确认一次最终状态
+            last_status = manager.get_status()
+
+            # 进程已结束，再拿一次残留日志
+            try:
+                remaining = manager.get_logs()
+                for line in remaining:
+                    log_manager.log_raw(line)
+            except Exception:
+                pass
+
             final_status = "success" if last_status == JobStatus.SUCCESS else "failed"
+            if final_status == "failed":
+                failed_count += 1
+
             log_manager.log_task_end(task_name, final_status, duration)
 
             # 记录历史
@@ -236,6 +252,6 @@ if __name__ == "__main__":
                         choices=["wsl", "gongji", "yingbo"],
                         help="选择计算管理器类型 (默认: yingbo)")
 
-    args = parser.parse_args()
+    args, extra = parser.parse_known_args()
 
-    run_batch(args.work_dir, args.manager)
+    run_batch(args.work_dir, args.manager, manager_args=extra)

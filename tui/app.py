@@ -17,7 +17,7 @@ class SimulationTUI(App):
 
     # 全局快捷键（在所有 Screen 都生效）
     BINDINGS = [
-        ("q", "quit", "退出"),
+        ("ctrl+q", "quit", "退出"),
     ]
 
     def __init__(self):

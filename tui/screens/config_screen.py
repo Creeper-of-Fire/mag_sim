@@ -14,11 +14,15 @@ from tui.store.app_store import app_store
 from tui.store.config_store import config_store
 from tui.store.log_store import logger
 from tui.widgets.csv_editor import CsvEditor
+from tui.widgets.runner_config import RunnerConfig
+from utils.csv_resolver import resolve_tasks_csv
 from utils.project_config import FILENAME_TASKS_CSV
 
 
 class ConfigScreen(Screen):
     """项目配置编辑界面"""
+
+    AUTO_FOCUS = None
 
     CSS = """
     #config_container {
@@ -41,6 +45,9 @@ class ConfigScreen(Screen):
         background: #1a1a2e;
         color: #00ff88;
         border: solid #0f3460;
+    }
+    #runner_config {
+        height: auto;
     }
     #csv_editor {
         height: auto;
@@ -69,11 +76,13 @@ class ConfigScreen(Screen):
             yield Static(f"🛠 项目配置 - {self.job_dir.name}", classes="panel_title")
             with Vertical(id="script_config"):
                 with Horizontal(classes="config_row"):
-                    yield Label("脚本:")
-                    yield Input(value="", id="input_script", placeholder="如 csv_tool.py")
+                    yield Label("CSV 工具脚本:")
+                    yield Input(value="", id="input_csv_tool_script", placeholder="如 csv_tool_constant_energy.py")
                 with Horizontal(classes="config_row"):
-                    yield Label("额外参数:")
-                    yield Input(value="", id="input_extra_args", placeholder="如 --flag value")
+                    yield Label("CSV 工具参数:")
+                    yield Input(value="", id="input_csv_tool_args", placeholder="传给 csv_tool convert 的参数")
+
+            yield RunnerConfig(id="runner_config")
 
             # 按钮行
             with Horizontal(id="config_buttons"):
@@ -89,19 +98,16 @@ class ConfigScreen(Screen):
     def on_mount(self) -> None:
         """加载 schema 和 CSV 数据"""
         config = config_store.load()
-        self.query_one("#input_script", Input).value = config.script_name
-        self.query_one("#input_extra_args", Input).value = config.extra_args
+        self.query_one("#input_csv_tool_script", Input).value = config.csv_tool_script
+        self.query_one("#input_csv_tool_args", Input).value = config.csv_tool_args
+        self.query_one("#runner_config", RunnerConfig).set_from_args(config.runner_args)
 
         self._load_schema()
         self._load_csv()
 
-        csv_editor = self.query_one("#csv_editor", CsvEditor)
-        csv_editor.styles.align = ("center", "top")
-        csv_editor.refresh(layout=True)
-
     def _load_schema(self) -> None:
         """从 csv_tool 获取参数元信息"""
-        self._schema = self.csv_tool.get_schema(self.config.script_name)
+        self._schema = self.csv_tool.get_schema()
         if self._schema:
             editor = self.query_one("#csv_editor", CsvEditor)
             editor.schema = self._schema
@@ -110,9 +116,9 @@ class ConfigScreen(Screen):
 
     def _load_csv(self) -> None:
         """加载 tasks.csv 到编辑器"""
-        csv_path = self.job_dir / FILENAME_TASKS_CSV
+        csv_path = resolve_tasks_csv(self.job_dir)
         editor = self.query_one("#csv_editor", CsvEditor)
-        if csv_path.exists():
+        if csv_path is not None:
             editor.load_csv(csv_path)
         else:
             logger.warn(f"提示: {FILENAME_TASKS_CSV} 不存在，请先生成模板。")
@@ -120,14 +126,17 @@ class ConfigScreen(Screen):
     def action_save_all(self) -> None:
         """保存配置和 CSV"""
         # 保存脚本配置
-        script = self.query_one("#input_script", Input).value.strip()
-        extra = self.query_one("#input_extra_args", Input).value.strip()
-        self.config.script_name = script
-        self.config.extra_args = extra
+        csv_tool_script = self.query_one("#input_csv_tool_script", Input).value.strip()
+        csv_tool_args = self.query_one("#input_csv_tool_args", Input).value.strip()
+        runner_args = self.query_one("#runner_config", RunnerConfig).get_runner_args()
+
+        self.config.csv_tool_script = csv_tool_script
+        self.config.csv_tool_args = csv_tool_args
+        self.config.runner_args = runner_args
         config_store.save(self.config)
 
         # 保存 CSV
-        csv_path = self.job_dir / FILENAME_TASKS_CSV
+        csv_path = resolve_tasks_csv(self.job_dir)
         editor = self.query_one("#csv_editor", CsvEditor)
         editor.save_csv(csv_path)
 
@@ -148,7 +157,7 @@ class ConfigScreen(Screen):
 
     def action_regen_template(self) -> None:
         """调用 csv_tool 重新生成 CSV 模板"""
-        if self.csv_tool.generate_template(self.job_dir, self.config.script_name):
+        if self.csv_tool.generate_template(self.job_dir):
             logger.info("✅ 模板已重新生成。")
             self._load_csv()
         else:

@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import time
@@ -375,7 +376,7 @@ class SpackCommandBuilder:
 
 
 class YingboComputeManager(BaseComputeManager):
-    def __init__(self, gpu_type: Optional[GPUType] = GPUType.A800, cpu_type: Optional[CPUType] = None):
+    def __init__(self,  gpu_type: GPUType | None = None, cpu_type: CPUType | None = None):
         # 加载 kubeconfig
         kubeconfig_path = os.getenv("KUBECONFIG_PATH")
         print(f"[DEBUG] 正在尝试加载 Kubeconfig: {kubeconfig_path}")  # 添加这一行
@@ -400,6 +401,29 @@ class YingboComputeManager(BaseComputeManager):
         self.job_name = None
         self._status = JobStatus.PENDING
         self.last_log_line_count = 0
+
+    @classmethod
+    def from_args(cls, args: list[str]) -> "YingboComputeManager":
+        """
+        从命令行参数列表构造 Manager。
+        支持的参数:
+          --gpu <GPUType>   如 --gpu A800 / --gpu RTX_4090
+          --cpu <CPUType>   如 --cpu C8M16
+        """
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--gpu", type=str, default=None)
+        parser.add_argument("--cpu", type=str, default=None)
+        parsed, _ = parser.parse_known_args(args)
+
+        if parsed.cpu:
+            cpu_type = CPUType(parsed.cpu)
+            return cls(gpu_type=None, cpu_type=cpu_type)
+
+        if parsed.gpu:
+            gpu_type = GPUType(parsed.gpu)
+            return cls(gpu_type=gpu_type, cpu_type=None)
+
+        return cls(gpu_type=GPUType.A800, cpu_type=None)
 
     def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
         # 获取镜像地址
