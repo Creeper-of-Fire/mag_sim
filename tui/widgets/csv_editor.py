@@ -96,8 +96,8 @@ class CsvEditor(Vertical):
 
     BINDINGS = [
         Binding("enter", "edit_current_cell", "编辑单元格", priority=True),
-        Binding("a", "add_row", "添加行", priority=True),
-        Binding("d", "delete_row", "删除行", priority=True),
+        Binding("A,a", "add_row", "添加行", priority=True),
+        Binding("D,d", "delete_row", "删除行", priority=True),
     ]
 
     def __init__(self, schema: dict | None = None, **kwargs):
@@ -110,8 +110,8 @@ class CsvEditor(Vertical):
         yield Static("📊 tasks.csv 编辑器", classes="panel_title")
         yield DataTable(cursor_type="cell", id="csv_table")
         with Horizontal(id="editor_buttons"):
-            yield Button("添加行 (a)", id="btn_add_row", variant="primary")
-            yield Button("删除行 (d)", id="btn_delete_row", variant="error")
+            yield Button("添加行 (A)", id="btn_add_row", variant="primary")
+            yield Button("删除行 (D)", id="btn_delete_row", variant="error")
 
     # ── 数据加载 ──
 
@@ -260,11 +260,16 @@ class CsvEditor(Vertical):
 
     def save_csv(self, path: Path) -> None:
         """保存到 CSV 文件"""
+        from tui.store.log_store import logger
+
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=self._column_order)
-            writer.writeheader()
-            writer.writerows(self._data)
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(f, fieldnames=self._column_order)
+                writer.writeheader()
+                writer.writerows(self._data)
+        except PermissionError:
+            logger.error(f"无法保存：文件 {path.name} 可能正在被其他程序使用或缺乏权限，请先关闭后重试。")
 
     # ── 按钮事件 ──
 

@@ -46,7 +46,7 @@ class DirectoryBar(Horizontal):
 
     BINDINGS = [
         Binding("enter", "select_dir", "选择目录", priority=True),
-        Binding("f", "open_in_fm", "打开文件夹", priority=True),
+        Binding("F,f", "open_in_fm", "打开文件夹", priority=True),
     ]
 
     def compose(self):

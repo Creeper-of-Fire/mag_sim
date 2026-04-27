@@ -57,7 +57,7 @@ class TaskList(Vertical):
     """
 
     BINDINGS = [
-        Binding("t", "create_template", "初始化模板", priority=True),
+        Binding("T,t", "create_template", "初始化模板", priority=True),
     ]
 
     class TaskSelected(Message):

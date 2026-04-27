@@ -96,12 +96,12 @@ class MainScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("f5", "start_batch", "启动运行", priority=True),
-        Binding("ctrl+k", "stop_batch", "停止运行", priority=True),
-        Binding("r", "refresh", "刷新列表", priority=True),
-        Binding("o", "open_config", "编辑配置", priority=True),
-        Binding("i", "toggle_log_view", "日志视图", priority=True),
-        Binding("ctrl+e", "open_csv_in_excel", "Excel打开", priority=True),
+        Binding("F5,f5", "start_batch", "启动运行", priority=True),
+        Binding("ctrl+K,ctrl+k", "stop_batch", "停止运行", priority=True),
+        Binding("R,r", "refresh", "刷新列表", priority=True),
+        Binding("O,o", "open_config", "编辑配置", priority=True),
+        Binding("I,i", "toggle_log_view", "日志视图", priority=True),
+        Binding("ctrl+E,ctrl+e", "open_csv_in_excel", "Excel打开", priority=True),
     ]
 
     def compose(self):
