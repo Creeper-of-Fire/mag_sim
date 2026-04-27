@@ -242,7 +242,7 @@ class CsvEditor(Vertical):
         if row_key is None:
             return
 
-        row_idx = int(row_key)
+        row_idx = int(row_key.value)
         if row_idx >= len(self._data):
             return
 

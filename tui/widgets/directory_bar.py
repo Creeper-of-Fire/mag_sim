@@ -3,9 +3,10 @@
 """
 from pathlib import Path
 
+from textual import on
 from textual.binding import Binding
-from textual.containers import Widget, Horizontal
-from textual.widgets import Static
+from textual.containers import Horizontal
+from textual.widgets import Static, Button
 
 from tui.store.app_store import app_store
 from tui.store.log_store import logger
@@ -51,6 +52,8 @@ class DirectoryBar(Horizontal):
     def compose(self):
         yield Static("📁 项目目录: ", id="dir_label")
         yield Static("（未选择 | Enter选择 F打开）", id="dir_path")
+        yield Button("选择目录", id="btn_select_dir", variant="primary")
+        yield Button("打开文件夹", id="btn_open_fm", variant="warning")
 
     def on_mount(self):
         """获取焦点提示"""
@@ -71,9 +74,10 @@ class DirectoryBar(Horizontal):
     def _update_display(self, path: Path):
         """更新路径显示"""
         self.query_one("#dir_path", Static).update(str(path))
-        
+
     # ── 按键动作 ──
 
+    @on(Button.Pressed, "#btn_select_dir")
     def action_select_dir(self):
         """打开目录选择对话框"""
         from tui.screens.file_dialog import open_directory_dialog
@@ -95,6 +99,7 @@ class DirectoryBar(Horizontal):
         app_store.set_job_dir(path)
         logger.info(f"日志: 已切换到 {path}")
 
+    @on(Button.Pressed, "#btn_open_fm")
     def action_open_in_fm(self):
         """在文件管理器中打开"""
         import os

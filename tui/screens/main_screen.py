@@ -3,19 +3,21 @@
 主界面：目录栏 + 任务列表 + 详情/日志
 """
 import asyncio
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from textual import on
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Input
+from textual.widgets import Header, Footer, Static, Input, Button
 
 from tui.controllers.csv_tool import CsvToolRunner
 from tui.controllers.process_controller import BatchProcessController
 from tui.screens.config_screen import ConfigScreen
 from tui.store.app_store import app_store
-from tui.store.config_store import config_store
 from tui.store.log_store import logger
 from tui.store.runtime_store import runtime_store
 from tui.widgets.directory_bar import DirectoryBar
@@ -23,8 +25,7 @@ from tui.widgets.log_panel import LogPanel
 from tui.widgets.task_detail import TaskDetail
 from tui.widgets.task_list import TaskList
 from utils.project_config import (
-    PROJECT_ROOT,
-    FILENAME_TASKS_CSV
+    PROJECT_ROOT, FILENAME_TASKS_CSV
 )
 
 
@@ -50,6 +51,8 @@ class InputDialog(Screen):
 class MainScreen(Screen):
     """主操作界面"""
 
+    AUTO_FOCUS = None
+
     CSS = """
     /* 面板通用标题 —— 被多个 Widget 引用，放 Screen 层 */
     .panel_title {
@@ -65,23 +68,39 @@ class MainScreen(Screen):
     }
     
     #task_detail {
-        height: 30%;
+        height: 20%;
     }
     
     #log_panel {
-        height: 70%;
+        height: 80%;
     }
     
+    #left_panel {
+        width: 20%;
+    }
     #task_list {
-        width: 40%;
+        height: 1fr;
+    }
+    #run_buttons {
+        height: auto;
+        dock: bottom;
+        align: center middle;
+        padding: 0 1;
+    }
+    #run_buttons Button {
+        height: 3;
+        width: 1fr;
+        margin: 0 1;
     }
     """
 
     BINDINGS = [
-        Binding("s", "start_batch", "启动运行", priority=True),
-        Binding("k", "stop_batch", "停止运行", priority=True),
+        Binding("f5", "start_batch", "启动运行", priority=True),
+        Binding("ctrl+k", "stop_batch", "停止运行", priority=True),
         Binding("r", "refresh", "刷新列表", priority=True),
-        Binding("c", "open_config", "编辑配置", priority=True),
+        Binding("o", "open_config", "编辑配置", priority=True),
+        Binding("i", "toggle_log_view", "日志视图", priority=True),
+        Binding("ctrl+e", "open_csv_in_excel", "Excel打开", priority=True),
     ]
 
     def compose(self):
@@ -93,8 +112,12 @@ class MainScreen(Screen):
 
         # 主体：左右分栏
         with Horizontal():
-            # 左侧：任务列表（占 40%）
-            yield TaskList(id="task_list")
+            # 左侧：任务列表 + 运行按钮
+            with Vertical(id="left_panel"):
+                yield TaskList(id="task_list")
+                with Horizontal(id="run_buttons"):
+                    yield Button("▶ 启动运行", id="btn_start", variant="success")
+                    yield Button("■ 停止运行", id="btn_stop", variant="error")
 
             # 右侧：详情 + 日志
             with Vertical():
@@ -119,8 +142,6 @@ class MainScreen(Screen):
             sim_jobs = PROJECT_ROOT / "sim_jobs"
             if sim_jobs.exists() and sim_jobs.is_dir():
                 app_store.set_job_dir(sim_jobs)
-
-        self.set_focus(None)
 
     def on_unmount(self):
         runtime_store.unsubscribe(self._on_runtime_changed)
@@ -153,6 +174,16 @@ class MainScreen(Screen):
                 return path
         return None
 
+    # ── 按钮事件 ──────────────────────────
+
+    @on(Button.Pressed, "#btn_start")
+    def on_btn_start(self):
+        self.action_start_batch()
+
+    @on(Button.Pressed, "#btn_stop")
+    def on_btn_stop(self):
+        self.action_stop_batch()
+
     # ── 快捷键动作 ──────────────────────────
 
     def action_refresh(self):
@@ -176,14 +207,8 @@ class MainScreen(Screen):
             logger.warn("请先选择项目目录。")
             return
 
-        config = config_store.load()
-        csv_path = app_store.job_dir / FILENAME_TASKS_CSV
-        if not csv_path.exists():
-            logger.error(f"{FILENAME_TASKS_CSV} 不存在，请按 t 创建模板。")
-            return
-
         logger.info(">>> 步骤 1: 转换任务清单...")
-        if not self._csv_tool.convert_csv(app_store.job_dir, config.script_name, config.extra_args):
+        if not self._csv_tool.convert_csv(app_store.job_dir):
             logger.error("CSV 转换失败，中止运行。")
             return
 
@@ -192,7 +217,6 @@ class MainScreen(Screen):
             logger.error(f"找不到 batch_runner.py，项目根: {PROJECT_ROOT}")
             return
 
-        runtime_store.set_running(True)
         logger.info(">>> 步骤 2: 启动批处理...")
         asyncio.create_task(self._controller.start(app_store.job_dir, runner_path))
 
@@ -212,3 +236,31 @@ class MainScreen(Screen):
             return
 
         self.app.push_screen(ConfigScreen())
+
+    def action_toggle_log_view(self):
+        """切换到简洁日志视图"""
+        from tui.screens.log_screen import LogScreen
+        self.app.push_screen(LogScreen())
+
+    def action_open_csv_in_excel(self):
+        """用系统默认程序打开 tasks.csv"""
+        if not app_store.job_dir:
+            logger.warn("请先选择项目目录。")
+            return
+
+        from utils.csv_resolver import resolve_tasks_csv
+
+        csv_path = resolve_tasks_csv(app_store.job_dir)
+        if csv_path is None:
+            logger.warn(f"未找到 {FILENAME_TASKS_CSV}，请先创建模板。")
+            return
+
+        # 跨平台打开
+        if sys.platform == "win32":
+            os.startfile(csv_path)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(csv_path)])
+        else:
+            subprocess.run(["xdg-open", str(csv_path)])
+
+        logger.info(f"已在外部编辑器中打开 {csv_path.name}")

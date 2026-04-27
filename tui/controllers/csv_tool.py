@@ -6,22 +6,24 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tui.store.config_store import config_store
 from tui.store.log_store import logger
+from utils.csv_resolver import get_preferred_csv_path, resolve_tasks_csv
 from utils.project_config import PROJECT_ROOT, FILENAME_TASKS_CSV
 
 
 class CsvToolRunner:
     """封装对 batch/csv_tool_*.py 的调用"""
 
-    def generate_template(self, job_dir: Path, script_name: str) -> bool:
+    def generate_template(self, job_dir: Path) -> bool:
         """
         调用 csv_tool 生成 tasks.csv 模板
 
         Returns:
             是否成功
         """
-        script_path = PROJECT_ROOT / "batch" / script_name
-        target_csv = job_dir / FILENAME_TASKS_CSV
+        script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
+        target_csv = get_preferred_csv_path(job_dir)
 
         cmd = [
             sys.executable, str(script_path),
@@ -49,17 +51,23 @@ class CsvToolRunner:
             logger.error(f"[CSV工具] 模板生成异常: {e}")
             return False
 
-    def convert_csv(self, job_dir: Path, script_name: str, extra_args: str = "") -> bool:
+    def convert_csv(self, job_dir: Path) -> bool:
         """
         在运行前将 tasks.csv 转换为 runner 可用的格式
 
         Returns:
             是否成功
         """
-        script_path = PROJECT_ROOT / "batch" / script_name
-        csv_path = job_dir / FILENAME_TASKS_CSV
+        csv_path = resolve_tasks_csv(job_dir)
+        if csv_path is None:
+            logger.error(f"[CSV转换] 未找到任何 {FILENAME_TASKS_CSV} 文件")
+            return False
+
+        script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
 
         cmd = [sys.executable, str(script_path), "convert", str(csv_path)]
+
+        extra_args = config_store.config.csv_tool_args
 
         # 追加额外参数
         if extra_args.strip():
@@ -85,7 +93,7 @@ class CsvToolRunner:
             logger.error(f"[CSV工具] CSV转换异常: {e}")
             return False
 
-    def get_schema(self, script_name: str) -> dict | None:
+    def get_schema(self) -> dict | None:
         """
         调用 csv_tool dump-schema 获取参数元信息。
 
@@ -93,7 +101,7 @@ class CsvToolRunner:
             schema dict，包含 column_task_name 和 params 列表。
             失败返回 None。
         """
-        script_path = PROJECT_ROOT / "batch" / script_name
+        script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
 
         cmd = [
             sys.executable, str(script_path),

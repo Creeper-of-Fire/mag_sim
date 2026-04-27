@@ -17,6 +17,7 @@ from tui.controllers.csv_tool import CsvToolRunner
 from tui.store.app_store import app_store
 from tui.store.config_store import config_store
 from tui.store.log_store import logger
+from utils.csv_resolver import resolve_tasks_csv
 from utils.project_config import (
     FILENAME_TASKS_CSV,
     FILENAME_HISTORY,
@@ -108,11 +109,11 @@ class TaskList(Vertical):
         list_view.clear()
         self._tasks = []
 
-        csv_path = job_dir / FILENAME_TASKS_CSV
+        csv_path = resolve_tasks_csv(job_dir)
         history_path = job_dir / FILENAME_HISTORY
 
-        if not csv_path.exists():
-            list_view.append(ListItem(Static(f"（无 {FILENAME_TASKS_CSV}）")))
+        if csv_path is not None:
+            list_view.append(ListItem(Static(f"（无 {FILENAME_TASKS_CSV}），请创建模板）")))
             return
 
         # 读取 CSV
@@ -160,9 +161,7 @@ class TaskList(Vertical):
             logger.warn("请先选择项目目录。")
             return
 
-        config = config_store.load()
-
-        if self._csv_tool.generate_template(app_store.job_dir, config.script_name):
+        if self._csv_tool.generate_template(app_store.job_dir):
             logger.info(f"日志: {FILENAME_TASKS_CSV} 模板已生成。")
             self.load_from_dir(app_store.job_dir)
         else:

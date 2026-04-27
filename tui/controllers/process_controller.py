@@ -8,6 +8,7 @@ import re
 import sys
 from pathlib import Path
 
+from tui.store.config_store import config_store
 from tui.store.log_store import logger
 from tui.store.runtime_store import runtime_store
 
@@ -26,9 +27,13 @@ class BatchProcessController:
 
         # 构建命令
         cmd = [sys.executable, str(runner_path), str(job_dir)]
+        runner_args = config_store.config.runner_args
+        if runner_args.strip():
+            cmd.extend(runner_args.strip().split())
         logger.info(f"[Controller] 启动进程: {' '.join(cmd)}")
 
         try:
+            runtime_store.set_running(True)
             # 创建子进程
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -41,9 +46,9 @@ class BatchProcessController:
             await self._read_output()
 
             # 等待进程结束
-            returncode = await self._process.wait()
+            await self._process.wait()
 
-            logger.info(f"[Controller] 进程结束，返回码: {returncode}")
+            logger.info("[Controller] 进程结束")
 
         except Exception as e:
             logger.error(f"[Controller] 进程异常: {e}")
