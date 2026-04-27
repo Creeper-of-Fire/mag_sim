@@ -13,6 +13,7 @@ from tui.controllers.csv_tool import CsvToolRunner
 from tui.store.app_store import app_store
 from tui.store.config_store import config_store
 from tui.store.log_store import logger
+from tui.utils.open_csv_in_excel import open_csv_in_excel
 from tui.widgets.csv_editor import CsvEditor
 from tui.widgets.runner_config import RunnerConfig
 from utils.csv_resolver import resolve_tasks_csv
@@ -59,6 +60,7 @@ class ConfigScreen(Screen):
         Binding("s", "save_all", "保存全部", priority=True),
         Binding("c", "save_all", "保存全部", priority=True),
         Binding("r", "regen_template", "重新生成模板", priority=True),
+        Binding("ctrl+e", "open_csv_in_excel", "Excel打开", priority=True),
     ]
 
     def __init__(self):
@@ -162,6 +164,10 @@ class ConfigScreen(Screen):
             self._load_csv()
         else:
             logger.error("❌ 模板生成失败。")
+
+    def action_open_csv_in_excel(self):
+        """用系统默认程序打开 tasks.csv"""
+        open_csv_in_excel()
 
     @on(Button.Pressed, "#btn_regen")
     def on_btn_regen(self) -> None:
