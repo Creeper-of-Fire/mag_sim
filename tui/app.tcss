@@ -1,0 +1,124 @@
+/* ── 全局 ───────────────────── */
+Screen {
+    background: #1a1a2e;
+}
+
+/* ── Header / Footer ────────── */
+Header {
+    background: #16213e;
+    color: #e0e0e0;
+}
+
+Footer {
+    background: #0f3460;
+    color: #888888;
+}
+
+/* ── 目录栏 ─────────────────── */
+DirectoryBar {
+    background: #16213e;
+    color: #e0e0e0;
+    padding: 0 1;
+    height: 3;
+}
+
+#dir_label {
+    color: #888888;
+    width: 14;
+}
+
+#dir_path {
+    color: #00ff88;
+    width: 1fr;
+}
+
+/* ── 面板通用标题 ───────────── */
+.panel_title {
+    background: #0f3460;
+    color: #e0e0e0;
+    padding: 0 1;
+    text-style: bold;
+    height: 1;
+}
+
+/* ── 任务列表面板 ───────────── */
+#task_list {
+    width: 40%;
+    border: solid #0f3460;
+    background: #1a1a2e;
+}
+
+#task_list ListView {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* ── 详情面板 ──────────────── */
+#task_detail {
+    height: 30%;
+    border: solid #0f3460;
+    background: #1a1a2e;
+}
+
+#detail_scroll {
+    height: 1fr;
+    overflow-y: auto;
+    scrollbar-size: 0 0;  /* 隐藏滚动条，保持界面简洁 */
+}
+
+#detail_content {
+    padding: 0 1;
+    color: #c0c0c0;
+    height: auto;
+}
+
+/* ── 日志面板 ──────────────── */
+#log_panel {
+    height: 70%;
+    border: solid #0f3460;
+    background: #1a1a2e;
+}
+
+#log_content {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 0 1;
+    color: #c0c0c0;
+    background: #1a1a2e;
+}
+
+/* ── 列表项样式 ────────────── */
+ListView {
+    background: #1a1a2e;
+    color: #e0e0e0;
+}
+
+ListView > ListItem {
+    padding: 0 1;
+}
+
+ListView > ListItem.--highlight {
+    background: #0f3460;
+    color: white;
+}
+
+/* ── 输入弹窗 ──────────────── */
+InputDialog {
+    align: center middle;
+    background: #16213e;
+    border: solid #0f3460;
+    padding: 2 3;
+    width: 60%;
+    height: auto;
+}
+
+InputDialog Static {
+    color: #e0e0e0;
+    margin-bottom: 1;
+}
+
+InputDialog Input {
+    background: #1a1a2e;
+    color: #00ff88;
+    border: solid #0f3460;
+}
