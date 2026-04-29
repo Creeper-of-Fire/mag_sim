@@ -273,7 +273,7 @@ def main():
     selected_theme = StyleTheme[args.style]  # 将字符串转换为枚举成员
     set_style(selected_theme)
 
-    config.output_dir = args.output
+    config.global_output_dir = args.output
 
     os.makedirs(args.output, exist_ok=True)
     console.print(f"[green]✔ 所有分析结果将保存到 '{args.output}/' 目录。[/green]")
