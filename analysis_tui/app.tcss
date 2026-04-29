@@ -1,0 +1,9 @@
+/* Analysis TUI — 全局样式 */
+
+.panel_title {
+    background: $bg-tertiary;
+    color: $text-primary;
+    padding: 0 1;
+    text-style: bold;
+    height: 1;
+}
