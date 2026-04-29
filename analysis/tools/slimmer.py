@@ -334,7 +334,7 @@ def run_interactive_workflow(selected_dirs: List[str]):
     """
     # 1. 准备全局输出目录
     from ..core.config import config
-    preview_base_dir = Path(config.output_dir) / "slimmer_previews"
+    preview_base_dir = Path(config.global_output_dir) / "slimmer_previews"
     preview_base_dir.mkdir(parents=True, exist_ok=True)
 
     console.print(f"\n[bold]启动粒子数据瘦身工具 (并发数: {MAX_CONCURRENT_PROCESSES})[/bold]")
