@@ -40,12 +40,13 @@ class AnalysisScreen(Screen):
     AUTO_FOCUS = None
 
     CSS = """
-    #left_panel {
-        width: 26;
-    }
-
     #term_panel {
         width: 1fr;
+        border: solid $border-primary;
+    }
+
+    #right_panel {
+        width: 30;
     }
 
     #run_row {
@@ -77,11 +78,11 @@ class AnalysisScreen(Screen):
         yield Static(id="dir_status")
 
         with Horizontal():
-            with Vertical(id="left_panel"):
-                yield ModulePicker(id="module_picker")
-
             with Vertical(id="term_panel"):
                 yield TerminalWidget(id="terminal")
+
+            with Vertical(id="right_panel"):
+                yield ModulePicker(id="module_picker")
 
         with Horizontal(id="run_row"):
             yield Button("📂 选择目录", id="btn_dirs", variant="default")

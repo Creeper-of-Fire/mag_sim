@@ -11,15 +11,18 @@ from textual.containers import Vertical
 
 
 class _TermInput(Input):
-    """终端输入行 — 接收焦点后所有按键直通这里"""
+    """终端输入行 — 回车时写入 RichLog + 推入 stdin 队列"""
 
-    def __init__(self, stdin_queue: queue.Queue, **kwargs):
+    def __init__(self, stdin_queue: queue.Queue, display: RichLog, **kwargs):
         super().__init__(placeholder="", **kwargs)
         self._stdin_queue = stdin_queue
+        self._display = display
 
     @on(Input.Submitted)
     def _on_submit(self, event: Input.Submitted):
-        self._stdin_queue.put(event.value or "")
+        val = event.value or ""
+        self._display.write(f"[bold white]{val}[/bold white]\n")
+        self._stdin_queue.put(val)
         self.value = ""
 
 
@@ -28,12 +31,7 @@ class TerminalWidget(Vertical):
 
     CSS = """
     TerminalWidget {
-        border: solid $border-primary;
         background: #0d1017;
-    }
-
-    TerminalWidget:focus {
-        border: solid $border-focus;
     }
 
     #term_display {
@@ -44,18 +42,14 @@ class TerminalWidget(Vertical):
 
     #term_input_line {
         height: auto;
-        background: #0d1017;
-        color: #abb2bf;
-        border: none;
+        background: $bg-surface;
+        color: $text-accent;
+        border: hkey $border-primary;
         padding: 0 1;
     }
 
     #term_input_line:focus {
-        border: none;
-    }
-
-    #term_input_line:focus > .input--cursor {
-        background: #abb2bf;
+        border: hkey $border-focus;
     }
     """
 
@@ -70,14 +64,15 @@ class TerminalWidget(Vertical):
         return self._stdin_queue
 
     def compose(self):
-        yield RichLog(
+        log = RichLog(
             id="term_display",
             highlight=False,
             markup=True,
             auto_scroll=True,
             max_lines=5000,
         )
-        yield _TermInput(self._stdin_queue, id="term_input_line")
+        yield log
+        yield _TermInput(self._stdin_queue, log, id="term_input_line")
 
     def on_mount(self):
         self.set_interval(0.05, self._flush_output)

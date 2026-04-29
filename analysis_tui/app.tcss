@@ -1,4 +1,18 @@
-/* Analysis TUI — 全局样式 */
+/* Analysis TUI — 全局样式，对齐 simulation TUI */
+
+Screen {
+    background: $bg-primary;
+}
+
+Header {
+    background: $bg-secondary;
+    color: $text-primary;
+}
+
+Footer {
+    background: $bg-tertiary;
+    color: $text-muted;
+}
 
 .panel_title {
     background: $bg-tertiary;
@@ -6,4 +20,9 @@
     padding: 0 1;
     text-style: bold;
     height: 1;
+}
+
+Button {
+    border: none;
+    min-width: 10;
 }
