@@ -443,6 +443,37 @@ class YingboComputeManager(BaseComputeManager):
             python_exe="python3"
         )
 
+        # ========== 性能采样包裹 ==========
+        # 定义一个绝对路径日志目录
+        perf_log_dir = f"{remote_root}/sim_jobs/{rel_job_path}/logs/perf"
+        # 确保目录存在（在 Pod 启动时）
+        mkdir_cmd = f"mkdir -p {perf_log_dir}"
+
+        # 方案 1：nvidia-smi 前后采样（轻量级）
+        nvidia_cmd = (
+            f"nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total --format=csv "
+            f">> {perf_log_dir}/gpu_metrics_{task_hash[:8]}.log && "
+            f"{agent_cmd} && "
+            f"nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total --format=csv "
+            f">> {perf_log_dir}/gpu_metrics_{task_hash[:8]}.log"
+        )
+
+        # 方案 2：nsys 深度分析（可选，开销大）
+        # 取消注释下面这段来使用 nsys
+        # nsys_cmd = (
+        #     f"nsys profile --stats=true "
+        #     f"--output={perf_log_dir}/nsys_profile_{task_hash[:8]} "
+        #     f"--force-overwrite true "
+        #     f"{agent_cmd}"
+        # )
+
+        # 选择使用哪个包裹命令（默认用 nvidia-smi）
+        wrapped_cmd = f"{mkdir_cmd} && {nvidia_cmd}"
+
+        # 把原来的 agent_cmd 替换成 wrapped_cmd
+        agent_cmd = wrapped_cmd
+        # ========== 性能采样包裹结束 ==========
+
         # 根据环境类型构建命令
         cmd_builder = self.current_spec.environment.get_command_builder()
         if cmd_builder:
