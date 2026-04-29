@@ -19,6 +19,7 @@ from typing import List, Dict, Union
 from rich.prompt import Prompt
 
 from analysis.core.config import config
+from analysis.core.executor import execute_analysis
 from analysis.core.load_run_data_loader import load_run_data
 from analysis.core.selector import SimpleTableSelector
 # --- 导入核心库组件 ---
@@ -114,34 +115,28 @@ def _select_modules_from_list(module_dict: Dict[str, AnyModule]) -> List[AnyModu
     return selector.select(default="all")
 
 
-def _run_analysis_workflow(selected_modules: List[AnyModule], selected_dirs: List[str]):
-    """统一的数据加载和模块执行流程"""
+def _load_and_execute(selected_modules: List[AnyModule], selected_dirs: List[str]):
+    """加载数据并委托给执行器。这是 Rich 上下文构建 → 执行器的衔接层。"""
     if not selected_modules or not selected_dirs:
         return
 
-    # --- 1. 实例化 SimulationRun ---
-    # 现在 load_run_data 内部只是 new 一个 SimulationRun 对象并做文件索引，非常快
     loaded_runs = []
     for dir_path in selected_dirs:
         run = load_run_data(dir_path)
-        if run: loaded_runs.append(run)
+        if run:
+            loaded_runs.append(run)
 
     if not loaded_runs:
         console.print("\n[red]未能成功加载任何模拟数据，无法继续分析。[/red]")
         return
 
-    # --- 2. 依次执行模块 ---
     console.print("\n" + "=" * 50)
     console.print("[bold green]      数据加载完成，开始执行分析模块[/bold green]")
     console.print("=" * 50)
 
-    for mod in selected_modules:
-        try:
-            mod.run(loaded_runs)
-        except Exception as e:
-            console.print(f"[bold red]✗ 执行模块 '{mod.name}' 时发生严重错误: {e}[/bold red]")
-            import traceback
-            console.print(traceback.format_exc())
+    errors = execute_analysis(selected_modules, loaded_runs, output=console.print)
+    if not errors:
+        console.print("\n[bold]所有选定的分析任务已完成。[/bold]")
 
 
 def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
@@ -319,10 +314,8 @@ def main():
             return
         selected_mods = _select_modules_from_list(individual_modules)
 
-    # 4. 执行工作流
-    _run_analysis_workflow(selected_mods, selected_dirs)
-
-    console.print("\n[bold]所有选定的分析任务已完成。[/bold]")
+    # 4. 加载数据并执行
+    _load_and_execute(selected_mods, selected_dirs)
 
 
 if __name__ == "__main__":
