@@ -44,7 +44,7 @@ class ModulePicker(Vertical):
 
     .section_list {
         height: auto;
-        max-height: 12;
+        max-height: 14;
     }
 
     #mod_buttons {
@@ -53,7 +53,7 @@ class ModulePicker(Vertical):
     }
 
     #mod_buttons Button {
-        width: auto;
+        width: 1fr;
     }
     """
 
