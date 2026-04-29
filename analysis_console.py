@@ -216,11 +216,17 @@ class AnalysisConsole:
         runs = self._store.get_loaded_runs()
 
         if not runs:
-            self._console.print("[yellow]请先选择数据目录 [cyan]d[/cyan][/yellow]")
-            return
+            self._console.print("[yellow]未选择目录，自动进入目录选择...[/yellow]")
+            self._cmd_select_dirs()
+            runs = self._store.get_loaded_runs()
+            if not runs:
+                return
         if not modules:
-            self._console.print("[yellow]请先选择分析模块 [cyan]s[/cyan][/yellow]")
-            return
+            self._console.print("[yellow]未选择模块，自动进入模块选择...[/yellow]")
+            self._cmd_select_modules()
+            modules = self._store.get_selected_modules()
+            if not modules:
+                return
 
         self._console.print(f"[bold]目录: {len(runs)} 个 | 模块: {len(modules)} 个[/bold]")
         self._console.print("─" * 50)
