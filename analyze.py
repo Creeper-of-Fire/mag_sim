@@ -12,6 +12,7 @@
 #
 import argparse
 import importlib
+import inspect
 import os
 from pathlib import Path
 from typing import List, Dict, Union
@@ -45,6 +46,9 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
 
     modules_dir = base_dir / "analysis/modules"
 
+    # 预定义目标基类集合，避免重复 issubclass
+    base_types = (BaseAnalysisModule, BaseComparisonModule, BaseVideoModule)
+
     # 使用 rglob("*.py") 进行递归查找
     for f in modules_dir.rglob("*.py"):
         # 过滤掉 __init__.py, base_ 开头的文件以及隐藏文件
@@ -58,29 +62,33 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
 
         try:
             module = importlib.import_module(module_name)
-            for item_name in dir(module):
-                item = getattr(module, item_name)
 
-                # 避免加载基类自身
-                if not isinstance(item, type) or item.__module__ != module_name:
+            # 直接遍历 __dict__，避免 dir() 会触发 __dir__ 自定义方法的开销
+            # 并且 __dict__ 只包含模块自身的属性，不包括继承的
+            for item_name, item  in inspect.getmembers(module, inspect.isclass):
+                # 跳过在其他模块定义的类（被导入的）
+                if item.__module__ != module_name:
                     continue
 
-                # 检查是否是对应的基类子类
-                if not issubclass(item, BaseAnalysisModule) or item in [BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]:
+                # 跳过基类本身
+                if item in base_types:
                     continue
 
-                instance = item()
-                # 根据实例类型归类
-                if isinstance(instance, BaseVideoModule):
+                if issubclass(item, BaseVideoModule):
+                    instance = item()
                     video_modules[instance.name] = instance
-                elif isinstance(instance, BaseComparisonModule):
+                elif issubclass(item, BaseComparisonModule):
+                    instance = item()
                     comparison_modules[instance.name] = instance
-                elif isinstance(instance, BaseAnalysisModule):
+                elif issubclass(item, BaseAnalysisModule):
+                    instance = item()
                     individual_modules[instance.name] = instance
 
         except Exception as e:
             # 这里的 console 是你原代码中引用的，请确保作用域内可用
             console.print(f"[red]加载模块 {module_name} 失败: {e}[/red]")
+
+    console.print("已加载的模块：")
 
     # 返回排序后的字典
     return (
