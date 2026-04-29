@@ -3,13 +3,12 @@ import asyncio
 import concurrent.futures
 import queue
 import sys
-import threading
 
 from textual import on
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Button, Input, SelectionList, Static
+from textual.widgets import Header, Footer, Button, Static
 
 from analysis.core.executor import execute_analysis
 from analysis.core.utils import console as rich_console, select_directories
@@ -64,11 +63,6 @@ class AnalysisScreen(Screen):
         padding: 0 1;
         color: $text-accent;
     }
-
-    #term_input {
-        dock: bottom;
-        height: auto;
-    }
     """
 
     BINDINGS = [
@@ -87,8 +81,7 @@ class AnalysisScreen(Screen):
                 yield ModulePicker(id="module_picker")
 
             with Vertical(id="term_panel"):
-                yield TerminalWidget(id="terminal", rows=40, cols=100)
-                yield Input(id="term_input", placeholder="交互输入... 按 Enter 发送")
+                yield TerminalWidget(id="terminal")
 
         with Horizontal(id="run_row"):
             yield Button("📂 选择目录", id="btn_dirs", variant="default")
@@ -100,20 +93,16 @@ class AnalysisScreen(Screen):
     def on_mount(self):
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._stdin_queue: queue.Queue = queue.Queue()
+        # 把 stdin 队列注入终端，终端键盘输入直接推入
+        term = self.query_one("#terminal", TerminalWidget)
+        term.stdin_queue = self._stdin_queue
+        term.focus()
         analysis_store.subscribe(self._on_store_changed)
         self._update_dir_status()
 
     def on_unmount(self):
         analysis_store.unsubscribe(self._on_store_changed)
         self._executor.shutdown(wait=False)
-
-    # ── stdin ──
-
-    @on(Input.Submitted, "#term_input")
-    def _on_term_input(self, event: Input.Submitted):
-        if event.value:
-            self._stdin_queue.put(event.value)
-            event.input.value = ""
 
     # ── 按钮 ──
 
