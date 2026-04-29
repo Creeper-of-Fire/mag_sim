@@ -2,8 +2,10 @@ import glob
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional
 
+import dill
 import numpy as np
 
 from analysis.core.cache import SmartCache, cached_op
@@ -19,7 +21,7 @@ class SimulationRunSingle(SimulationRun):
     """
     path: str
     name: str
-    sim: object  # sim_parameters 对象
+    _sim_obj: object = field(default=None, init=False, repr=False)
 
     # 内部组件
     _cache: SmartCache = field(init=False, repr=False)
@@ -48,6 +50,14 @@ class SimulationRunSingle(SimulationRun):
         # 确保排序，因为文件列表的顺序会影响缓存指纹
         self._particle_files = sorted(glob.glob(os.path.join(self.path, "diags/particle_states", "openpmd_*.h5")))
         self._field_files = sorted(glob.glob(os.path.join(self.path, "diags/field_states", "*.h5")))
+
+    @property
+    def sim(self):
+        """懒加载 sim_parameters，首次访问时才从 dpkl 文件反序列化。"""
+        if self._sim_obj is None:
+            with open(self._param_file, "rb") as f:
+                self._sim_obj = SimpleNamespace(**dill.load(f))
+        return self._sim_obj
 
     # --- 基础属性 ---
 
