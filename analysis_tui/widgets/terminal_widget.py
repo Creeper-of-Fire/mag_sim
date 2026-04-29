@@ -1,19 +1,30 @@
-"""终端 — Rich Text.from_ansi() 直转 + 键盘直接输入"""
+"""终端 — Rich ANSI 渲染 + 内嵌输入行"""
 from __future__ import annotations
 
 import queue
 import threading
 
 from rich.text import Text
-from textual import events
-from textual.widgets import RichLog
+from textual import events, on
+from textual.widgets import RichLog, Input
 from textual.containers import Vertical
 
 
-class TerminalWidget(Vertical):
-    """终端：stdout ANSI → Rich Text → RichLog，键盘直接输入"""
+class _TermInput(Input):
+    """终端输入行 — 接收焦点后所有按键直通这里"""
 
-    can_focus = True
+    def __init__(self, stdin_queue: queue.Queue, **kwargs):
+        super().__init__(placeholder="", **kwargs)
+        self._stdin_queue = stdin_queue
+
+    @on(Input.Submitted)
+    def _on_submit(self, event: Input.Submitted):
+        self._stdin_queue.put(event.value or "")
+        self.value = ""
+
+
+class TerminalWidget(Vertical):
+    """终端面板：RichLog 输出 + Input 输入（无边框融为一体）"""
 
     CSS = """
     TerminalWidget {
@@ -30,14 +41,33 @@ class TerminalWidget(Vertical):
         background: #0d1017;
         color: #abb2bf;
     }
+
+    #term_input_line {
+        height: auto;
+        background: #0d1017;
+        color: #abb2bf;
+        border: none;
+        padding: 0 1;
+    }
+
+    #term_input_line:focus {
+        border: none;
+    }
+
+    #term_input_line:focus > .input--cursor {
+        background: #abb2bf;
+    }
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._lock = threading.Lock()
         self._ansi_buffer = ""
-        self._input_buffer = ""
-        self.stdin_queue: queue.Queue | None = None
+        self._stdin_queue: queue.Queue = queue.Queue()
+
+    @property
+    def stdin_queue(self) -> queue.Queue:
+        return self._stdin_queue
 
     def compose(self):
         yield RichLog(
@@ -47,30 +77,10 @@ class TerminalWidget(Vertical):
             auto_scroll=True,
             max_lines=5000,
         )
+        yield _TermInput(self._stdin_queue, id="term_input_line")
 
     def on_mount(self):
         self.set_interval(0.05, self._flush_output)
-
-    # ── 键盘输入 ──
-
-    def on_key(self, event: events.Key) -> None:
-        if self.stdin_queue is None:
-            return
-
-        key = event.key
-        char = event.character
-
-        if key == "enter":
-            self.display.write("\n")
-            self.stdin_queue.put(self._input_buffer)
-            self._input_buffer = ""
-            event.stop()
-            event.prevent_default()
-        elif char and len(char) == 1 and not event.is_forwarded:
-            self._input_buffer += char
-            self.display.write(char)
-            event.stop()
-            event.prevent_default()
 
     # ── stdout（工作线程调用）──
 
@@ -84,7 +94,6 @@ class TerminalWidget(Vertical):
     def clear_screen(self):
         with self._lock:
             self._ansi_buffer = ""
-            self._input_buffer = ""
         try:
             self.display.clear()
         except Exception:
@@ -97,7 +106,6 @@ class TerminalWidget(Vertical):
     # ── 内部 ──
 
     def _flush_output(self):
-        """定时刷新 ANSI 缓冲 → Rich Text → RichLog"""
         with self._lock:
             if not self._ansi_buffer:
                 return

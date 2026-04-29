@@ -92,11 +92,9 @@ class AnalysisScreen(Screen):
 
     def on_mount(self):
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        self._stdin_queue: queue.Queue = queue.Queue()
-        # 把 stdin 队列注入终端，终端键盘输入直接推入
+        # 聚焦终端输入行
         term = self.query_one("#terminal", TerminalWidget)
-        term.stdin_queue = self._stdin_queue
-        term.focus()
+        term.query_one("#term_input_line").focus()
         analysis_store.subscribe(self._on_store_changed)
         self._update_dir_status()
 
@@ -124,7 +122,7 @@ class AnalysisScreen(Screen):
         """在终端中运行旧 Rich select_directories()"""
         term = self.query_one("#terminal", TerminalWidget)
         term.clear_screen()
-        tui_stdin = _TuiStdin(self._stdin_queue)
+        tui_stdin = _TuiStdin(term.stdin_queue)
 
         def _run_select():
             original_stdout = sys.stdout
@@ -142,7 +140,7 @@ class AnalysisScreen(Screen):
                 self.app.call_from_thread(self._on_dirs_selected)
             except Exception:
                 import traceback
-                term.feed(f"\r\n{traceback.format_exc()}\r\n")
+                term.write(f"\r\n{traceback.format_exc()}\r\n")
             finally:
                 sys.stdout = original_stdout
                 sys.stdin = original_stdin
@@ -163,7 +161,7 @@ class AnalysisScreen(Screen):
 
         if not modules:
             term = self.query_one("#terminal", TerminalWidget)
-            term.feed("\r\n[yellow]请先选择分析模块。[/yellow]\r\n")
+            term.write("\r\n[yellow]请先选择分析模块。[/yellow]\r\n")
             return
 
         analysis_store.is_running = True
@@ -171,10 +169,10 @@ class AnalysisScreen(Screen):
 
         term = self.query_one("#terminal", TerminalWidget)
         term.clear_screen()
-        term.feed(f"目录: {len(runs)} 个 | 模块: {len(modules)} 个\r\n")
-        term.feed("─" * 50 + "\r\n")
+        term.write(f"目录: {len(runs)} 个 | 模块: {len(modules)} 个\r\n")
+        term.write("─" * 50 + "\r\n")
 
-        tui_stdin = _TuiStdin(self._stdin_queue)
+        tui_stdin = _TuiStdin(term.stdin_queue)
 
         def _run():
             original_stdout = sys.stdout
@@ -184,14 +182,14 @@ class AnalysisScreen(Screen):
                 sys.stdout = term
                 sys.stdin = tui_stdin
                 rich_console.file = term
-                errors = execute_analysis(modules, runs, output=lambda s: term.feed(s + '\r\n'))
+                errors = execute_analysis(modules, runs, output=lambda s: term.write(s + '\r\n'))
                 if errors:
-                    term.feed(f"\r\n✗ {len(errors)} 个模块出错\r\n")
+                    term.write(f"\r\n✗ {len(errors)} 个模块出错\r\n")
                 else:
-                    term.feed("\r\n✓ 全部完成\r\n")
+                    term.write("\r\n✓ 全部完成\r\n")
             except Exception:
                 import traceback
-                term.feed(f"\r\n{traceback.format_exc()}\r\n")
+                term.write(f"\r\n{traceback.format_exc()}\r\n")
             finally:
                 sys.stdout = original_stdout
                 sys.stdin = original_stdin
