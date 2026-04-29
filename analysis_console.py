@@ -10,9 +10,9 @@
 - Ctrl+C 任意位置回到主页面
 """
 
+import argparse
 import importlib
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +28,7 @@ from analysis.core.executor import execute_analysis
 from analysis.core.utils import console, select_directories
 from analysis.plotting.styles import StyleTheme, set_style
 from analysis.utils import setup_chinese_font
-from analysis_tui.stores.analysis_store import analysis_store
+from analysis_cli.analysis_store import analysis_store
 from utils.project_config import PROJECT_ROOT
 
 # ── 缓存路径 ──
@@ -46,8 +46,6 @@ class AnalysisConsole:
     def __init__(self):
         self._console = console
         self._store = analysis_store
-        self._output_dir = analysis_config.global_output_dir
-        self._style = StyleTheme.PRESENTATION
         self._last_run_info: Optional[dict] = None
 
         # 模块文件 mtime 缓存: {file_path: mtime}
@@ -60,8 +58,6 @@ class AnalysisConsole:
     def run(self):
         """启动总控台主循环。"""
         set_style(StyleTheme.PRESENTATION)
-        analysis_config.global_output_dir = self._output_dir
-        os.makedirs(self._output_dir, exist_ok=True)
         setup_chinese_font()
 
         with self._console.status("[bold green]正在发现分析模块...[/bold green]"):
@@ -93,8 +89,6 @@ class AnalysisConsole:
         info = Table(box=None, padding=(0, 1), show_header=False)
         info.add_column(style="bold cyan")
         info.add_column()
-        info.add_row("输出目录:", f"[green]{self._output_dir}[/green]")
-        info.add_row("绘图样式:", f"[green]{self._style.name}[/green]")
         info.add_row("数据目录:", f"[green]{len(dirs)} 个已选择[/green]")
         info.add_row(
             "分析模块:",
@@ -110,7 +104,7 @@ class AnalysisConsole:
 
         keys_text = Text.from_markup(
             "  [cyan]d[/cyan] 选择目录  [cyan]s[/cyan] 选择模块  [cyan]f[/cyan] 刷新  "
-            "[cyan]r[/cyan] 运行  [cyan]t[/cyan] 工具  [cyan]o[/cyan] 输出  [cyan]q[/cyan] 退出")
+            "[cyan]r[/cyan] 运行  [cyan]t[/cyan] 工具  [cyan]q[/cyan] 退出")
 
         panel = Panel(
             info,
@@ -129,7 +123,6 @@ class AnalysisConsole:
             'f': self._cmd_refresh,
             'r': self._cmd_run,
             't': self._cmd_tools,
-            'o': self._cmd_output_dir,
             'q': self._cmd_quit,
         }
         handler = handlers.get(cmd)
@@ -229,8 +222,6 @@ class AnalysisConsole:
             self._console.print("[yellow]请先选择分析模块 [cyan]s[/cyan][/yellow]")
             return
 
-        analysis_config.global_output_dir = self._output_dir
-
         self._console.print(f"[bold]目录: {len(runs)} 个 | 模块: {len(modules)} 个[/bold]")
         self._console.print("─" * 50)
 
@@ -272,21 +263,6 @@ class AnalysisConsole:
             self._console.print("\n[yellow]已中断工具[/yellow]")
 
         self._console.print("─" * 50)
-
-    # ── o: 输出目录 ──
-
-    def _cmd_output_dir(self):
-        try:
-            new_dir = Prompt.ask(
-                "  [bold]输出目录[/bold]", console=self._console, default=self._output_dir
-            )
-        except KeyboardInterrupt:
-            return
-        if new_dir:
-            self._output_dir = new_dir
-            analysis_config.global_output_dir = new_dir
-            os.makedirs(new_dir, exist_ok=True)
-            self._console.print(f"[green]输出目录已设为: {new_dir}[/green]")
 
     # ── q: 退出 ──
 
@@ -447,6 +423,16 @@ class AnalysisConsole:
 
 def main():
     """启动分析总控台。"""
+    parser = argparse.ArgumentParser(description="Plasma Analysis Console")
+    parser.add_argument(
+        '--global-output',
+        type=str,
+        default=analysis_config.global_output_dir,
+        help="兜底输出目录 (默认: %(default)s)",
+    )
+    args = parser.parse_args()
+    analysis_config.global_output_dir = args.global_output
+
     app = AnalysisConsole()
     app.run()
 

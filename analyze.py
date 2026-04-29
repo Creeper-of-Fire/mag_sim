@@ -19,7 +19,7 @@ from typing import List, Dict, Union
 
 from rich.prompt import Prompt
 
-from analysis.core.config import config
+from analysis.core.config import config as analysis_config
 from analysis.core.executor import execute_analysis
 from analysis.core.load_run_data_loader import load_run_data
 from analysis.core.selector import SimpleTableSelector
@@ -241,10 +241,10 @@ def main():
         help="选择绘图样式。"
     )
     parser.add_argument(
-        '-o', '--output',
+        '-o', '--global-output',
         type=str,
-        default='analysis_results',
-        help="指定保存分析结果（图片、视频等）的目录。"
+        default=analysis_config.global_output_dir,
+        help="指定保存分析结果（图片、视频等）的目录。通常作为回退使用。"
     )
 
     # --- 模式选择：使用互斥组确保一次只运行一种模式 ---
@@ -273,7 +273,7 @@ def main():
     selected_theme = StyleTheme[args.style]  # 将字符串转换为枚举成员
     set_style(selected_theme)
 
-    config.global_output_dir = args.output
+    analysis_config.global_output_dir = args.output
 
     os.makedirs(args.output, exist_ok=True)
     console.print(f"[green]✔ 所有分析结果将保存到 '{args.output}/' 目录。[/green]")
