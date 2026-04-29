@@ -1,16 +1,29 @@
-"""模块多选器 — 按分类展示，多选勾选"""
+"""模块多选器 — 使用 Textual 内置 SelectionList，按分类分组"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from textual import on
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, ListView, ListItem, Label, Static
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.widgets import Button, SelectionList, Static
 
 from analysis_tui.stores.analysis_store import analysis_store
 
 if TYPE_CHECKING:
-    from analysis.modules.abstract.base_module import BaseAnalysisModule
+    pass
+
+
+CATEGORIES = [
+    ("single", "独立分析", "sel_single"),
+    ("compare", "对比分析", "sel_compare"),
+    ("video", "视频生成", "sel_video"),
+]
+
+CAT_KEY_TO_MODULES = {
+    "single": lambda: analysis_store.individual_modules,
+    "compare": lambda: analysis_store.comparison_modules,
+    "video": lambda: analysis_store.video_modules,
+}
 
 
 class ModulePicker(Vertical):
@@ -22,13 +35,16 @@ class ModulePicker(Vertical):
         background: $bg-primary;
     }
 
-    #mod_header {
-        height: auto;
+    .section_label {
+        color: $text-accent;
+        text-style: bold;
         padding: 0 1;
+        height: 1;
     }
 
-    #mod_list {
-        height: 1fr;
+    .section_list {
+        height: auto;
+        max-height: 12;
     }
 
     #mod_buttons {
@@ -43,34 +59,31 @@ class ModulePicker(Vertical):
 
     def compose(self):
         yield Static("— 分析模块", classes="panel_title")
-        yield ListView(id="mod_list")
+        with VerticalScroll():
+            for cat_key, cat_label, sel_id in CATEGORIES:
+                yield Static(f"— {cat_label}", classes="section_label")
+                yield SelectionList(id=sel_id, classes="section_list")
         with Horizontal(id="mod_buttons"):
             yield Button("全选", id="btn_select_all", variant="default")
             yield Button("取消全选", id="btn_deselect_all", variant="default")
 
     def on_mount(self):
         analysis_store.discover_modules()
-        self._refresh_list()
-        analysis_store.subscribe(self._on_store_changed)
-
-    def on_unmount(self):
-        analysis_store.unsubscribe(self._on_store_changed)
+        self._refresh_all()
 
     # ── 事件 ──
 
-    @on(ListView.Selected, "#mod_list")
-    def _on_item_selected(self, event: ListView.Selected):
-        if event.item is None:
-            return
-        name = event.item.id
-        if name is None:
-            return
-        # 跳过类别标题（以 __category__ 为前缀）
-        if name.startswith("__"):
-            return
+    @on(SelectionList.SelectedChanged, "#sel_single")
+    def _on_single_changed(self):
+        self._sync_selection("sel_single", analysis_store.individual_modules)
 
-        analysis_store.toggle_module(name)
-        self._refresh_list()
+    @on(SelectionList.SelectedChanged, "#sel_compare")
+    def _on_compare_changed(self):
+        self._sync_selection("sel_compare", analysis_store.comparison_modules)
+
+    @on(SelectionList.SelectedChanged, "#sel_video")
+    def _on_video_changed(self):
+        self._sync_selection("sel_video", analysis_store.video_modules)
 
     @on(Button.Pressed, "#btn_select_all")
     def _on_select_all(self):
@@ -80,50 +93,39 @@ class ModulePicker(Vertical):
             analysis_store.video_modules,
         ]:
             analysis_store.select_all_in_category(modules)
-        self._refresh_list()
+        self._refresh_all()
 
     @on(Button.Pressed, "#btn_deselect_all")
     def _on_deselect_all(self):
         analysis_store.selected_module_names.clear()
-        analysis_store._notify()
-        self._refresh_list()
+        self._refresh_all()
 
     # ── 内部 ──
 
-    def _refresh_list(self):
-        list_view = self.query_one("#mod_list", ListView)
-        list_view.clear()
+    def _sync_selection(self, sel_id: str, modules: dict):
+        """将 SelectionList 的选中状态同步到 store"""
+        sel = self.query_one(f"#{sel_id}", SelectionList)
+        selected = set(sel.selected)
+        for name in modules:
+            if name in selected:
+                analysis_store.selected_module_names.add(name)
+            else:
+                analysis_store.selected_module_names.discard(name)
+
+    def _refresh_all(self):
+        """刷新所有三组 SelectionList"""
         selected = analysis_store.selected_module_names
-
-        categories = [
-            ("独立分析", analysis_store.individual_modules),
-            ("对比分析", analysis_store.comparison_modules),
-            ("视频生成", analysis_store.video_modules),
-        ]
-
-        for cat_name, modules in categories:
+        for cat_key, cat_label, sel_id in CATEGORIES:
+            modules = CAT_KEY_TO_MODULES[cat_key]()
+            sel = self.query_one(f"#{sel_id}", SelectionList)
+            sel.clear_options()
             if not modules:
                 continue
-
-            # 类别标题（不可选）
-            list_view.append(
-                ListItem(
-                    Label(f"[bold underline]{cat_name} ({len(modules)})[/bold underline]"),
-                    id=f"__category__{cat_name}",
-                    disabled=True,
-                )
-            )
-
+            options = []
             for name, mod in modules.items():
-                prefix = "☑" if name in selected else "☐"
                 desc = getattr(mod, "description", "")
-                # 截断过长的描述
-                if len(desc) > 60:
-                    desc = desc[:57] + "..."
-                label_text = f"  {prefix} [bold]{name}[/bold]\n     [dim]{desc}[/dim]"
-                list_view.append(
-                    ListItem(Label(label_text), id=name)
-                )
-
-    def _on_store_changed(self):
-        self.call_after_refresh(self._refresh_list)
+                if len(desc) > 50:
+                    desc = desc[:47] + "..."
+                label = f"[bold]{name}[/bold]\n  [dim]{desc}[/dim]"
+                options.append((label, name, name in selected))
+            sel.add_options(options)
