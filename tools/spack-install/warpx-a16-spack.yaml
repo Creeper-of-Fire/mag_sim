@@ -1,0 +1,52 @@
+spack:
+  specs:
+    - >-
+      warpx@26.03 compute=cuda +qed +eb +openpmd +python %gcc@13.3.0
+      ^py-amrex
+      ^amrex~rocm~fortran ~gpu_rdc +particles +pic ~openmp +hdf5 cuda_arch=86
+      ^openpmd-api@0.17.0
+      ^cuda@13.1.1
+
+  concretizer:
+    unify: true
+
+  packages:
+    gcc:
+      externals:
+      - spec: gcc@13.3.0 languages:='c,c++,fortran'
+        prefix: /usr
+        extra_attributes:
+          compilers:
+            c: /usr/bin/gcc
+            cxx: /usr/bin/g++
+            fortran: /usr/bin/gfortran
+
+    all:
+      require:
+      - '%gcc@13.3.0'
+      - ~rocm
+      - ~hip
+      target: [zen2]
+
+    amrex:
+      require: "precision=double"
+      variants: ~fortran
+
+    py-amrex:
+      require: "precision=double"
+
+    warpx:
+      require: "precision=double"
+      variants: build_system=cmake
+
+    # 禁用 AMD GPU 相关
+    llvm-amdgpu:
+      buildable: false
+    hip:
+      buildable: false
+    rocm-device-libs:
+      buildable: false
+    rocfft:
+      buildable: false
+
+  view: true
