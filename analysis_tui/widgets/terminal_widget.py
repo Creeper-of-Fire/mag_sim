@@ -1,17 +1,17 @@
-"""终端 — Rich ANSI 渲染 + 内嵌输入行"""
+"""终端 — Rich ANSI → RichLog + 内嵌输入行"""
 from __future__ import annotations
 
 import queue
 import threading
 
 from rich.text import Text
-from textual import events, on
+from textual import on
 from textual.widgets import RichLog, Input
 from textual.containers import Vertical
 
 
 class _TermInput(Input):
-    """终端输入行 — 回车时写入 RichLog + 推入 stdin 队列"""
+    """输入行 — 回车写入 RichLog + 推入 stdin 队列"""
 
     def __init__(self, stdin_queue: queue.Queue, display: RichLog, **kwargs):
         super().__init__(placeholder="", **kwargs)
@@ -21,35 +21,43 @@ class _TermInput(Input):
     @on(Input.Submitted)
     def _on_submit(self, event: Input.Submitted):
         val = event.value or ""
-        self._display.write(f"[bold white]{val}[/bold white]\n")
+        if val:
+            self._display.write(f" [bold #00ff88]{val}[/bold #00ff88]\n")
         self._stdin_queue.put(val)
         self.value = ""
 
 
 class TerminalWidget(Vertical):
-    """终端面板：RichLog 输出 + Input 输入（无边框融为一体）"""
+    """终端面板"""
 
     CSS = """
     TerminalWidget {
-        background: #0d1017;
+        background: $bg-primary;
+        border: none;
+        padding: 0;
     }
 
     #term_display {
         height: 1fr;
-        background: #0d1017;
-        color: #abb2bf;
+        background: $bg-primary;
+        color: $text-primary;
+        padding: 0 1;
+        border: none;
+        margin: 0;
     }
 
     #term_input_line {
         height: auto;
-        background: $bg-surface;
-        color: $text-accent;
+        background: $bg-secondary;
+        color: $text-primary;
         border: hkey $border-primary;
         padding: 0 1;
+        margin: 0;
     }
 
     #term_input_line:focus {
         border: hkey $border-focus;
+        background: $bg-input;
     }
     """
 
@@ -89,16 +97,22 @@ class TerminalWidget(Vertical):
     def clear_screen(self):
         with self._lock:
             self._ansi_buffer = ""
+        self._drain_stdin()
         try:
             self.display.clear()
         except Exception:
             pass
 
+    def _drain_stdin(self):
+        while not self._stdin_queue.empty():
+            try:
+                self._stdin_queue.get_nowait()
+            except queue.Empty:
+                break
+
     @property
     def display(self) -> RichLog:
         return self.query_one("#term_display", RichLog)
-
-    # ── 内部 ──
 
     def _flush_output(self):
         with self._lock:
