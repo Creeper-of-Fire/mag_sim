@@ -258,8 +258,10 @@ class CsvEditor(Vertical):
 
     # ── 保存 ──
 
-    def save_csv(self, path: Path) -> None:
+    def save_csv(self, path: Path | None) -> None:
         """保存到 CSV 文件"""
+        if path is None:
+            return
         from tui.store.log_store import logger
 
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -16,7 +16,7 @@ from tui.store.log_store import logger
 from tui.utils.open_csv_in_excel import open_csv_in_excel
 from tui.widgets.csv_editor import CsvEditor
 from tui.widgets.runner_config import RunnerConfig
-from utils.csv_resolver import resolve_tasks_csv
+from utils.csv_resolver import get_preferred_csv_path, resolve_tasks_csv
 from utils.project_config import FILENAME_TASKS_CSV
 
 
@@ -138,6 +138,8 @@ class ConfigScreen(Screen):
 
         # 保存 CSV
         csv_path = resolve_tasks_csv(self.job_dir)
+        if csv_path is None:
+            csv_path = get_preferred_csv_path(self.job_dir)
         editor = self.query_one("#csv_editor", CsvEditor)
         editor.save_csv(csv_path)
 
