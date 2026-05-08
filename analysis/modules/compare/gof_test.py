@@ -56,13 +56,13 @@ class GoodnessOfFitModule(BaseComparisonModule):
         idx_final = np.array(keep_idx)
         return energies[idx_final], new_weights[idx_final]
 
-    @cached_op(file_dep="particle")
-    def _compute_gof_metrics(self, run: 'SimulationRun') -> dict:
+    @cached_op(file_dep="auto")
+    def _compute_gof_metrics(self, run: 'SimulationRun', fpath: str) -> dict:
         """
         核心算法：计算单个 run 的加权 K-S 统计量和 A-D 尾部统计量。
         """
         # 取最终时刻能谱
-        spec = run.get_spectrum(step_index=-1)
+        spec = run.get_spectrum_from_path(fpath)
         if spec is None or spec.weights.size == 0:
             return {'D_ks': 0.0, 'p_value': 1.0, 'AD_stat': 0.0, 'N_eff': 1.0}
 
@@ -148,7 +148,7 @@ class GoodnessOfFitModule(BaseComparisonModule):
             if isinstance(run, SimulationRunGroup):
                 sub_d, sub_p, sub_ad, sub_neff = [], [], [], []
                 for sub_run in run.runs:
-                    m = self._compute_gof_metrics(sub_run)
+                    m = self._compute_gof_metrics(sub_run, fpath=sub_run.get_particle_file(-1))
                     sub_d.append(m['D_ks'])
                     sub_p.append(m['p_value'])
                     sub_ad.append(m['AD_stat'])
@@ -160,7 +160,7 @@ class GoodnessOfFitModule(BaseComparisonModule):
                 avg_AD = np.mean(sub_ad)
                 avg_Neff = np.mean(sub_neff)
             else:
-                m = self._compute_gof_metrics(run)
+                m = self._compute_gof_metrics(run, fpath=run.get_particle_file(-1))
                 avg_D = m['D_ks']
                 avg_P = m['p_value']
                 avg_AD = m['AD_stat']

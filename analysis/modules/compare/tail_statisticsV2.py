@@ -10,7 +10,7 @@ from scipy.constants import mu_0, e, epsilon_0
 from scipy.integrate import quad, IntegrationWarning
 
 from analysis.core.cache import cached_op
-from analysis.core.data_loader import _get_step_from_filename
+from analysis.core.data_loader import _get_step_from_filename, h5open
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationSingle import SimulationRunSingle
 from analysis.core.utils import console
@@ -41,19 +41,19 @@ class TemperatureResult(NamedTuple):
         )
 
 
-@cached_op(file_dep="particle")
+@cached_op(file_dep="auto")
 def compute_run_temperature_metrics(
         run: 'SimulationRunSingle',
-        step_index: int
+        fpath: str,
 ) -> TemperatureResult:
     """
     计算单个 Run 的温度和温度误差。并执行极其严谨的统计学误差传递。
 
     参数:
         run: 单次模拟数据对象
-        step_index: 步骤的索引
+        fpath: 该步对应的粒子文件路径（用于缓存绑定）
     """
-    spec = run.get_spectrum(step_index)
+    spec = run.get_spectrum_from_path(fpath)
 
     if spec is None or spec.weights.size == 0:
         return TemperatureResult.null()
@@ -126,13 +126,13 @@ class TailResult(NamedTuple):
         )
 
 
-@cached_op(file_dep="particle")
+@cached_op(file_dep="auto")
 def compute_run_tail_metrics(
         run: 'SimulationRunSingle',
-        step_index: int,
         temperature_metrics: TemperatureResult,
         f_low: float,
-        f_high: Optional[float] = None
+        f_high: Optional[float] = None,
+        fpath: str = None,
 ) -> TailResult:
     """
     计算单个 Run 在指定能量区间 [f_low*T, f_high*T] 内的物理度量。并执行极其严谨的统计学误差传递。
@@ -141,8 +141,9 @@ def compute_run_tail_metrics(
         run: 单次模拟数据对象
         f_low: 区间下限倍数 (E > f_low * T)
         f_high: 区间上限倍数 (E < f_high * T)，若为 None 则表示到正无穷
+        fpath: 该步对应的粒子文件路径（用于缓存绑定）
     """
-    spec = run.get_spectrum(step_index)
+    spec = run.get_spectrum_from_path(fpath)
 
     T_keV = temperature_metrics.T_keV
     sigma_T = temperature_metrics.sigma_T
@@ -232,7 +233,7 @@ def _get_mean_u_mag(run: 'SimulationRunSingle', fpath: str) -> float:
     参数中包含 fpath，缓存会自动只绑定该单独文件，实现帧级别的精细复用。
     """
     step = _get_step_from_filename(fpath)
-    with h5py.File(fpath, 'r') as f:
+    with h5open(fpath, 'r') as f:
         bp = f"/data/{step}/fields/B"
         # 不管是 2D 还是 3D，直接对全数组取均值
         b_sq_mean = np.mean(f[bp + '/x'][:] ** 2 + f[bp + '/y'][:] ** 2 + f[bp + '/z'][:] ** 2)
@@ -243,7 +244,7 @@ def _get_mean_u_mag(run: 'SimulationRunSingle', fpath: str) -> float:
 def _get_mean_u_elec(run: 'SimulationRunSingle', fpath: str) -> float:
     """计算全空间平均电场能量密度 (0.5 * epsilon_0 * E^2)"""
     step = _get_step_from_filename(fpath)
-    with h5py.File(fpath, 'r') as f:
+    with h5open(fpath, 'r') as f:
         ep = f"/data/{step}/fields/E"
         e_sq_mean = np.mean(f[ep + '/x'][:] ** 2 + f[ep + '/y'][:] ** 2 + f[ep + '/z'][:] ** 2)
     return float(0.5 * epsilon_0 * e_sq_mean)
@@ -251,16 +252,18 @@ def _get_mean_u_elec(run: 'SimulationRunSingle', fpath: str) -> float:
 
 def compute_run_energy_partition(run: 'SimulationRunSingle', step_index: int) -> Tuple[float, float, float]:
     """返回 (磁能占比, 电能占比, 总场能占比)"""
-    t_metrics = compute_run_temperature_metrics(run, step_index)
+    fpath = run.get_particle_file(step_index)
+    t_metrics = compute_run_temperature_metrics(run, fpath=fpath)
     if t_metrics.avg_energy_MeV <= 0: return np.nan, np.nan, np.nan
 
     u_kin = (2.0 * run.sim.n_plasma) * (t_metrics.avg_energy_MeV * e * 1e6)  # TODO pair plasma 总密度是 2 * n_plasma，但是前提是我们没有引入beam
-    files = run.field_files
-    idx = step_index if step_index >= 0 else len(files) + step_index
-    if not (0 <= idx < len(files)): return np.nan, np.nan, np.nan
+    try:
+        field_fpath = run.get_field_file(step_index)
+    except IndexError:
+        return np.nan, np.nan, np.nan
 
-    u_mag = _get_mean_u_mag(run, files[idx])
-    u_elec = _get_mean_u_elec(run, files[idx])
+    u_mag = _get_mean_u_mag(run, field_fpath)
+    u_elec = _get_mean_u_elec(run, field_fpath)
     u_total = u_kin + u_mag + u_elec
 
     return float(u_mag / u_total), float(u_elec / u_total), float((u_mag + u_elec) / u_total)
@@ -270,7 +273,8 @@ def compute_run_energy_densities_normalized(run: 'SimulationRunSingle', step_ind
     """
     返回归一化能量密度 (以 n₀·mₑc² 为单位)
     """
-    t_metrics = compute_run_temperature_metrics(run, step_index)
+    fpath = run.get_particle_file(step_index)
+    t_metrics = compute_run_temperature_metrics(run, fpath=fpath)
     if t_metrics.avg_energy_MeV <= 0:
         return 0.0, 0.0, 0.0, 0.0
 
@@ -282,13 +286,13 @@ def compute_run_energy_densities_normalized(run: 'SimulationRunSingle', step_ind
     u_kin_J = (2.0 * n0) * (t_metrics.avg_energy_MeV * e * 1e6)
     u_kin_norm = u_kin_J / norm_factor
 
-    files = run.field_files
-    idx = step_index if step_index >= 0 else len(files) + step_index
-    if not (0 <= idx < len(files)):
+    try:
+        field_fpath = run.get_field_file(step_index)
+    except IndexError:
         return u_kin_norm, 0.0, 0.0, u_kin_norm
 
-    u_mag_J = _get_mean_u_mag(run, files[idx])
-    u_elec_J = _get_mean_u_elec(run, files[idx])
+    u_mag_J = _get_mean_u_mag(run, field_fpath)
+    u_elec_J = _get_mean_u_elec(run, field_fpath)
 
     u_mag_norm = u_mag_J / norm_factor
     u_elec_norm = u_elec_J / norm_factor
@@ -346,13 +350,15 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         if isinstance(run_or_group, SimulationRunGroup):
             t_list, ratio_list, th_err_list = [], [], []
             for single_run in run_or_group.runs:
-                temp_metrics = compute_run_temperature_metrics(single_run, step_index=0 if not is_final else -1)
+                step_idx = 0 if not is_final else -1
+                fpath = single_run.get_particle_file(step_idx)
+                temp_metrics = compute_run_temperature_metrics(single_run, fpath=fpath)
                 metrics = compute_run_tail_metrics(
                     single_run,
-                    step_index=0 if not is_final else -1,
                     temperature_metrics=temp_metrics,
                     f_low=low,
-                    f_high=high
+                    f_high=high,
+                    fpath=fpath,
                 )
                 t_list.append(temp_metrics.T_keV)
                 ratio_list.append(metrics.excess_ratio)
@@ -371,8 +377,9 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         else:
             # 它是单次模拟
             step_idx = -1 if is_final else 0
-            temp_metrics = compute_run_temperature_metrics(run_or_group, step_idx)
-            metrics = compute_run_tail_metrics(run_or_group, step_idx, temp_metrics, low, high)
+            fpath = run_or_group.get_particle_file(step_idx)
+            temp_metrics = compute_run_temperature_metrics(run_or_group, fpath=fpath)
+            metrics = compute_run_tail_metrics(run_or_group, temp_metrics, low, high, fpath=fpath)
             return {
                 'T_keV': temp_metrics.T_keV,
                 'T_keV_err': 0.0,

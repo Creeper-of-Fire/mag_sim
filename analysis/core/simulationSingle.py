@@ -93,6 +93,20 @@ class SimulationRunSingle(SimulationRun):
             return p.parent.parent.resolve()
         return p.parent.resolve()
 
+    # --- 原生索引方法 ---
+
+    def get_particle_file(self, step_index: int) -> str:
+        """返回 step_index 对应的粒子文件路径"""
+        files = self._particle_files
+        idx = step_index if step_index >= 0 else len(files) + step_index
+        return files[idx]
+
+    def get_field_file(self, step_index: int) -> str:
+        """返回 step_index 对应的场文件路径"""
+        files = self._field_files
+        idx = step_index if step_index >= 0 else len(files) + step_index
+        return files[idx]
+
     # --- 核心数据访问 (Lazy Loading) ---
 
     @property
@@ -129,19 +143,10 @@ class SimulationRunSingle(SimulationRun):
         Args:
             step_index: 帧索引。-1 表示最后一帧，0 表示第一帧。
         """
-
-        # --- 索引解析逻辑 (只在 SimulationRun 内部知道) ---
-        files = self._particle_files
-        idx = step_index if step_index >= 0 else len(files) + step_index
-
-        if not (0 <= idx < len(files)):
+        try:
+            return self.get_spectrum_from_path(self.get_particle_file(step_index))
+        except IndexError:
             return None
-
-        target_file = files[idx]
-
-        # --- 调用缓存层 ---
-        # 此时传给装饰器的是具体的文件路径
-        return self.get_spectrum_from_path(target_file)
 
     @cached_op(file_dep="particle")
     def get_spectrum_evolution_matrix(self, n_bins: int = 200, log_scale: bool = True):
@@ -172,10 +177,9 @@ class SimulationRunSingle(SimulationRun):
         Returns:
             np.ndarray: 2D array of |B| / B_norm
         """
-        files = self._field_files
-        if not files: return None
-        idx = step_index if step_index >= 0 else len(files) + step_index
-        if not (0 <= idx < len(files)):
+        if not self._field_files:
             return None
-
-        return self.get_field_slice_from_path(files[idx], axis=axis)
+        try:
+            return self.get_field_slice_from_path(self.get_field_file(step_index), axis=axis)
+        except IndexError:
+            return None
