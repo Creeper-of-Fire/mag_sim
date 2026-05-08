@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 import h5py
 import numpy as np
+from analysis.core.data_loader import h5open
 import pandas as pd
 from scipy.constants import c, m_e, e
 from tqdm import tqdm
@@ -56,7 +57,7 @@ def _read_species_tracking_data(fpath: str) -> Tuple[Optional[str], Optional[np.
     增加了详细的 Debug 输出，以定位为什么找不到 ID。
     """
     try:
-        with h5py.File(fpath, 'r') as f:
+        with h5open(fpath) as f:
             if 'data' not in f: return None, None, None
             step_key = list(f['data'].keys())[0]
             particles_group = f[f'data/{step_key}/particles']

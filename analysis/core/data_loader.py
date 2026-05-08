@@ -19,6 +19,36 @@ from tqdm import tqdm
 
 from .utils import console
 
+
+def drop_page_cache(filepath: str):
+    """通知内核释放该文件的 page cache，防止大批量 HDF5 读取撑爆内存"""
+    try:
+        fd = os.open(filepath, os.O_RDONLY)
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        os.close(fd)
+    except Exception:
+        pass
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def h5open(path, mode='r'):
+    """
+    统一的 HDF5 文件读取入口。
+    退出时自动释放该文件的 page cache。
+    所有 HDF5 I/O 应通过此函数，禁止直接使用 h5py.File。
+    """
+    f = h5py.File(path, mode)
+    try:
+        yield f
+    finally:
+        f.close()
+        if 'r' in mode:
+            drop_page_cache(path)
+
+
 # --- 各种分析所需的数据容器 ---
 
 @dataclass
@@ -134,7 +164,7 @@ def read_field_slice(fpath: str, axis: str = 'z', slice_idx: Optional[int] = Non
     """
     try:
         step = _get_step_from_filename(fpath)
-        with h5py.File(fpath, 'r') as f:
+        with h5open(fpath) as f:
             base_path = f"/data/{step}/fields/"
             # 尝试读取
             if f"{base_path}B/x" not in f:
@@ -182,8 +212,6 @@ def read_field_slice(fpath: str, axis: str = 'z', slice_idx: Optional[int] = Non
         console.print(f"[yellow]⚠ 读取场切片失败 {os.path.basename(fpath)}: {e}[/yellow]")
         return None
 
-    return None
-
 def compute_single_spectrum(h5_filepath: str) -> Optional[SpectrumData]:
     """
     [纯函数] 读取单个 HDF5 文件并返回 SpectrumData。
@@ -193,7 +221,7 @@ def compute_single_spectrum(h5_filepath: str) -> Optional[SpectrumData]:
     J_PER_MEV = e * 1e6
 
     try:
-        with h5py.File(h5_filepath, 'r') as f:
+        with h5open(h5_filepath, 'r') as f:
             # WarpX / OpenPMD 标准路径
             if 'data' not in f: return None
             step_key = list(f['data'].keys())[0]
@@ -243,7 +271,7 @@ def compute_field_evolution(field_files: List[str], sim_obj: Any) -> Optional[Fi
         if step is None: continue
 
         try:
-            with h5py.File(fpath, 'r') as f:
+            with h5open(fpath, 'r') as f:
                 base_path = f"/data/{step}/fields/"
                 # 直接读取
                 Bx = f[base_path + 'B/x'][:]
@@ -318,7 +346,7 @@ def compute_energy_evolution(field_files: List[str], particle_files: List[str], 
 
         # --- 1. 场能 ---
         try:
-            with h5py.File(f_map[step], 'r') as f:
+            with h5open(f_map[step], 'r') as f:
                 bp = f"/data/{step}/fields/"
                 Bx = f[bp + 'B/x'][:]
                 By = f[bp + 'B/y'][:]
@@ -350,7 +378,7 @@ def compute_energy_evolution(field_files: List[str], particle_files: List[str], 
         # --- 2. 动能 ---
         try:
             tot_k_E = 0.0
-            with h5py.File(p_map[step], 'r') as f:
+            with h5open(p_map[step], 'r') as f:
                 sk = list(f['data'].keys())[0]
                 pg = f[f'data/{sk}/particles']
                 for sp in pg.keys():

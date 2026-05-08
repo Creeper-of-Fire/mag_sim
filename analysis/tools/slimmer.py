@@ -22,7 +22,7 @@ from rich.progress import (
 from rich.prompt import Confirm
 from scipy.constants import c, m_e, e
 
-from ..core.data_loader import _get_h5_dataset
+from ..core.data_loader import _get_h5_dataset, h5open
 from ..core.utils import console
 
 # --- 配置参数 ---
@@ -184,7 +184,7 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
         total_raw_particles = 0
 
         # Pass 1: Gather Energy Info
-        with h5py.File(h5_path, 'r') as f_in:
+        with h5open(h5_path) as f_in:
             step_key = list(f_in['data'].keys())[0]
             particles_group = f_in[f'data/{step_key}/particles']
 
@@ -226,7 +226,7 @@ def process_single_file(h5_path: Path, dir_name: str, plot_output_dir: Path, pro
         plot_data_raw = {'e': [], 'w': []}
         plot_data_comp = {'e': [], 'w': []}
 
-        with h5py.File(h5_path, 'r') as f_in, h5py.File(temp_h5_path, 'w') as f_out:
+        with h5open(h5_path) as f_in, h5py.File(temp_h5_path, 'w') as f_out:
             step_key = list(f_in['data'].keys())[0]
             particles_in_group = f_in[f'data/{step_key}/particles']
 
