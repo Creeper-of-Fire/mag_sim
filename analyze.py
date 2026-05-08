@@ -179,8 +179,15 @@ def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
     except ImportError:
         pass
 
+    # 尝试导入 Step Filter
+    try:
+        from analysis.tools import step_filter
+        tools_available['step_filter'] = step_filter.run_interactive_workflow
+    except ImportError:
+        pass
+
     if not tools_available:
-        console.print("[red]错误: 未找到任何可用工具 (slimmer/pruner)。请检查 analysis/tools 目录。[/red]")
+        console.print("[red]错误: 未找到任何可用工具。请检查 analysis/tools 目录。[/red]")
         return
 
     # --- 交互式选择 (如果用户只输入了 -t 而没有指定名称) ---
@@ -193,11 +200,12 @@ def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
         console.print(f"[[cyan]s[/cyan]] [magenta]slicer[/magenta]  (虚拟切片：将一个模拟的各时刻拆分为多重模拟，零存储开销)")
         console.print(f"[[cyan]m[/cyan]] [magenta]slimmer[/magenta] (粒子数据压缩/瘦身)")
         console.print(f"[[cyan]p[/cyan]] [magenta]pruner[/magenta]  (仅保留首/中/尾时刻，删除其余)")
+        console.print(f"[[cyan]f[/cyan]] [magenta]step_filter[/magenta] (非破坏性时间步过滤：禁用/恢复指定时间步)")
         console.print("")
 
         choice = Prompt.ask(
             "[bold]请选择工具[/bold]",
-            choices=tool_names + ['s', 'm', 'p'],
+            choices=tool_names + ['s', 'm', 'p', 'f'],
             default='slimmer'
         )
 
@@ -208,6 +216,8 @@ def _run_tool_workflow(tool_mode: str, selected_dirs: List[str]):
             target_tool = 'slimmer'
         elif choice == 'p':
             target_tool = 'pruner'
+        elif choice == 'f':
+            target_tool = 'step_filter'
         else:
             target_tool = choice
 
