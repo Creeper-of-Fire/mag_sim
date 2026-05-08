@@ -316,7 +316,8 @@ def get_run_parameters(run: Any) -> Dict[str, Any]:
                 for line in f:
                     try:
                         record = json.loads(line)
-                        out_dir = record.get('output_dir', '')
+                        # 兼容 output_dir 和 task_name 两种字段名
+                        out_dir = record.get('output_dir', '') or record.get('task_name', '')
                         if out_dir:
                             # 记录原始模拟名对应的参数字典
                             r_name = Path(out_dir).name
