@@ -128,12 +128,16 @@ class ComparisonLayout(AnalysisLayout):
             self,
             ctx: ComparisonContext,
             plot_ratio: Optional[tuple[float, float]] = None,
+            suffix: Optional[str] = None,
     ):
+        filename = ctx.output_filename
+        if suffix:
+            filename = f"{filename}_{suffix}"
         super().__init__(
             ctx.runs,
             base_filename="",  # 不使用 AnalysisLayout 的默认文件名逻辑
             plot_ratio=plot_ratio,
-            override_filename=ctx.output_filename,
+            override_filename=filename,
         )
         self._ctx = ctx
 

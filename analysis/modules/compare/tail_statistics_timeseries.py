@@ -97,7 +97,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
         x_label_key = ctx.x_label_key
 
         # 2. 数据提取：并行提取每个 run 的时序数据
-        def _extract(index:int, run: SimulationRun):
+        def _extract(index: int, run: SimulationRun):
             """
             TODO: 当前并行粒度为 group 级（每个 run/group 一个任务）。
                 当参数分组后 group 数量少时（如 3 group × 10 runs），核心利用率不足。
@@ -265,9 +265,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
     def _plot_param_scan(self, ctx: ComparisonContext, runs, x_scaled, x_raw, x_label_key,
                          all_series, all_avg: List[AggregatedMetrics], style):
         """子图结构完全复刻 tail_statisticsV2，但数据源用时间平均值"""
-        with ComparisonLayout(ctx, plot_ratio=(10, 3.5)) as layout:
-
-            # --- 各能段 excess_ratio ---
+        # 图1：各能段 excess_ratio 参数扫描
+        with ComparisonLayout(ctx, suffix="excess", plot_ratio=(10, 3.5)) as layout:
             for low, high in self.INTERVALS:
                 ax = layout.request_axes()
                 label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
@@ -297,6 +296,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax.legend(fontsize='x-small', loc='upper left', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
+        # 图2：其他指标参数扫描（温度、场能、能量密度）
+        with ComparisonLayout(ctx, suffix="other", plot_ratio=(10, 3.5)) as layout:
             # --- 温度 ---
             ax_temp = layout.request_axes()
             avg_temps = [a.T_keV for a in all_avg]
