@@ -12,6 +12,7 @@ from .selector import SimpleTableSelector
 from .simulation import SimulationRun
 from .simulationGroup import SimulationRunGroup
 from .utils import console
+from .utils import get_run_parameters
 
 
 class ParameterSelector:
@@ -255,8 +256,6 @@ class ParameterSelector:
         """
         加载所有 run 的参数。
         """
-        from .utils import get_run_parameters
-
         items = []
         for run in runs:
             params = get_run_parameters(run)

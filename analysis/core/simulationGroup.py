@@ -36,8 +36,6 @@ class SimulationRunGroup(SimulationRun):
         返回的对象在原有的 EnergyEvolutionData 字段（平均值）基础上，
         动态附加了 `_std` 后缀的字段（标准差）。
         """
-        from .data_loader import EnergyEvolutionData
-
         # 收集所有有效的 energy_data
         all_data = [run.energy_data for run in self.runs if run.energy_data]
         if not all_data: return None
@@ -98,10 +96,6 @@ class SimulationRunGroup(SimulationRun):
         2. 使用 utils 生成公共分箱。
         3. 重新分箱并计算平均 dN/dE。
         """
-        # --- Local Import 防止循环依赖 ---
-        # comparison_utils 依赖 SimulationRun，而 SimulationRunGroup 定义在 SimulationRun 所在文件
-        from .data_loader import SpectrumData
-
         try:
             # 1. 收集所有 run 在该时刻的能谱 (懒加载)
             # 注意：这里我们临时把 self.runs 视为一组独立的 run 来处理

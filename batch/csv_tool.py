@@ -204,7 +204,6 @@ def handle_dump_schema(args):
     处理 'dump-schema' 子命令：输出参数元信息的 JSON。
     供外部工具（如 TUI）获取参数名称、类型、默认值。
     """
-    import json as _json
     params_info, param_order = get_simulation_params_info()
 
     schema = {
@@ -224,7 +223,7 @@ def handle_dump_schema(args):
             "default": default
         })
 
-    print(_json.dumps(schema, indent=2, ensure_ascii=False))
+    print(json.dumps(schema, indent=2, ensure_ascii=False))
 # --- 主程序入口 ---
 
 # --- Argument Parser 封装 ---

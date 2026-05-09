@@ -10,6 +10,10 @@ import dill
 
 from .utils import console
 
+# 用于 isinstance 检查，不能放在 TYPE_CHECKING 中
+from .simulation import SimulationRun
+from .utils import get_run_parameters
+
 
 def cached_op(file_dep: str = "auto"):
     """
@@ -33,8 +37,6 @@ def cached_op(file_dep: str = "auto"):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # 0. 智能定位 run 对象
-            from .simulation import SimulationRun
-
             run_obj = None
 
             # 检查前两个位置参数（通常是 self 或者是单独的 run 参数）
@@ -175,8 +177,6 @@ class SmartCache:
         计算参数哈希。
         这里 Cache 知道不应该序列化巨大的 run_obj 实例，只序列化物理参数(sim)和入参。
         """
-        from .simulation import SimulationRun
-        from .utils import get_run_parameters
         # 定义一个递归脱敏函数
         def sanitize(obj):
             # 1. 如果是 Receiver 对象本身，用占位符代替，不进行序列化

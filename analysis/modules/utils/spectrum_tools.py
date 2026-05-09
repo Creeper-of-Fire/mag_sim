@@ -1,6 +1,8 @@
 from typing import List
 
 from analysis.core.simulation import SimulationRun
+from analysis.core.simulationGroup import SimulationRunGroup
+from analysis.core.simulationSingle import SimulationRunSingle
 
 
 def filter_valid_runs(
@@ -14,9 +16,6 @@ def filter_valid_runs(
     极速过滤无效的模拟 Run (不触发任何 HDF5 数据读取)。
     只通过检查底层文件索引的数量来判断模拟是否完整。
     """
-    from analysis.core.simulationGroup import SimulationRunGroup
-    from analysis.core.simulationSingle import SimulationRunSingle
-
     valid_runs = []
     for run in runs:
         is_valid = True

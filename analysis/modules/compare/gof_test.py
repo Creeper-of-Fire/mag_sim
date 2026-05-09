@@ -6,6 +6,7 @@ from scipy.stats import kstwo
 
 from analysis.core.cache import cached_op
 from analysis.core.simulation import SimulationRun
+from analysis.core.simulationGroup import SimulationRunGroup
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils import physics_mj
@@ -142,8 +143,6 @@ class GoodnessOfFitModule(BaseComparisonModule):
         console.print("  正在计算每个参数点的累积分布拟合优度...")
 
         for i, run in enumerate(runs):
-            from analysis.core.simulationGroup import SimulationRunGroup
-
             # 处理组 (Group) 或 单次 Run
             if isinstance(run, SimulationRunGroup):
                 sub_d, sub_p, sub_ad, sub_neff = [], [], [], []

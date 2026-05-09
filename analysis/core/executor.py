@@ -4,6 +4,7 @@
 纯执行逻辑，不涉及模块发现、数据加载或交互式选择。
 调用者负责传入已加载好的模块实例和 SimulationRun 引用。
 """
+import traceback
 from typing import Callable, List, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
@@ -44,7 +45,6 @@ def execute_analysis(
         try:
             mod.run(runs)
         except Exception as e:
-            import traceback
             msg = f"执行模块 '{mod.name}' 时出错: {e}"
             errors.append(msg)
             if output:

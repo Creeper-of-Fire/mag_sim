@@ -9,7 +9,12 @@ import dill
 import numpy as np
 
 from analysis.core.cache import SmartCache, cached_op
-from analysis.core.data_loader import EnergyEvolutionData, FieldEvolutionData, SpectrumData
+from analysis.core.data_loader import (
+    EnergyEvolutionData, FieldEvolutionData, SpectrumData,
+    compute_energy_evolution, compute_field_evolution,
+    compute_single_spectrum, compute_spectrum_evolution_matrix,
+    read_field_slice,
+)
 from analysis.core.simulation import SimulationRun
 
 
@@ -113,8 +118,6 @@ class SimulationRunSingle(SimulationRun):
     @cached_op(file_dep="all")
     def energy_data(self) -> Optional['EnergyEvolutionData']:
         """获取能量演化数据 (Cached)。"""
-        from .data_loader import compute_energy_evolution
-
         return compute_energy_evolution(self._field_files, self._particle_files, sim_obj=self.sim)
 
     @property
@@ -123,8 +126,6 @@ class SimulationRunSingle(SimulationRun):
         """
         获取场演化数据 (Cached)。
         """
-        from .data_loader import compute_field_evolution
-
         return compute_field_evolution(field_files=self._field_files, sim_obj=self.sim)
 
     # 原始粒子读取非常快（HDF5自带切片能力），不需要缓存，且占用内存巨大。
@@ -133,7 +134,6 @@ class SimulationRunSingle(SimulationRun):
         这个方法是“自动导航”的：
         装饰器识别到参数中的 fpath，会自动将其作为单文件依赖。
         """
-        from .data_loader import compute_single_spectrum
         return compute_single_spectrum(fpath)
 
     def get_spectrum(self, step_index: int = -1) -> Optional['SpectrumData']:
@@ -153,8 +153,6 @@ class SimulationRunSingle(SimulationRun):
         """
         获取能谱随时间演化的矩阵 (Waterfall data)。
         """
-        from .data_loader import compute_spectrum_evolution_matrix
-
         return compute_spectrum_evolution_matrix(self._particle_files, self.sim, n_bins, log_scale)
 
     @cached_op(file_dep="auto")
@@ -162,7 +160,6 @@ class SimulationRunSingle(SimulationRun):
         """
         单帧场切片读取 (Cached)。
         """
-        from .data_loader import read_field_slice
         # 读取原始数据
         data = read_field_slice(fpath, axis=axis)
         # 在这里做归一化，保证出来的中间变量是物理上有意义的数值或者归一化数值

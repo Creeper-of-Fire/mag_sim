@@ -12,6 +12,7 @@ from scipy.integrate import quad, IntegrationWarning
 from analysis.core.cache import cached_op
 from analysis.core.data_loader import _get_step_from_filename, h5open
 from analysis.core.simulation import SimulationRun
+from analysis.core.simulationGroup import SimulationRunGroup
 from analysis.core.simulationSingle import SimulationRunSingle
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
@@ -325,7 +326,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         ]
 
     def _get_field_metrics(self, run_or_group: 'SimulationRun', is_final: bool) -> Dict[str, Tuple[float, float]]:
-        from analysis.core.simulationGroup import SimulationRunGroup
         step_idx = -1 if is_final else 0
         if isinstance(run_or_group, SimulationRunGroup):
             res = [compute_run_energy_partition(sr, step_idx) for sr in run_or_group.runs]
@@ -345,8 +345,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         """
         核心分发器...
         """
-        from analysis.core.simulationGroup import SimulationRunGroup
-
         if isinstance(run_or_group, SimulationRunGroup):
             t_list, ratio_list, th_err_list = [], [], []
             for single_run in run_or_group.runs:
@@ -390,7 +388,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
 
     def _get_energy_densities(self, run_or_group: 'SimulationRun', is_final: bool) -> Dict[str, Tuple[float, float]]:
         """获取各能量密度, 返回均值和标准差"""
-        from analysis.core.simulationGroup import SimulationRunGroup
         step_idx = -1 if is_final else 0
         if isinstance(run_or_group, SimulationRunGroup):
             res = [compute_run_energy_densities_normalized(sr, step_idx) for sr in run_or_group.runs]

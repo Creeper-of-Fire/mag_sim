@@ -22,6 +22,7 @@ from rich.progress import (
 from rich.prompt import Confirm
 from scipy.constants import c, m_e, e
 
+from ..core.config import config
 from ..core.data_loader import _get_h5_dataset, h5open
 from ..core.utils import console
 
@@ -333,7 +334,6 @@ def run_interactive_workflow(selected_dirs: List[str]):
     处理目录扫描、并行压缩、进度显示、用户确认和文件替换。
     """
     # 1. 准备全局输出目录
-    from ..core.config import config
     preview_base_dir = Path(config.global_output_dir) / "slimmer_previews"
     preview_base_dir.mkdir(parents=True, exist_ok=True)
 

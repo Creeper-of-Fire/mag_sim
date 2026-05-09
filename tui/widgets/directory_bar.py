@@ -1,6 +1,9 @@
 """
 顶部信息栏：显示当前工作目录
 """
+import os
+import subprocess as sp
+import sys
 from pathlib import Path
 
 from textual import on
@@ -102,10 +105,6 @@ class DirectoryBar(Horizontal):
     @on(Button.Pressed, "#btn_open_fm")
     def action_open_in_fm(self):
         """在文件管理器中打开"""
-        import os
-        import sys
-        import subprocess as sp
-
         if not app_store.job_dir:
             logger.warn("警告: 请先选择目录")
             return

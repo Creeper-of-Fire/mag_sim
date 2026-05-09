@@ -10,9 +10,12 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, Horizontal, Container
+from textual.coordinate import Coordinate
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Static, Button, Input
+
+from tui.store.log_store import logger
 
 
 class CellEditScreen(ModalScreen[str | None]):
@@ -200,8 +203,6 @@ class CsvEditor(Vertical):
         self._data[row][col_name] = new_value
 
         table = self.query_one("#csv_table", DataTable)
-        # 用坐标获取真正的 RowKey 和 ColumnKey
-        from textual.coordinate import Coordinate
         row_key, column_key = table.coordinate_to_cell_key(Coordinate(row, col))
         table.update_cell(row_key, column_key, new_value)
 
@@ -262,8 +263,6 @@ class CsvEditor(Vertical):
         """保存到 CSV 文件"""
         if path is None:
             return
-        from tui.store.log_store import logger
-
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(path, "w", newline="", encoding="utf-8-sig") as f:
