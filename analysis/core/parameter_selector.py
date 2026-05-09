@@ -218,27 +218,30 @@ class ParameterSelector:
         reversed_names = [n[::-1] for n in names]
         common_suffix = os.path.commonprefix(reversed_names)[::-1].lstrip("_-")
 
-        # 3. 构建文件名各部分
+        # 3. 构建省略号形式的名字片段
+        run_tag = ""
+        if common_prefix and common_suffix:
+            run_tag = f"{common_prefix}...{common_suffix}"
+        elif common_prefix:
+            run_tag = f"{common_prefix}..."
+        elif common_suffix:
+            run_tag = f"...{common_suffix}"
+
+        # 4. 构建文件名各部分
         clean_label = x_label.replace(" ", "_")
         parts = [prefix]
-        if common_prefix:
-            parts.append(common_prefix)
-        if common_suffix:
-            parts.append(common_suffix)
+        if run_tag:
+            parts.append(run_tag)
         parts.append(clean_label)
 
         # 显示检测结果
-        if common_prefix or common_suffix:
-            console.print()
-            if common_prefix:
-                console.print(f"[dim]检测到共同前缀: \"{common_prefix}\"[/dim]")
-            if common_suffix:
-                console.print(f"[dim]检测到共同后缀: \"{common_suffix}\"[/dim]")
+        if run_tag:
+            console.print(f"\n[dim]从 run names 提取: \"{run_tag}\"[/dim]")
 
         default_filename = "_".join(parts) + "_" + short_hash
-        console.print(f"\n[cyan]默认输出文件名: {default_filename}.png[/cyan]")
+        console.print(f"[cyan]默认输出文件名: {default_filename}.png[/cyan]")
 
-        # 4. 用户可输入附加后缀（插入在 short_hash 之前）
+        # 5. 用户可输入附加后缀（插入在 short_hash 之前）
         user_suffix = Prompt.ask(
             "请输入附加后缀 (回车跳过)",
             default="",
