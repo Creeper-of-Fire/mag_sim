@@ -15,6 +15,7 @@ from typing import Callable, List, Optional, TypeVar
 
 import numpy as np
 
+from analysis.core.data_loader import _get_step_from_filename
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationGroup import SimulationRunGroup
 from analysis.core.simulationSingle import SimulationRunSingle
@@ -31,7 +32,7 @@ from analysis.plotting.styles import get_style
 _R = TypeVar('_R')
 
 
-def parallel_map_ordered(runs: List[SimulationRun], func: Callable[[SimulationRun], _R],
+def parallel_map_ordered(runs: List[SimulationRun], func: Callable[[int, SimulationRun], _R],
                          max_workers: int = None) -> List[_R]:
     """
     并行遍历工具，通过 dict 索引保持原始顺序。
@@ -48,7 +49,7 @@ def parallel_map_ordered(runs: List[SimulationRun], func: Callable[[SimulationRu
     results: dict = {}
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            future_to_idx = {pool.submit(func, run): i for i, run in enumerate(runs)}
+            future_to_idx = {pool.submit(func, i, run): i for i, run in enumerate(runs)}
             for future in as_completed(future_to_idx):
                 results[future_to_idx[future]] = future.result()
     except KeyboardInterrupt:
@@ -93,11 +94,10 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
         ctx = ComparisonContext(loaded_runs, "tail_timeseries")
         runs, x_scaled = ctx.unpack
         x_raw = ctx.x_raw
-        x_label_str = ctx.x_label_str
         x_label_key = ctx.x_label_key
 
         # 2. 数据提取：并行提取每个 run 的时序数据
-        def _extract(run: SimulationRun):
+        def _extract(index:int, run: SimulationRun):
             """
             TODO: 当前并行粒度为 group 级（每个 run/group 一个任务）。
                 当参数分组后 group 数量少时（如 3 group × 10 runs），核心利用率不足。
@@ -108,7 +108,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
             singles = self._unpack_runs(run)
             if not singles or len(singles[0].particle_files) <= 2:
                 return None
-            console.print(f"    [{run.name}] {x_label_str}={x_raw[i]} — {len(singles[0].particle_files)} 时间步")
+            console.print(f"    [{run.name}] {x_label_key}={x_raw[index]} — {len(singles[0].particle_files)} 时间步")
             if len(singles) == 1:
                 return extract_tail_time_series(singles[0], self.INTERVALS, field_files_needed=True)
             return extract_grouped_time_series(singles, self.INTERVALS, field_files_needed=True)
@@ -150,7 +150,6 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
         is_grouped = isinstance(series[0], GroupedStepMetrics)
 
         # 从文件名提取真实步号，再乘以 dt 得到物理时间
-        from analysis.core.data_loader import _get_step_from_filename
         dt = getattr(singles[0].sim, 'dt', 0.0)
         step_numbers = [_get_step_from_filename(f) or i
                         for i, f in enumerate(singles[0].particle_files[:len(series)])]
@@ -161,9 +160,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
             x_time = np.array(step_numbers, dtype=float)
             time_label = "时间步"
 
-        with AnalysisLayout(run, f"tail_ts_{run.name}", plot_ratio=(10, 3.5)) as layout:
-
-            # --- 各能段 excess_ratio ---
+        # 图1：各能段 excess_ratio
+        with AnalysisLayout(run, f"tail_ts_excess_{run.name}", plot_ratio=(10, 3.5)) as layout:
             for low, high in self.INTERVALS:
                 ax = layout.request_axes()
                 label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
@@ -194,6 +192,10 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax.legend(fontsize='x-small', loc='upper left', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
+            layout.plot_axes[-1].set_xlabel(time_label)
+
+        # 图2：其他指标（温度、场能、能量密度）
+        with AnalysisLayout(run, f"tail_ts_other_{run.name}", plot_ratio=(10, 3.5)) as layout:
             # --- 温度 ---
             ax_t = layout.request_axes()
             temps = np.array([s.T_keV for s in series])
