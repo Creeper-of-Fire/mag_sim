@@ -94,11 +94,11 @@ class LogPanel(Vertical):
         try:
             self.logger_content.text = ""
         except Exception:
-            pass
+            pass  # Widget 可能已卸载
 
     def action_select_all(self):
         """全选日志内容"""
         try:
             self.logger_content.select_all()
         except Exception:
-            pass
+            pass  # Widget 可能已卸载

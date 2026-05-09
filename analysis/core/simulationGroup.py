@@ -66,7 +66,9 @@ class SimulationRunGroup(SimulationRun):
                 averaged_fields[field_name] = mean_arr
                 averaged_fields[f"{field_name}_std"] = std_arr  # 动态附加标准差
             except Exception:
-                # 如果形状不匹配（如某些 run 提前终止），则跳过该字段或后续处理
+                # 如果形状不匹配（如某些 run 提前终止），则跳过该字段
+                import logging
+                logging.debug(f"跳过字段 {field_name}: 形状不匹配")
                 continue
 
         # 创建基本对象

@@ -97,7 +97,8 @@ class ConfigStore:
             try:
                 listener(config)
             except Exception:
-                pass
+                import logging
+                logging.debug("listener callback failed", exc_info=True)
 
 
 config_store = ConfigStore()

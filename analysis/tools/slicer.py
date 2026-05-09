@@ -56,8 +56,8 @@ def _get_sim_time_params(run_dir: Path) -> Tuple[float, float]:
                 else:
                     dt = float(getattr(data, 'dt', 0.0))
                     DT = float(getattr(data, 'DT', 0.0))
-        except Exception:
-            pass
+        except Exception as e:
+            console.print(f"[yellow]⚠ 读取 {dpkl_path.name} 失败 ({e})，时间步将默认为 0。[/yellow]")
 
     return dt, DT
 
@@ -180,8 +180,8 @@ def remove_virtual_slices(run_dir: Path):
                         # 双重确认：这确实是我们生成的虚拟切片
                         if data.get("_is_virtual_slice") is True:
                             slices_to_remove.append(d)
-                except Exception:
-                    pass
+                except Exception as e:
+                    console.print(f"[dim]⚠ 跳过异常切片目录 {d.name}: {e}[/dim]")
 
     if not slices_to_remove:
         console.print(f"[yellow]未在 {parent_dir.name} 下找到属于 {base_name} 的虚拟切片。[/yellow]")

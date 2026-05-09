@@ -103,6 +103,7 @@ class AppStore:
             try:
                 listener(self._state)
             except Exception:
-                pass
+                import logging
+                logging.debug("listener callback failed", exc_info=True)
 
 app_store = AppStore()

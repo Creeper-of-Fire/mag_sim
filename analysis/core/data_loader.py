@@ -237,6 +237,8 @@ def compute_single_spectrum(h5_filepath: str) -> Optional[SpectrumData]:
                     pz = _get_h5_dataset(species_group, 'momentum/z')
                     weights = _get_h5_dataset(species_group, 'weighting')
                 except KeyError:
+                    import logging
+                    logging.debug(f"跳过物种 {species_name}: 缺少 momentum/weighting 数据集")
                     continue
 
                 if weights.size == 0: continue
@@ -295,10 +297,10 @@ def compute_field_evolution(field_files: List[str], sim_obj: Any) -> Optional[Fi
             b_mean_abs.append(np.mean(b_mag))
 
             times.append(step * sim_obj.dt)
-        except Exception:
+        except Exception as _e:
+            import logging
+            logging.debug(f"跳过时间步 {step}: {_e}")
             continue
-
-    if not times: return None
 
     return FieldEvolutionData(
         time=np.array(times),
@@ -390,6 +392,8 @@ def compute_energy_evolution(field_files: List[str], particle_files: List[str], 
                         pz = _get_h5_dataset(sg, 'momentum/z')
                         w = _get_h5_dataset(sg, 'weighting')
                     except KeyError:
+                        import logging
+                        logging.debug(f"跳过物种 {sp}: 缺少 momentum/weighting 数据集")
                         continue
 
                     if w.size == 0: continue

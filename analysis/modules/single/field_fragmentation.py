@@ -83,7 +83,8 @@ def compute_fragmentation_metrics(run: SimulationRun, max_samples: int = 50) -> 
             B_slice = run.get_field_slice_from_path(fpath, axis='z')
             step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
             time = step * run.sim.dt
-        except Exception:
+        except Exception as e:
+            console.print(f"[dim]⚠ 跳过帧 {fpath.name}: {e}[/dim]")
             continue
 
         # 1. 计算能谱

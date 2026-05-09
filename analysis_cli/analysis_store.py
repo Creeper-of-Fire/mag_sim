@@ -63,7 +63,9 @@ class AnalysisStore:
             self.video_modules = video
             self._notify()
             return bool(individual or comparison or video)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.exception(f"模块发现失败: {e}")
             return False
 
     @property
@@ -152,7 +154,8 @@ class AnalysisStore:
             try:
                 listener()
             except Exception:
-                pass
+                import logging
+                logging.debug("listener callback failed", exc_info=True)
 
 
 analysis_store = AnalysisStore()

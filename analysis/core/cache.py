@@ -167,7 +167,7 @@ class SmartCache:
                         file_hash = hashlib.md5(f.read()).hexdigest()
                     self._source_file_hashes[src_file] = file_hash
                     return file_hash
-            except:
+            except Exception:
                 pass
 
             return "FALLBACK_" + func.__name__
@@ -194,8 +194,8 @@ class SmartCache:
         if run_obj is not None:
             try:
                 safe_sim_params = get_run_parameters(run_obj)
-            except Exception:
-                pass
+            except Exception as e:
+                console.print(f"[yellow]⚠ 缓存键未包含模拟参数 ({e})，可能影响缓存准确性。[/yellow]")
 
         hash_payload = {
             'sim_params': safe_sim_params,

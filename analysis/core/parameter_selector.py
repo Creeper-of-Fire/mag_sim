@@ -310,7 +310,7 @@ class ParameterSelector:
             val = item['params'].get(x_key, 0)
             try:
                 return float(val)
-            except:
+            except (ValueError, TypeError):
                 return str(val)
 
         self.data_items.sort(key=sort_key)

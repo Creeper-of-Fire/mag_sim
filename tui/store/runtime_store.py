@@ -52,6 +52,7 @@ class RuntimeStore:
             try:
                 listener(self._state)
             except Exception:
-                pass
+                import logging
+                logging.debug("listener callback failed", exc_info=True)
 
 runtime_store = RuntimeStore()

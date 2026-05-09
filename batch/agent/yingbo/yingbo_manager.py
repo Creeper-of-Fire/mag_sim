@@ -545,7 +545,8 @@ class YingboComputeManager(BaseComputeManager):
             if status.failed:
                 return JobStatus.FAILED
             return JobStatus.PENDING
-        except:
+        except Exception as e:
+            print(f"[Yingbo] 获取 Job 状态失败: {e}", file=sys.stderr)
             return JobStatus.UNKNOWN
 
     def get_logs(self) -> list[str]:
@@ -565,7 +566,8 @@ class YingboComputeManager(BaseComputeManager):
             new_lines = lines[self.last_log_line_count:]
             self.last_log_line_count = len(lines)
             return [l + "\n" for l in new_lines]
-        except:
+        except Exception as e:
+            print(f"[Yingbo] 获取日志失败 ({pod_name}): {e}", file=sys.stderr)
             return []
 
     def interrupt(self):

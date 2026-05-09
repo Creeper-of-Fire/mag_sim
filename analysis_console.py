@@ -360,7 +360,8 @@ class AnalysisConsole:
                     importlib.reload(sys.modules[module_name])
                 else:
                     importlib.import_module(module_name)
-            except Exception:
+            except Exception as _e:
+                self._console.print(f"[yellow]⚠ 热重载 {module_name} 失败: {_e}[/yellow]")
                 continue
 
         deleted_files = set(self._file_mtimes.keys()) - current_files
@@ -405,7 +406,7 @@ class AnalysisConsole:
             data = json.loads(CACHE_FILE.read_text(encoding='utf-8'))
             cached = set(data.get("selected", []))
         except Exception:
-            return
+            return  # 缓存文件损坏，跳过
 
         if not cached:
             return

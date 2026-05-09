@@ -161,7 +161,7 @@ class MainScreen(Screen):
         try:
             self.query_one("#task_list", TaskList).disabled = state.is_running
         except Exception:
-            pass
+            pass  # Widget 可能尚未挂载
 
     # ── 内部辅助 ────────────────────────────
 

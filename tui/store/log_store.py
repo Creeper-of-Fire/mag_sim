@@ -76,7 +76,8 @@ class LogStore:
             try:
                 listener(line)
             except Exception:
-                pass
+                import logging
+                logging.debug("listener callback failed", exc_info=True)
 
 
 # 全局单例

@@ -177,6 +177,7 @@ def compute_particle_trajectories(run: SimulationRun, sample_size: int = 500, mo
             tail_history[:, i] = tracked_energies[n_bulk:]
 
         except Exception as e:
+            console.print(f"[dim]⚠ 跳过帧 {fpath.name}: {e}[/dim]")
             continue
 
     return {

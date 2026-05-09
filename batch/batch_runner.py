@@ -195,8 +195,9 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list
                 remaining = manager.get_logs()
                 for line in remaining:
                     log_manager.log_raw(line)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.debug(f"获取残留日志失败: {e}")
 
             final_status = "success" if last_status == JobStatus.SUCCESS else "failed"
             if final_status == "failed":
