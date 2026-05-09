@@ -1,6 +1,7 @@
 # analysis/core/parameter_selector.py
 import hashlib
 import json
+import os
 from typing import List, Any, Dict, Tuple, Optional
 
 from rich.prompt import Prompt, Confirm
@@ -204,25 +205,49 @@ class ParameterSelector:
         """
         生成带有哈希后缀的文件名，并允许用户交互式修改后缀。
         保证只要参与的 runs 集合不变，默认哈希就不变。
+        short_hash 始终附加在文件名末尾。
         """
-        # 1. 计算哈希：基于所有 run 的名字排序拼接
-        # 这样即使 runs 列表顺序不同，只要内容一样，哈希就一样
-        run_names_concat = "".join(sorted([r.name for r in runs]))
-        short_hash = hashlib.md5(run_names_concat.encode('utf-8')).hexdigest()[:6]
+        names = [r.name for r in runs]
 
-        default_filename = f"{prefix}_{x_label}_{short_hash}"
+        # 1. 计算哈希：基于所有 run 的名字排序拼接
+        short_hash = hashlib.md5("".join(sorted(names)).encode('utf-8')).hexdigest()[:6]
+
+        # 2. 提取共同前缀和后缀
+        common_prefix = os.path.commonprefix(names).rstrip("_-")
+        reversed_names = [n[::-1] for n in names]
+        common_suffix = os.path.commonprefix(reversed_names)[::-1].lstrip("_-")
+
+        # 3. 构建文件名各部分
+        clean_label = x_label.replace(" ", "_")
+        parts = [prefix]
+        if common_prefix:
+            parts.append(common_prefix)
+        if common_suffix:
+            parts.append(common_suffix)
+        parts.append(clean_label)
+
+        # 显示检测结果
+        if common_prefix or common_suffix:
+            console.print()
+            if common_prefix:
+                console.print(f"[dim]检测到共同前缀: \"{common_prefix}\"[/dim]")
+            if common_suffix:
+                console.print(f"[dim]检测到共同后缀: \"{common_suffix}\"[/dim]")
+
+        default_filename = "_".join(parts) + "_" + short_hash
         console.print(f"\n[cyan]默认输出文件名: {default_filename}.png[/cyan]")
 
+        # 4. 用户可输入附加后缀（插入在 short_hash 之前）
         user_suffix = Prompt.ask(
-            "请输入文件名后缀 (用于区分实验批次)",
-            default=short_hash,
-            show_default=True
+            "请输入附加后缀 (回车跳过)",
+            default="",
         )
 
-        # 即使这里 x_label 可能包含非法字符，但在 create_analysis_figure 里通常会处理
-        # 这里简单替换一下空格
-        clean_label = x_label.replace(" ", "_")
-        return f"{prefix}_{clean_label}_{user_suffix}"
+        if user_suffix:
+            parts.append(user_suffix)
+        parts.append(short_hash)
+
+        return "_".join(parts)
 
     # ================= Internal Helpers =================
 
