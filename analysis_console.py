@@ -74,6 +74,9 @@ class AnalysisConsole:
                 if not cmd:
                     continue
                 self._dispatch(cmd)
+            except EOFError:
+                self._console.print("\n[dim]stdin 结束，退出。[/dim]")
+                break
             except KeyboardInterrupt:
                 self._console.print("\n[yellow]按 [bold]q[/bold] 退出程序[/yellow]")
             except Exception:
