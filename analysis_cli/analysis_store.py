@@ -54,7 +54,7 @@ class AnalysisStore:
         if self.individual_modules or self.comparison_modules:
             return True  # 已缓存
 
-        from analyze import discover_modules as _discover
+        from analysis_cli.modules import discover_modules as _discover
 
         try:
             individual, comparison, video = _discover()

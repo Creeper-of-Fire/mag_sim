@@ -3,7 +3,7 @@
 # --- 全局配置模块 ---
 #
 # 这个模块提供了一个全局共享的配置对象。
-# 主程序 (analyze.py) 会在启动时设置这些值，
+# 主程序 (analysis_console.py) 会在启动时设置这些值，
 # 然后任何分析模块都可以导入并使用它们。
 #
 from dataclasses import dataclass

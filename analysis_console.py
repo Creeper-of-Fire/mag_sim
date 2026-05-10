@@ -259,7 +259,7 @@ class AnalysisConsole:
     # ── t: 工具 ──
 
     def _cmd_tools(self):
-        from analyze import _run_tool_workflow
+        from analysis_cli.tools import run_tool_workflow
 
         dirs = self._store.selected_dir_paths
         if not dirs:
@@ -267,7 +267,7 @@ class AnalysisConsole:
             return
 
         try:
-            _run_tool_workflow("interactive", dirs)
+            run_tool_workflow("interactive", dirs)
         except KeyboardInterrupt:
             self._console.print("\n[yellow]已中断工具[/yellow]")
 
@@ -293,7 +293,7 @@ class AnalysisConsole:
 
     def _discover_all(self):
         """首次全量发现模块，记录 mtime 和文件→模块映射。"""
-        from analyze import discover_modules as _discover
+        from analysis_cli.modules import discover_modules as _discover
 
         individual, comparison, video = _discover()
         self._store.individual_modules = individual
@@ -374,7 +374,7 @@ class AnalysisConsole:
                 self._store.comparison_modules.pop(name, None)
                 self._store.video_modules.pop(name, None)
 
-        from analyze import discover_modules as _discover
+        from analysis_cli.modules import discover_modules as _discover
         individual, comparison, video = _discover()
         self._store.individual_modules = individual
         self._store.comparison_modules = comparison
