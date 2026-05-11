@@ -83,7 +83,7 @@ def cached_op(file_dep: str = "auto"):
                 deps = run_obj.particle_files + run_obj.field_files + [run_obj._param_file]
 
             # 2. 将调用上下文“物化”，交给 Cache 处理，杜绝任何 kwargs 签名冲突
-            func_name = f"{getattr(func, '__module__', 'unknown')}.{func.__name__}"
+            func_name = func.__name__
 
             return run_obj._cache.get(
                 func_name=func_name,

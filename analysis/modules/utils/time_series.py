@@ -14,15 +14,14 @@ from typing import List, Dict, Optional, NamedTuple, Tuple
 from analysis.core.async_utils import asyncify, gather_dict
 from analysis.core.simulationSingle import SimulationRunSingle
 from analysis.core.utils import console
-from analysis.modules.compare.tail_statisticsV2 import (
-    TemperatureResult,
-    TailResult,
-    compute_run_temperature_metrics,
-    compute_run_tail_metrics,
-    compute_run_energy_partition,
-    compute_run_energy_densities_normalized,
-    async_compute_temperature,
-    async_compute_tail,
+from analysis.physics.temperature import (
+    TemperatureResult, compute_run_temperature_metrics, async_compute_temperature,
+)
+from analysis.physics.tail import (
+    TailResult, compute_run_tail_metrics, async_compute_tail,
+)
+from analysis.physics.field import (
+    compute_run_energy_partition, compute_run_energy_densities_normalized,
 )
 
 
