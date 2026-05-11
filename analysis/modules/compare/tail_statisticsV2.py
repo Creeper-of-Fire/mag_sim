@@ -1,5 +1,6 @@
-# analysis/modules/single/tail_statisticsV2.py
+# analysis/modules/compare/tail_statisticsV2.py
 
+import asyncio
 import gc
 import warnings
 from typing import List, Dict, Optional, NamedTuple, Any, Tuple
@@ -9,6 +10,7 @@ import numpy as np
 from scipy.constants import mu_0, e, epsilon_0
 from scipy.integrate import quad, IntegrationWarning
 
+from analysis.core.async_utils import asyncify
 from analysis.core.cache import cached_op
 from analysis.core.data_loader import _get_step_from_filename, h5open
 from analysis.core.simulation import SimulationRun
@@ -251,6 +253,11 @@ def _get_mean_u_elec(run: 'SimulationRunSingle', fpath: str) -> float:
     return float(0.5 * epsilon_0 * e_sq_mean)
 
 
+# async 版本：供异步模块和 time_series.py 使用
+async_compute_temperature = asyncify(compute_run_temperature_metrics)
+async_compute_tail = asyncify(compute_run_tail_metrics)
+
+
 def compute_run_energy_partition(run: 'SimulationRunSingle', step_index: int) -> Tuple[float, float, float]:
     """返回 (磁能占比, 电能占比, 总场能占比)"""
     fpath = run.get_particle_file(step_index)
@@ -421,7 +428,7 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
     # 运行与绘图
     # =========================================================================
 
-    def run(self, loaded_runs: List[SimulationRun]):
+    async def run(self, loaded_runs: List[SimulationRun]):
         style = get_style()
         console.print(f"\n[bold magenta]执行: {self.name}...[/bold magenta]")
 
@@ -431,7 +438,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         x_label_key = ctx.x_label_key
 
         # 数据结构初始化
-        # results[factor] = {'init': [], 'init_err': [], 'init_th_err': [], 'final': [], 'final_err': [], 'final_th_err': []}
         results = {i: {'init': [], 'init_err': [], 'init_th_err': [],
                        'final': [], 'final_err': [], 'final_th_err': []}
                    for i in range(len(self.intervals))}
@@ -440,7 +446,6 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
         mag_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
         elec_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
         sum_field_ratios = {'init': [], 'init_err': [], 'final': [], 'final_err': []}
-        # 能量密度 (eV) 数据容器
         energy_densities = {
             'kin': {'final': [], 'final_err': []},
             'mag': {'final': [], 'final_err': []},
@@ -448,13 +453,36 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             'total': {'final': [], 'final_err': []}
         }
 
-        console.print("  正在扫描多能段 Initial 与 Final 数据 ...")
+        console.print("  正在并行扫描多能段 Initial 与 Final 数据 ...")
 
-        for i, run in enumerate(runs):
-            console.print(f"    [{run.name}] {x_label_key}={x_raw[i]}")
+        async_field_metrics = asyncify(self._get_field_metrics)
+        async_energy_densities = asyncify(self._get_energy_densities)
+        async_metrics_with_error = asyncify(self._get_metrics_with_error)
 
-            # 获取场比例
-            fr_final = self._get_field_metrics(run, is_final=True)
+        async def _process_run(run):
+            fr_final, ed_final = await asyncio.gather(
+                async_field_metrics(run, is_final=True),
+                async_energy_densities(run, is_final=True),
+            )
+
+            interval_data = {}
+            init_tasks = []
+            final_tasks = []
+            for f_idx, (low, high) in enumerate(self.intervals):
+                init_tasks.append(asyncio.create_task(
+                    async_metrics_with_error(run, is_final=False, low=low, high=high)))
+                final_tasks.append(asyncio.create_task(
+                    async_metrics_with_error(run, is_final=True, low=low, high=high)))
+
+            for f_idx in range(len(self.intervals)):
+                interval_data[f_idx] = (await init_tasks[f_idx], await final_tasks[f_idx])
+
+            return fr_final, ed_final, interval_data
+
+        all_results = await asyncio.gather(*[_process_run(run) for run in runs])
+
+        for i, (fr_final, ed_final, interval_data) in enumerate(all_results):
+            console.print(f"    [{runs[i].name}] {x_label_key}={x_raw[i]}")
 
             mag_ratios['final'].append(fr_final['mag'][0])
             mag_ratios['final_err'].append(fr_final['mag'][1])
@@ -463,18 +491,13 @@ class MultiBandTailStatisticsModule(BaseComparisonModule):
             sum_field_ratios['final'].append(fr_final['sum'][0])
             sum_field_ratios['final_err'].append(fr_final['sum'][1])
 
-            # 获取能量密度
-            ed_final = self._get_energy_densities(run, is_final=True)
             for key in ['kin', 'mag', 'elec', 'total']:
                 energy_densities[key]['final'].append(ed_final[key][0])
                 energy_densities[key]['final_err'].append(ed_final[key][1])
 
-            # 对各个能段进行遍历计算
-            for f_idx, (low, high) in enumerate(self.intervals):
-                m_init = self._get_metrics_with_error(run, is_final=False, low=low, high=high)
-                m_final = self._get_metrics_with_error(run, is_final=True, low=low, high=high)
+            for f_idx in range(len(self.intervals)):
+                m_init, m_final = interval_data[f_idx]
 
-                # 只在第一个能段时记录温度
                 if f_idx == 0:
                     temps['init'].append(m_init['T_keV'])
                     temps['init_err'].append(m_init['T_keV_err'])

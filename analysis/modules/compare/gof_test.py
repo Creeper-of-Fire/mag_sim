@@ -1,9 +1,11 @@
-# analysis/modules/comparison/gof_test.py
+# analysis/modules/compare/gof_test.py
+import asyncio
 from typing import List
 
 import numpy as np
 from scipy.stats import kstwo
 
+from analysis.core.async_utils import asyncify
 from analysis.core.cache import cached_op
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationGroup import SimulationRunGroup
@@ -126,51 +128,43 @@ class GoodnessOfFitModule(BaseComparisonModule):
             'N_eff': N_eff
         }
 
-    def run(self, loaded_runs: List[SimulationRun]):
+    async def run(self, loaded_runs: List[SimulationRun]):
         style = get_style()
         console.print("\n[bold magenta]执行: 统计学假设检验 (K-S & A-D)...[/bold magenta]")
 
         ctx = ComparisonContext(loaded_runs, "gof_test")
         runs, x_scaled = ctx.unpack
         x_raw = ctx.x_raw
+        x_label_key = ctx.x_label_key
 
-        # 数据容器
-        results_D_ks = []
-        results_p_value = []
-        results_AD_stat = []
-        results_N_eff = []
+        console.print("  正在并行计算每个参数点的累积分布拟合优度...")
 
-        console.print("  正在计算每个参数点的累积分布拟合优度...")
+        async_compute = asyncify(self._compute_gof_metrics)
 
-        for i, run in enumerate(runs):
-            # 处理组 (Group) 或 单次 Run
+        async def _compute_for_run(run: SimulationRun):
             if isinstance(run, SimulationRunGroup):
-                sub_d, sub_p, sub_ad, sub_neff = [], [], [], []
-                for sub_run in run.runs:
-                    m = self._compute_gof_metrics(sub_run, fpath=sub_run.get_particle_file(-1))
-                    sub_d.append(m['D_ks'])
-                    sub_p.append(m['p_value'])
-                    sub_ad.append(m['AD_stat'])
-                    sub_neff.append(m['N_eff'])
+                tasks = [async_compute(sub_run, fpath=sub_run.get_particle_file(-1))
+                         for sub_run in run.runs]
+                sub_results = await asyncio.gather(*tasks)
+                return {
+                    'D_ks': np.mean([r['D_ks'] for r in sub_results]),
+                    'p_value': np.mean([r['p_value'] for r in sub_results]),
+                    'AD_stat': np.mean([r['AD_stat'] for r in sub_results]),
+                    'N_eff': np.mean([r['N_eff'] for r in sub_results]),
+                }
+            return await async_compute(run, fpath=run.get_particle_file(-1))
 
-                # 对组内多次模拟取均值
-                avg_D = np.mean(sub_d)
-                avg_P = np.mean(sub_p)
-                avg_AD = np.mean(sub_ad)
-                avg_Neff = np.mean(sub_neff)
-            else:
-                m = self._compute_gof_metrics(run, fpath=run.get_particle_file(-1))
-                avg_D = m['D_ks']
-                avg_P = m['p_value']
-                avg_AD = m['AD_stat']
-                avg_Neff = m['N_eff']
+        run_results = await asyncio.gather(*[_compute_for_run(run) for run in runs])
 
-            results_D_ks.append(avg_D)
-            results_p_value.append(avg_P)
-            results_AD_stat.append(avg_AD)
-            results_N_eff.append(avg_Neff)
+        results_D_ks = [m['D_ks'] for m in run_results]
+        results_p_value = [m['p_value'] for m in run_results]
+        results_AD_stat = [m['AD_stat'] for m in run_results]
+        results_N_eff = [m['N_eff'] for m in run_results]
 
-            console.print(f"    [{run.name}] {x_label}={x_raw[i]} | N_eff={avg_Neff:.0f}")
+        for i, (avg_D, avg_P, avg_AD, avg_Neff) in enumerate(
+            zip(results_D_ks, results_p_value, results_AD_stat, results_N_eff)
+        ):
+            console.print(f"    [{runs[i].name}] {x_label_key}={x_raw[i]} | N_eff={avg_Neff:.0f}")
             console.print(f"      -> K-S 差距 D_ks : {avg_D:.5f} (P-Value: {avg_P:.2e})")
             console.print(f"      -> A-D 统计量 A²  : {avg_AD:.2f}")
 

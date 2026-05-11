@@ -9,9 +9,8 @@
 分组、X 轴选择均由 ComparisonContext 处理，与现有对比模块一致。
 """
 
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, List, Optional, TypeVar
+import asyncio
+from typing import List, Optional
 
 import numpy as np
 
@@ -23,40 +22,11 @@ from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.time_series import (
     GroupedStepMetrics, AggregatedMetrics,
-    extract_tail_time_series, extract_grouped_time_series, avg_last_n,
+    extract_tail_time_series_async, extract_grouped_time_series_async, avg_last_n,
 )
 from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
 from analysis.plotting.layout import AnalysisLayout
 from analysis.plotting.styles import get_style
-
-_R = TypeVar('_R')
-
-
-def parallel_map_ordered(runs: List[SimulationRun], func: Callable[[int, SimulationRun], _R],
-                         max_workers: int = None) -> List[_R]:
-    """
-    并行遍历工具，通过 dict 索引保持原始顺序。
-    适用于 I/O 密集型任务（HDF5 读取 + 缓存查找）。
-
-    注意：Python 线程无法被强制杀死，Ctrl+C 后工作线程会继续跑完当前任务。
-    若需即时取消，需改用 ProcessPoolExecutor (但是似乎有序列化问题) 或在 worker 循环中加入协作取消检查 (但是会增加代码复杂度，现阶段不应当考虑)。
-    """
-    if not runs:
-        return []
-    if max_workers is None:
-        max_workers = min(len(runs), os.cpu_count() or 4)
-
-    results: dict = {}
-    try:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            future_to_idx = {pool.submit(func, i, run): i for i, run in enumerate(runs)}
-            for future in as_completed(future_to_idx):
-                results[future_to_idx[future]] = future.result()
-    except KeyboardInterrupt:
-        console.print("\n[bold red]用户中断 (Ctrl+C)，取消剩余任务...[/bold red]")
-        raise
-
-    return [results[i] for i in range(len(runs))]
 
 
 class TailStatisticsTimeSeriesModule(BaseComparisonModule):
@@ -86,35 +56,26 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
             return run.runs
         return []
 
-    def run(self, loaded_runs: List[SimulationRun]):
+    async def run(self, loaded_runs: List[SimulationRun]):
         style = get_style()
         console.print(f"\n[bold magenta]执行: {self.name}...[/bold magenta]")
 
-        # 1. 完整的交互流程：分组确认 + X 轴选择 + 排序
         ctx = ComparisonContext(loaded_runs, "tail_timeseries")
         runs, x_scaled = ctx.unpack
         x_raw = ctx.x_raw
         x_label_key = ctx.x_label_key
 
-        # 2. 数据提取：并行提取每个 run 的时序数据
-        def _extract(index: int, run: SimulationRun):
-            """
-            TODO: 当前并行粒度为 group 级（每个 run/group 一个任务）。
-                当参数分组后 group 数量少时（如 3 group × 10 runs），核心利用率不足。
-                优化方向：在 _extract 中对 group 展开所有 single，用此函数并行提取后再聚合。
-                需要重构 extract_grouped_time_series 拆为"并行提取 + 串行聚合"两阶段。
-                这可能太复杂了，我们也许可以使用先不合并运行一次，拿到缓存再重新合并运行的模式……虽然有点hack，但是其实也够了。
-            """
+        async def _extract(index: int, run: SimulationRun):
             singles = self._unpack_runs(run)
             if not singles or len(singles[0].particle_files) <= 2:
                 return None
             console.print(f"    [{run.name}] {x_label_key}={x_raw[index]} — {len(singles[0].particle_files)} 时间步")
             if len(singles) == 1:
-                return extract_tail_time_series(singles[0], self.INTERVALS, field_files_needed=True)
-            return extract_grouped_time_series(singles, self.INTERVALS, field_files_needed=True)
+                return await extract_tail_time_series_async(singles[0], self.INTERVALS, field_files_needed=True)
+            return await extract_grouped_time_series_async(singles, self.INTERVALS, field_files_needed=True)
 
         console.print(f"  并行提取 {len(runs)} 个 run 的时序数据...")
-        raw_series = parallel_map_ordered(runs, _extract)
+        raw_series = list(await asyncio.gather(*[_extract(i, run) for i, run in enumerate(runs)]))
 
         all_series = []
         all_avg: List[Optional[AggregatedMetrics]] = []
