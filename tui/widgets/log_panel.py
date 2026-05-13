@@ -76,20 +76,29 @@ class LogPanel(Vertical):
             text_area.scroll_to(y=text_area.document.line_count - 1, animate=False)
 
         # 订阅新日志
+        self._log_buffer: list[str] = []
         logger.subscribe(self._on_log_received)
+        self._flush_timer = self.set_interval(0.15, self._flush_log_buffer)
 
     def on_unmount(self):
         """卸载时取消订阅"""
         logger.unsubscribe(self._on_log_received)
 
     def _on_log_received(self, line: str):
-        """收到新日志时更新显示"""
+        """缓冲日志行，不直接更新 UI"""
+        self._log_buffer.append(line)
+
+    def _flush_log_buffer(self):
+        """定时批量刷新缓冲区到 TextArea"""
+        if not self._log_buffer:
+            return
+
+        lines = self._log_buffer
+        self._log_buffer = []
+
         text_area = self.logger_content
-        end = text_area.document.end
-        if end == (0, 0) and not text_area.text:
-            text_area.text = line
-        else:
-            text_area.insert(f"\n{line}", location=end, maintain_selection_offset=False)
+        current = text_area.text
+        text_area.text = f"{current}\n" + "\n".join(lines) if current else "\n".join(lines)
         text_area.scroll_to(y=text_area.document.line_count - 1, animate=False)
 
     def clear(self):
