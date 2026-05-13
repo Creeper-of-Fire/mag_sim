@@ -59,13 +59,7 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list
     results_base_dir.mkdir(exist_ok=True)
 
     # 计算 job_dir 相对于项目根目录的相对路径，用于传给云端/WSL
-    # 假设项目根目录是 job_dir 的上两级 (sim_jobs/..)
-    # 或者通过 PROJECT_ROOT 自动计算
-    try:
-        rel_job_dir = job_path.relative_to(root_dir)
-    except ValueError:
-        # 如果 job_dir 不在项目路径下，可能需要处理，这里暂设为绝对路径
-        rel_job_dir = job_path
+    rel_job_dir = job_path.relative_to(root_dir)
 
     if not os.path.exists(queue_file):
         print(f"错误: 队列文件 {FILENAME_QUEUE} 不存在。")
