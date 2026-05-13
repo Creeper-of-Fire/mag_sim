@@ -103,18 +103,15 @@ class ConfigScreen(Screen):
         self.query_one("#input_csv_tool_args", Input).value = config.csv_tool_args
         self.query_one("#runner_config", RunnerConfig).set_from_args(config.runner_args)
 
-        self.run_worker(self._load_schema())
+        self._load_schema()
         self._load_csv()
 
-    async def _load_schema(self) -> None:
-        """从 csv_tool 获取参数元信息（异步，不阻塞事件循环）"""
-        self._schema = await self.csv_tool.get_schema_async()
+    def _load_schema(self) -> None:
+        """从 csv_tool 获取参数元信息"""
+        self._schema = self.csv_tool.get_schema()
         if self._schema:
-            try:
-                editor = self.query_one("#csv_editor", CsvEditor)
-                editor.schema = self._schema
-            except Exception:
-                pass
+            editor = self.query_one("#csv_editor", CsvEditor)
+            editor.schema = self._schema
         else:
             logger.warn("警告: 无法获取参数 schema，编辑器将无类型提示。")
 
@@ -161,9 +158,9 @@ class ConfigScreen(Screen):
         self.action_save_all()
         self.app.pop_screen()
 
-    async def action_regen_template(self) -> None:
+    def action_regen_template(self) -> None:
         """调用 csv_tool 重新生成 CSV 模板"""
-        if await self.csv_tool.generate_template_async(self.job_dir):
+        if self.csv_tool.generate_template(self.job_dir):
             logger.info("✅ 模板已重新生成。")
             self._load_csv()
         else:
@@ -174,8 +171,8 @@ class ConfigScreen(Screen):
         open_csv_in_excel()
 
     @on(Button.Pressed, "#btn_regen")
-    async def on_btn_regen(self) -> None:
-        await self.action_regen_template()
+    def on_btn_regen(self) -> None:
+        self.action_regen_template()
 
     @on(Button.Pressed, "#btn_save")
     def on_btn_save(self) -> None:
