@@ -107,7 +107,7 @@ def run_node():
             f.write("=" * 60 + "\n\n")
 
             process = subprocess.Popen(
-                [sys.executable, args.main_py, "-o", str(work_dir), "-c", args.config],
+                [sys.executable, args.main_py, "-v", "-o", str(work_dir), "-c", args.config],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # 合并 stderr 到 stdout
                 bufsize=0,

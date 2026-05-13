@@ -22,7 +22,7 @@ def run_node():
 
     try:
         process = subprocess.Popen(
-            [sys.executable, args.main_py, "-o", str(work_dir), "-c", args.config],
+            [sys.executable, args.main_py, "-v", "-o", str(work_dir), "-c", args.config],
             stdout=sys.stdout,
             stderr=sys.stderr,
             universal_newlines=True

@@ -3,9 +3,10 @@
 """
 from textual.binding import Binding, BindingsMap
 from textual.containers import Vertical
-from textual.widgets import Static, TextArea, RichLog
+from textual.widgets import Static, TextArea
 
 from tui.store.log_store import logger
+from tui.widgets.progress_bar import SimulationProgressBar
 
 
 class LogTextArea(TextArea):
@@ -53,6 +54,7 @@ class LogPanel(Vertical):
 
     def compose(self):
         yield Static("📜 运行日志", classes="panel_title")
+        yield SimulationProgressBar(id="sim_progress")
         yield LogTextArea(
             id="log_content",
             read_only=True,
@@ -71,7 +73,7 @@ class LogPanel(Vertical):
         if existing:
             text_area = self.logger_content
             text_area.text = "\n".join(existing)
-            text_area.scroll_to(y=len(text_area.text.splitlines()) - 1, animate=False)
+            text_area.scroll_to(y=text_area.document.line_count - 1, animate=False)
 
         # 订阅新日志
         logger.subscribe(self._on_log_received)
@@ -83,10 +85,12 @@ class LogPanel(Vertical):
     def _on_log_received(self, line: str):
         """收到新日志时更新显示"""
         text_area = self.logger_content
-        current = text_area.text
-        new_text = f"{current}\n{line}" if current else line
-        text_area.text = new_text
-        text_area.scroll_to(y=len(text_area.text.splitlines()) - 1, animate=False)
+        end = text_area.document.end
+        if end == (0, 0) and not text_area.text:
+            text_area.text = line
+        else:
+            text_area.insert(f"\n{line}", location=end, maintain_selection_offset=False)
+        text_area.scroll_to(y=text_area.document.line_count - 1, animate=False)
 
     def clear(self):
         """清空日志（同时清空 store）"""

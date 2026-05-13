@@ -1,6 +1,7 @@
 """
 CSV 工具调用器 - 模板生成 + 运行前转换
 """
+import asyncio
 import json
 import subprocess
 import sys
@@ -92,6 +93,96 @@ class CsvToolRunner:
         except Exception as e:
             logger.error(f"[CSV工具] CSV转换异常: {e}")
             return False
+
+    async def generate_template_async(self, job_dir: Path) -> bool:
+        """异步版 generate_template"""
+        script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
+        target_csv = get_preferred_csv_path(job_dir)
+
+        cmd = [
+            sys.executable, str(script_path),
+            "generate-template",
+            "-o", str(target_csv)
+        ]
+
+        logger.info(f"[CSV工具] 生成模板: {' '.join(cmd)}")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            if stdout:
+                logger.write(stdout.decode("utf-8", errors="replace").strip())
+            if stderr:
+                logger.error(stderr.decode("utf-8", errors="replace").strip())
+            return process.returncode == 0
+        except Exception as e:
+            logger.error(f"[CSV工具] 模板生成异常: {e}")
+            return False
+
+    async def convert_csv_async(self, job_dir: Path) -> bool:
+        """异步版 convert_csv"""
+        csv_path = resolve_tasks_csv(job_dir)
+        if csv_path is None:
+            logger.error(f"[CSV转换] 未找到任何 {FILENAME_TASKS_CSV} 文件")
+            return False
+
+        script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
+        cmd = [sys.executable, str(script_path), "convert", str(csv_path)]
+
+        extra_args = config_store.config.csv_tool_args
+        if extra_args.strip():
+            cmd.extend(extra_args.strip().split())
+
+        logger.info(f"[CSV工具] 转换CSV: {' '.join(cmd)}")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            if stdout:
+                logger.write(stdout.decode("utf-8", errors="replace").strip())
+            if stderr:
+                logger.error(stderr.decode("utf-8", errors="replace").strip())
+            return process.returncode == 0
+        except Exception as e:
+            logger.error(f"[CSV工具] CSV转换异常: {e}")
+            return False
+
+    async def get_schema_async(self) -> dict | None:
+        """异步版 get_schema"""
+        script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
+        cmd = [sys.executable, str(script_path), "dump-schema"]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+            out = stdout.decode("utf-8", errors="replace").strip()
+            if process.returncode == 0 and out:
+                return json.loads(out)
+            else:
+                err = stderr.decode("utf-8", errors="replace").strip()
+                logger.error(f"[CSV工具] dump-schema 失败: {err or '无输出'}")
+                return None
+        except asyncio.TimeoutError:
+            logger.error("[CSV工具] dump-schema 超时")
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(f"[CSV工具] dump-schema JSON 解析失败: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"[CSV工具] dump-schema 异常: {e}")
+            return None
 
     def get_schema(self) -> dict | None:
         """

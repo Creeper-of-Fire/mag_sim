@@ -20,6 +20,7 @@ from batch.logger_manager import create_standard_log_manager
 from batch.manager_api import JobStatus, BaseComputeManager
 
 from utils.project_config import FILENAME_QUEUE, FILENAME_HISTORY
+from utils.warpx_parser import is_step_progress_line
 
 
 def load_history_hashes(history_file_path: str) -> dict:
@@ -154,7 +155,10 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list
                     # 获取新的日志行
                     new_lines = manager.get_logs()
                     for line in new_lines:
-                        log_manager.log_raw(line)
+                        if is_step_progress_line(line):
+                            print(line, flush=True)
+                        else:
+                            log_manager.log_raw(line)
 
                     # 状态变化时记录
                     if status != last_status:
@@ -188,7 +192,10 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list
             try:
                 remaining = manager.get_logs()
                 for line in remaining:
-                    log_manager.log_raw(line)
+                    if is_step_progress_line(line):
+                        print(line, flush=True)
+                    else:
+                        log_manager.log_raw(line)
             except Exception as e:
                 import logging
                 logging.debug(f"获取残留日志失败: {e}")

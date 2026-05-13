@@ -178,8 +178,8 @@ class MainScreen(Screen):
     # ── 按钮事件 ──────────────────────────
 
     @on(Button.Pressed, "#btn_start")
-    def on_btn_start(self):
-        self.action_start_batch()
+    async def on_btn_start(self):
+        await self.action_start_batch()
 
     @on(Button.Pressed, "#btn_stop")
     def on_btn_stop(self):
@@ -200,7 +200,7 @@ class MainScreen(Screen):
         except Exception as e:
             logger.error(f"刷新失败: {e}")
 
-    def action_start_batch(self):
+    async def action_start_batch(self):
         if runtime_store.is_running:
             logger.warn("任务已在运行中。")
             return
@@ -209,7 +209,7 @@ class MainScreen(Screen):
             return
 
         logger.info(">>> 步骤 1: 转换任务清单...")
-        if not self._csv_tool.convert_csv(app_store.job_dir):
+        if not await self._csv_tool.convert_csv_async(app_store.job_dir):
             logger.error("CSV 转换失败，中止运行。")
             return
 

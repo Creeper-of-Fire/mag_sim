@@ -10,7 +10,9 @@ from pathlib import Path
 
 from tui.store.config_store import config_store
 from tui.store.log_store import logger
+from tui.store.progress_store import progress_store
 from tui.store.runtime_store import runtime_store
+from utils.warpx_parser import parse_step_line, parse_evolve_line, parse_total_steps, is_step_progress_line
 
 
 class BatchProcessController:
@@ -34,6 +36,7 @@ class BatchProcessController:
 
         try:
             runtime_store.set_running(True)
+            progress_store.reset()
             # 创建子进程
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -55,6 +58,7 @@ class BatchProcessController:
         finally:
             self._process = None
             runtime_store.set_running(False)
+            progress_store.reset()
 
     async def _read_output(self):
         """持续读取子进程输出"""
@@ -77,7 +81,25 @@ class BatchProcessController:
                         logger.info(f"[Controller] 捕获进程 PID: {match.group(1)}")
 
                 if text:
-                    logger.write(text)
+                    # 解析 WarpX / simulation.py 输出，更新进度
+                    ts = parse_total_steps(text)
+                    if ts is not None:
+                        progress_store.update(total_steps=ts, current_step=0)
+
+                    step = parse_step_line(text)
+                    if step is not None:
+                        progress_store.update(current_step=step)
+
+                    evolve = parse_evolve_line(text)
+                    if evolve is not None:
+                        progress_store.update(
+                            elapsed_seconds=evolve[0],
+                            avg_per_step=evolve[2],
+                        )
+
+                    # 进度行已由进度条展示，不再写入日志
+                    if not is_step_progress_line(line=text):
+                        logger.write(text)
 
             except Exception as e:
                 logger.error(f"[Controller] 读取输出异常: {e}")
