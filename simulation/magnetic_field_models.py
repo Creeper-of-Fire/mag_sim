@@ -170,8 +170,14 @@ class ABCField(InitialMagneticField):
 class OrszagTangField(InitialMagneticField):
     """Orszag-Tang 涡旋 (2D MHD 湍流测试)。"""
 
+    def __init__(self, Lx, Ly, Lz, B_target_rms, dim, num_gaussians=1):
+        # 借用 num_gaussians 作为模式数（波数倍数）
+        self.num_gaussians = num_gaussians
+        super().__init__(Lx, Ly, Lz, B_target_rms, dim)
+
     def _build_expressions(self):
         kx = 2 * sympy.pi / self.Lx
+        n = self.num_gaussians
         # 注意: WarpX 2D 中，通常坐标是 x, z。Y 是 out-of-plane。
         # 标准 OT 涡定义在 x-y 平面。
         # 为了适配 WarpX 2D (xz平面)，我们将原本 y 的依赖映射到 z。
@@ -179,18 +185,19 @@ class OrszagTangField(InitialMagneticField):
         if self.dim == Dim.D2:
             # 2D 模式: x->x, y->z (模拟平面的第二个维度)
             kz = 2 * sympy.pi / self.Lz
-            self.Bx_expr = -self.B_target_rms * sympy.sin(kz * self.z)
-            self.Bz_expr = self.B_target_rms * sympy.sin(2 * kx * self.x)
+            self.Bx_expr = -self.B_target_rms * sympy.sin(n * kz * self.z)
+            self.Bz_expr = self.B_target_rms * sympy.sin(n * 2 * kx * self.x)
             self.By_expr = sympy.sympify(0.0)  # Out of plane component
         else:
             # 3D 模式: 标准定义
             ky = 2 * sympy.pi / self.Ly
-            self.Bx_expr = -self.B_target_rms * sympy.sin(ky * self.y)
-            self.By_expr = self.B_target_rms * sympy.sin(2 * kx * self.x)
+            self.Bx_expr = -self.B_target_rms * sympy.sin(n * ky * self.y)
+            self.By_expr = self.B_target_rms * sympy.sin(n * 2 * kx * self.x)
             self.Bz_expr = sympy.sympify(0.0)
 
         print(f"  - 创建 Orszag-Tang 涡旋:")
         print(f"    - 维度: {self.dim.name}")
+        print(f"    - 模式数 n={self.num_gaussians}")
         print(f"    - 振幅 B0={self.B_target_rms:.2e} T")
 
 
@@ -335,7 +342,7 @@ def magnetic_field_factory(config: Bunch) -> InitialMagneticField:
     elif field_type == "abc":
         return ABCField(**common_args)
     elif field_type == "orszag_tang":
-        return OrszagTangField(**common_args)
+        return OrszagTangField(**common_args, num_gaussians=config.num_gaussians)
     elif field_type in ["single_gaussian", "multi_gaussian"]:
         # 提取高斯场特定参数
         gauss_args = Bunch(

@@ -78,7 +78,8 @@ class SimulationParameters:
     # 'multi_gaussian': 多个随机高斯磁场的叠加
     B_field_type = "multi_gaussian"
 
-    # 当 B_field_type 为 'multi_gaussian' 时，此参数指定高斯场的数量
+    # 当 B_field_type 为 'multi_gaussian' 时，指定高斯场的数量
+    # 当 B_field_type 为 'orszag_tang' 时，作为模式数（波数倍数）
     num_gaussians = 5
 
     # 高斯包的物理宽度，以电子趋肤深度 d_e 为单位。
