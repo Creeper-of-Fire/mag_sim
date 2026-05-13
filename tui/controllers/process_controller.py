@@ -40,6 +40,7 @@ class BatchProcessController:
             # 创建子进程
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
