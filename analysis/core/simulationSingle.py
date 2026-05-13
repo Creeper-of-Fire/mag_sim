@@ -1,4 +1,5 @@
 import glob
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -146,6 +147,7 @@ class SimulationRunSingle(SimulationRun):
         try:
             return self.get_spectrum_from_path(self.get_particle_file(step_index))
         except IndexError:
+            logging.debug(f"get_spectrum: step_index={step_index} 越界")
             return None
 
     @cached_op(file_dep="particle")
@@ -179,4 +181,5 @@ class SimulationRunSingle(SimulationRun):
         try:
             return self.get_field_slice_from_path(self.get_field_file(step_index), axis=axis)
         except IndexError:
+            logging.debug(f"get_field_slice: step_index={step_index} 越界")
             return None

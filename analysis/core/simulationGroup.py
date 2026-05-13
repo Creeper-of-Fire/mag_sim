@@ -1,3 +1,4 @@
+import logging
 from dataclasses import fields
 from typing import List, Optional
 
@@ -65,10 +66,9 @@ class SimulationRunGroup(SimulationRun):
 
                 averaged_fields[field_name] = mean_arr
                 averaged_fields[f"{field_name}_std"] = std_arr  # 动态附加标准差
-            except Exception:
+            except (ValueError, TypeError) as e:
                 # 如果形状不匹配（如某些 run 提前终止），则跳过该字段
-                import logging
-                logging.debug(f"跳过字段 {field_name}: 形状不匹配")
+                logging.warning(f"跳过字段 {field_name}: {e}")
                 continue
 
         # 创建基本对象
@@ -179,4 +179,5 @@ class SimulationRunGroup(SimulationRun):
             return np.mean(stack, axis=0)
         except ValueError:
             # 形状不匹配 (grid size 不同)
+            logging.warning(f"场切片均值失败: 形状不一致 (共 {len(slices)} 个切片)")
             return None

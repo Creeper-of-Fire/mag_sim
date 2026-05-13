@@ -1,5 +1,6 @@
 # core/utils.py
 import json
+import logging
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
@@ -302,8 +303,8 @@ def get_run_parameters(run: Any) -> Dict[str, Any]:
                 # 例如: "density_0.1_slice_000500" -> "density_0.1"
                 if local_params.get("_is_virtual_slice"):
                     lookup_name = re.sub(r'_slice_\d+$', '', run_path.name)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logging.warning(f"读取 custom_params.json 失败: {e}")
 
     # --- 2. 从 history.jsonl 获取物理参数 ---
     # 物理参数是在模拟提交时记录的，最干净且最能代表物理初值
@@ -322,10 +323,11 @@ def get_run_parameters(run: Any) -> Dict[str, Any]:
                             # 记录原始模拟名对应的参数字典
                             r_name = Path(out_dir).name
                             _HISTORY_FILE_CACHE[history_path][r_name] = record.get('params', {})
-                    except Exception:
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logging.debug(f"history.jsonl 行解析跳过: {e}")
                         continue
-        except Exception:
-            pass
+        except OSError as e:
+            logging.warning(f"读取 history.jsonl 失败: {e}")
 
     # 注入 history 记录的参数
     if history_path in _HISTORY_FILE_CACHE and lookup_name in _HISTORY_FILE_CACHE[history_path]:

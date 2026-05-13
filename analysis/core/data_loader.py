@@ -9,6 +9,7 @@
 # 提供一个高级接口 `load_run_data` 来按需加载数据。
 #
 import os
+import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Any, Tuple
 
@@ -26,7 +27,7 @@ def drop_page_cache(filepath: str):
         fd = os.open(filepath, os.O_RDONLY)
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         os.close(fd)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -145,6 +146,7 @@ def _get_step_from_filename(filename: str) -> Optional[int]:
         step_str = base_name.split('_')[-1].split('.')[0]
         return int(step_str)
     except (IndexError, ValueError):
+        logging.debug(f"_get_step_from_filename: 无法解析文件名 '{filename}'")
         return None
 
 

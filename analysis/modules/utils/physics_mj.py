@@ -3,6 +3,7 @@
 """
 通用物理计算模块，专注于麦克斯韦-朱特纳 (Maxwell-Jüttner) 分布相关函数。
 """
+import logging
 import warnings
 from typing import Optional
 
@@ -90,6 +91,7 @@ def solve_mj_temperature_kev(avg_ek_mev: float | np.floating, guess_T_keV: Optio
         return (sol.root * kB) * J_TO_KEV
     except ValueError:
         # 如果初值或区间有问题，返回0
+        logging.warning(f"MJ 温度根求解失败 (target_avg_ek_j={target_avg_ek_j:.4e})")
         return 0.0
 
 

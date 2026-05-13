@@ -1,5 +1,6 @@
 # analysis/physics/field.py
 
+import logging
 from typing import Tuple
 
 import numpy as np
@@ -42,6 +43,7 @@ def compute_run_energy_partition(run: 'SimulationRunSingle', step_index: int) ->
     try:
         field_fpath = run.get_field_file(step_index)
     except IndexError:
+        logging.debug(f"compute_run_energy_partition: step_index={step_index} 无场文件")
         return np.nan, np.nan, np.nan
 
     u_mag = get_mean_u_mag(run, field_fpath)
@@ -68,6 +70,7 @@ def compute_run_energy_densities_normalized(run: 'SimulationRunSingle', step_ind
     try:
         field_fpath = run.get_field_file(step_index)
     except IndexError:
+        logging.debug(f"compute_run_energy_densities_normalized: step_index={step_index} 无场文件")
         return u_kin_norm, 0.0, 0.0, u_kin_norm
 
     u_mag_norm = get_mean_u_mag(run, field_fpath) / norm_factor

@@ -153,7 +153,7 @@ class SmartCache:
             # 3. 计算源码哈希
             return hashlib.md5(clean_source.encode('utf-8')).hexdigest()
 
-        except (isinstance, TypeError, OSError) as e:
+        except (TypeError, OSError) as e:
             # 如果是交互式环境或无法获取源码，退回到文件级哈希或文件名
             console.print(f"[dim]⚠ 无法获取函数 {func.__name__} 源码哈希 ({e})，尝试文件级检测。[/dim]")
 
@@ -168,7 +168,7 @@ class SmartCache:
                     self._source_file_hashes[src_file] = file_hash
                     return file_hash
             except Exception:
-                pass
+                console.print(f"[yellow]⚠ 文件级哈希也失败，缓存将使用非唯一 key: {func.__name__}[/yellow]")
 
             return "FALLBACK_" + func.__name__
 
