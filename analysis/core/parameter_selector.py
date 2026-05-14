@@ -7,7 +7,7 @@ from typing import List, Any, Dict, Tuple, Optional
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from .param_display_names import get_param_display
+from .param_display_names import get_param_display, inject_param_display_addons
 from .selector import SimpleTableSelector
 from .simulation import SimulationRun
 from .simulationGroup import SimulationRunGroup
@@ -26,6 +26,7 @@ class ParameterSelector:
 
     def __init__(self, runs: List[SimulationRun]):
         self.initial_runs = runs
+        inject_param_display_addons(runs)
         # 数据结构: [{'run': run_obj, 'params': dict}, ...]
         self.raw_data_items = self._load_all_params(runs)
         # 分组后的数据

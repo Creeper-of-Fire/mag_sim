@@ -1,7 +1,10 @@
-# analysis/core/params_display_names.py
+# analysis/core/param_display_names.py
 
+import json
+import logging
 import numpy as np
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Tuple, Union, List
 
 
@@ -101,3 +104,33 @@ def get_param_display(key: str) -> ParamInfo:
     如果找不到，则返回原始信息。
     """
     return PARAM_DISPLAY_MAP.get(key, UNKNOWN_PARAM(key))
+
+
+def inject_param_display_addons(runs) -> None:
+    """
+    从各 run 所属的 Job 目录加载 param_display_names_addon.json，
+    合并到全局 PARAM_DISPLAY_MAP。重复 job_path 只加载一次。
+    """
+    seen: set = set()
+    for run in runs:
+        targets = run.runs if hasattr(run, 'runs') else [run]
+        for r in targets:
+            jp = getattr(r, 'job_path', None)
+            if jp is None or jp in seen:
+                continue
+            seen.add(jp)
+            addon_path = Path(jp) / "param_display_names_addon.json"
+            if not addon_path.exists():
+                continue
+            try:
+                with open(addon_path, 'r', encoding='utf-8') as f:
+                    addons = json.load(f)
+                for key, info in addons.items():
+                    PARAM_DISPLAY_MAP[key] = ParamInfo(
+                        name_cn=info.get("name_cn", key),
+                        symbol=info.get("symbol", "?"),
+                        unit=info.get("unit", ""),
+                        description=info.get("description", ""),
+                    )
+            except (json.JSONDecodeError, OSError, TypeError) as e:
+                logging.warning(f"加载参数显示名称插件失败 {addon_path}: {e}")

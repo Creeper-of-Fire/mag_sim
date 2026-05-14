@@ -274,10 +274,16 @@ def _determine_output_base_path(run_or_runs: Union['SimulationRun', List['Simula
 _HISTORY_FILE_CACHE: Dict[Path, Dict[str, Any]] = {}
 
 
+def get_physical_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    """过滤掉元数据字段（_ 前缀），仅保留物理参数。用于缓存键和分组。"""
+    return {k: v for k, v in params.items() if not k.startswith('_')}
+
+
 def get_run_parameters(run: Any) -> Dict[str, Any]:
     """
-    获取单次模拟(或模拟组)的纯粹物理参数字典，确保返回可被稳定哈希的基础数据类型。
-    彻底解决直接序列化 run.sim 对象带来的每次运行哈希不一致的问题。
+    获取单次模拟(或模拟组)的参数字典，包含物理参数和元数据字段（_ 前缀）。
+    物理参数用于缓存键计算；元数据字段仅供 ParameterSelector 展示和 X 轴选择。
+    解决直接序列化 run.sim 对象带来的每次运行哈希不一致的问题。
     优先级: 本地 custom_params.json > 全局 history.jsonl > run.sim 默认属性
     """
     from utils.project_config import FILENAME_HISTORY

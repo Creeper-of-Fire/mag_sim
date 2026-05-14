@@ -11,7 +11,7 @@ from typing import List, Any, Callable, Dict, Tuple, Literal
 # 用于 isinstance 检查，不能放在 TYPE_CHECKING 中
 from .simulation import SimulationRun
 from .utils import console
-from .utils import get_run_parameters
+from .utils import get_run_parameters, get_physical_params
 
 
 FileDep = Literal["singleFile", "particle", "field", "all"]
@@ -201,7 +201,7 @@ class SmartCache:
         safe_sim_params = {}
         if run_obj is not None:
             try:
-                safe_sim_params = get_run_parameters(run_obj)
+                safe_sim_params = get_physical_params(get_run_parameters(run_obj))
             except Exception as e:
                 console.print(f"[yellow]⚠ 缓存键未包含模拟参数 ({e})，可能影响缓存准确性。[/yellow]")
 
