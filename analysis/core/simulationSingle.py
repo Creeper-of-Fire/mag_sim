@@ -156,7 +156,7 @@ class SimulationRunSingle(SimulationRun):
         """
         return compute_spectrum_evolution_matrix(self._particle_files, self.sim, n_bins, log_scale)
 
-    @cached_op(file_dep="auto")
+    @cached_op(file_dep="singleFile")
     def get_field_slice_from_path(self, fpath: str, axis: str = 'z') -> Optional[np.ndarray]:
         """
         单帧场切片读取 (Cached)。

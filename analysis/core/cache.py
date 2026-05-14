@@ -5,7 +5,7 @@ import inspect
 import os
 import pickle
 from pathlib import Path
-from typing import List, Any, Callable, Dict, Tuple
+from typing import List, Any, Callable, Dict, Tuple, Literal
 
 import lmdb
 
@@ -15,7 +15,10 @@ from .utils import console
 from .utils import get_run_parameters
 
 
-def cached_op(file_dep: str = "auto"):
+FileDep = Literal["singleFile", "particle", "field", "all"]
+
+
+def cached_op(file_dep: FileDep = "singleFile"):
     """
     智能缓存装饰器。
 
@@ -26,8 +29,8 @@ def cached_op(file_dep: str = "auto"):
 
     Args:
         file_dep: 依赖文件策略。
-            "auto": 尝试从参数中寻找文件路径。如果找到，仅依赖该文件。
-                    如果没找到，默认依赖参数文件 (run._param_file)。
+            "singleFile": 从参数中推断单个文件路径作为依赖。
+                          如果没找到，默认依赖参数文件 (run._param_file)。
             "particle": 强制依赖所有粒子文件 (run.particle_files)。
             "field": 强制依赖所有场文件 (run.field_files)。
             "all": 依赖所有文件。
@@ -63,17 +66,18 @@ def cached_op(file_dep: str = "auto"):
             # 2. 确定依赖文件列表
             deps = []
 
-            if file_dep == "auto":
-                # 智能查找：参数里有没有看起来像文件路径的字符串？
-                # 优先检查名为 'fpath', 'h5_filepath', 'file_path' 的参数
+            if file_dep == "singleFile":
+                # 从参数中推断：查找类似文件路径的字符串参数
                 for name, val in bound_args.arguments.items():
                     if name in ['fpath', 'h5_filepath', 'file_path', 'path'] and isinstance(val, (str, Path)) and os.path.exists(val):
                         deps = [str(val)]
                         break
 
-                # 如果没找到特定文件，默认依赖模拟参数文件 (最保守策略)
                 if not deps:
-                    deps = [run_obj._param_file]
+                    raise ValueError(
+                        f"cached_op(file_dep='singleFile') 未在 {func.__name__} 的参数中找到文件路径。"
+                        f"请确保参数包含 fpath/h5_filepath/file_path/path，或 Path 类，或改用其他file_dep类型。"
+                    )
 
             elif file_dep == "particle":
                 deps = run_obj.particle_files

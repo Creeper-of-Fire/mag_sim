@@ -59,7 +59,7 @@ class GoodnessOfFitModule(BaseComparisonModule):
         idx_final = np.array(keep_idx)
         return energies[idx_final], new_weights[idx_final]
 
-    @cached_op(file_dep="auto")
+    @cached_op(file_dep="singleFile")
     def _compute_gof_metrics(self, run: 'SimulationRun', fpath: str) -> dict:
         """
         核心算法：计算单个 run 的加权 K-S 统计量和 A-D 尾部统计量。

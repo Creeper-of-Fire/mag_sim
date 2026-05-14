@@ -12,7 +12,7 @@ from analysis.core.simulationSingle import SimulationRunSingle
 from analysis.physics.temperature import compute_run_temperature_metrics
 
 
-@cached_op(file_dep="auto")
+@cached_op(file_dep="singleFile")
 def get_mean_u_mag(run: 'SimulationRunSingle', fpath: str) -> float:
     """计算单个 HDF5 场文件中的全空间平均磁场能量密度 (J/m³)。"""
     step = _get_step_from_filename(fpath)
@@ -22,7 +22,7 @@ def get_mean_u_mag(run: 'SimulationRunSingle', fpath: str) -> float:
     return float(b_sq_mean / (2 * mu_0))
 
 
-@cached_op(file_dep="auto")
+@cached_op(file_dep="singleFile")
 def get_mean_u_elec(run: 'SimulationRunSingle', fpath: str) -> float:
     """计算全空间平均电场能量密度 (0.5 * epsilon_0 * E²)。"""
     step = _get_step_from_filename(fpath)

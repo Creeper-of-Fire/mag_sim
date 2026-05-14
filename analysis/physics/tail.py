@@ -31,7 +31,7 @@ class TailResult(NamedTuple):
         )
 
 
-@cached_op(file_dep="auto")
+@cached_op(file_dep="singleFile")
 def compute_run_tail_metrics(
         run: 'SimulationRunSingle',
         temperature_metrics: TemperatureResult,

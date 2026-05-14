@@ -27,7 +27,7 @@ class TemperatureResult(NamedTuple):
         )
 
 
-@cached_op(file_dep="auto")
+@cached_op(file_dep="singleFile")
 def compute_run_temperature_metrics(
         run: 'SimulationRunSingle',
         fpath: str,
