@@ -3,15 +3,15 @@ import functools
 import hashlib
 import inspect
 import os
+import pickle
 from pathlib import Path
 from typing import List, Any, Callable, Dict, Tuple
 
-import pickle
-
-from .utils import console
+import lmdb
 
 # 用于 isinstance 检查，不能放在 TYPE_CHECKING 中
 from .simulation import SimulationRun
+from .utils import console
 from .utils import get_run_parameters
 
 
@@ -82,7 +82,7 @@ def cached_op(file_dep: str = "auto"):
             elif file_dep == "all":
                 deps = run_obj.particle_files + run_obj.field_files + [run_obj._param_file]
 
-            # 2. 将调用上下文“物化”，交给 Cache 处理，杜绝任何 kwargs 签名冲突
+            # 2. 将调用上下文"物化"，交给 Cache 处理，杜绝任何 kwargs 签名冲突
             func_name = func.__name__
 
             return run_obj._cache.get(
@@ -102,17 +102,31 @@ def cached_op(file_dep: str = "auto"):
 class SmartCache:
     """
     智能缓存管理器。
-    负责根据 (源文件状态 + 函数参数) 生成唯一指纹，并管理磁盘缓存。
+    负责根据 (源文件状态 + 函数参数) 生成唯一指纹，并通过 LMDB 持久化缓存。
+
+    存储结构：一个 LMDB 文件对应一组 (函数名 + 源码哈希)，内部 key 为 (文件哈希 + 参数哈希)。
+    版本号编码在缓存目录名中（如 .analysis_v3_cache），升级版本时更换目录即可。
     """
 
-    def __init__(self, cache_dir: Path):
-        self.cache_dir = cache_dir
+    CACHE_DIR_NAME = ".analysis_v3_cache"
+
+    def __init__(self, run_path: Path):
+        self.cache_dir = run_path / self.CACHE_DIR_NAME
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        # 版本号，如果修改了核心数据结构，修改此值强制所有缓存失效
-        self.API_VERSION = "v3.0"
 
         # 内存缓存：存储源代码文件的哈希，避免在一次运行中频繁读取硬盘上的 .py 文件
         self._source_file_hashes: Dict[str, str] = {}
+
+        # LMDB 环境池：按 (函数名 + 源码哈希) 懒加载，避免重复打开
+        self._envs: Dict[str, lmdb.Environment] = {}
+
+    def _get_env(self, func_name: str, code_hash: str) -> lmdb.Environment:
+        """获取或创建对应函数的 LMDB 环境。"""
+        db_key = f"{func_name}_C{code_hash[:6]}"
+        if db_key not in self._envs:
+            db_path = str(self.cache_dir / f"{db_key}.lmdb")
+            self._envs[db_key] = lmdb.open(db_path, map_size=64 * 1024 * 1024)
+        return self._envs[db_key]
 
     def _get_files_hash(self, file_paths: List[str]) -> str:
         """计算源文件列表的状态哈希 (基于文件名和修改时间)。"""
@@ -177,7 +191,7 @@ class SmartCache:
         计算参数哈希。
         这里 Cache 知道不应该序列化巨大的 run_obj 实例，只序列化物理参数(sim)和入参。
         """
-        # 定义一个递归脱敏函数
+
         def sanitize(obj):
             # 1. 如果是 Receiver 对象本身，用占位符代替，不进行序列化
             if isinstance(obj, SimulationRun):
@@ -223,19 +237,18 @@ class SmartCache:
         args_hash = self._get_args_hash(run_obj, call_args, call_kwargs)
         code_hash = self._get_func_context_hash(compute_func)
 
-        cache_filename = (
-            f"{func_name}_{self.API_VERSION}_"
-            f"F{files_hash[:6]}_A{args_hash[:6]}_C{code_hash[:6]}.pkl"
-        )
-        cache_path = self.cache_dir / cache_filename
+        # LMDB 文件 = 函数名 + 源码哈希，内部 key = 文件哈希 + 参数哈希
+        env = self._get_env(func_name, code_hash)
+        entry_key = f"F{files_hash[:6]}_A{args_hash[:6]}".encode()
 
         # 2. 命中缓存
-        if cache_path.exists():
+        with env.begin() as txn:
+            raw = txn.get(entry_key)
+        if raw is not None:
             try:
-                with open(cache_path, "rb") as f:
-                    return pickle.load(f)
+                return pickle.loads(raw)
             except Exception as e:
-                console.print(f"[yellow]⚠ 读取缓存 {cache_filename} 失败 ({e})，将重新计算。[/yellow]")
+                console.print(f"[yellow]⚠ 读取缓存 {entry_key.decode()} 失败 ({e})，将重新计算。[/yellow]")
 
         # 3. 未命中：由 Cache 负责触发真实计算
         console.print(f"[cyan]  -> 正在计算: {func_name} ...[/cyan]")
@@ -244,11 +257,9 @@ class SmartCache:
         # 4. 持久化
         if result is not None:
             try:
-                temp_path = cache_path.with_suffix(".tmp")
-                with open(temp_path, "wb") as f:
-                    pickle.dump(result, f)
-                temp_path.replace(cache_path)
-                console.print(f"[green]     ✔ 缓存已保存: {cache_filename}[/green]")
+                with env.begin(write=True) as txn:
+                    txn.put(entry_key, pickle.dumps(result))
+                console.print(f"[green]     ✔ 缓存已保存: {entry_key.decode()}[/green]")
             except Exception as e:
                 console.print(f"[red]✗ 保存缓存失败: {e}[/red]")
 

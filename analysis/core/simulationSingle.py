@@ -45,9 +45,8 @@ class SimulationRunSingle(SimulationRun):
         """初始化后自动建立索引和缓存管理器"""
         self.path = os.path.abspath(self.path)
 
-        # 独立的缓存目录，避免污染源目录太多文件
-        cache_dir = Path(self.path) / ".analysis_v2_cache"
-        self._cache = SmartCache(cache_dir)
+        # 缓存管理器，目录名由 SmartCache 内部决定
+        self._cache = SmartCache(Path(self.path))
 
         # 1. 定位参数文件
         self._param_file = os.path.join(self.path, "sim_parameters.dpkl")

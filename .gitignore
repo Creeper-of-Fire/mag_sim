@@ -9,6 +9,7 @@ sim_parameters.dpkl
 Backtrace.*
 *.cache
 *.pkl
+*.lmdb
 *.jsonl
 __pycache__/
 /sim_result/
