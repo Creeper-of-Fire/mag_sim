@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import List, Any, Callable, Dict, Tuple
 
-import dill
+import pickle
 
 from .utils import console
 
@@ -109,7 +109,7 @@ class SmartCache:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # 版本号，如果修改了核心数据结构，修改此值强制所有缓存失效
-        self.API_VERSION = "v2.0"
+        self.API_VERSION = "v3.0"
 
         # 内存缓存：存储源代码文件的哈希，避免在一次运行中频繁读取硬盘上的 .py 文件
         self._source_file_hashes: Dict[str, str] = {}
@@ -187,7 +187,7 @@ class SmartCache:
                 return f"__MODULE_{obj.__class__.__name__}__"
             return obj
 
-        # 清洗 args 和 kwargs，防止 dill.dumps 爆炸
+        # 清洗 args 和 kwargs，防止 pickle.dumps 爆炸
         safe_args = tuple(sanitize(a) for a in args)
         safe_kwargs = {k: sanitize(v) for k, v in kwargs.items()}
         safe_sim_params = {}
@@ -203,7 +203,7 @@ class SmartCache:
             'kwargs': safe_kwargs
         }
         try:
-            return hashlib.md5(dill.dumps(hash_payload)).hexdigest()
+            return hashlib.md5(pickle.dumps(hash_payload)).hexdigest()
         except Exception as e:
             console.print(f"[yellow]⚠ 参数哈希计算失败: {e}，将使用随机哈希（不缓存）。[/yellow]")
             return "NO_CACHE_" + os.urandom(4).hex()
@@ -225,7 +225,7 @@ class SmartCache:
 
         cache_filename = (
             f"{func_name}_{self.API_VERSION}_"
-            f"F{files_hash[:6]}_A{args_hash[:6]}_C{code_hash[:6]}.dill"
+            f"F{files_hash[:6]}_A{args_hash[:6]}_C{code_hash[:6]}.pkl"
         )
         cache_path = self.cache_dir / cache_filename
 
@@ -233,7 +233,7 @@ class SmartCache:
         if cache_path.exists():
             try:
                 with open(cache_path, "rb") as f:
-                    return dill.load(f)
+                    return pickle.load(f)
             except Exception as e:
                 console.print(f"[yellow]⚠ 读取缓存 {cache_filename} 失败 ({e})，将重新计算。[/yellow]")
 
@@ -246,7 +246,7 @@ class SmartCache:
             try:
                 temp_path = cache_path.with_suffix(".tmp")
                 with open(temp_path, "wb") as f:
-                    dill.dump(result, f)
+                    pickle.dump(result, f)
                 temp_path.replace(cache_path)
                 console.print(f"[green]     ✔ 缓存已保存: {cache_filename}[/green]")
             except Exception as e:
