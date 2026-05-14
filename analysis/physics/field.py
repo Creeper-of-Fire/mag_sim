@@ -78,3 +78,13 @@ def compute_run_energy_densities_normalized(run: 'SimulationRunSingle', step_ind
     u_total_norm = u_kin_norm + u_mag_norm + u_elec_norm
 
     return u_kin_norm, u_mag_norm, u_elec_norm, u_total_norm
+
+
+# ---------------------------------------------------------------------------
+# Async 导出（per-function 专属线程池）
+# ---------------------------------------------------------------------------
+
+from analysis.core.async_utils import asyncify
+
+async_compute_energy_partition = asyncify(compute_run_energy_partition)
+async_compute_energy_densities_normalized = asyncify(compute_run_energy_densities_normalized)

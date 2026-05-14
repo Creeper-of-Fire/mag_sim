@@ -22,7 +22,8 @@ from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseComparisonModule
 from analysis.modules.utils.time_series import (
     GroupedStepMetrics, AggregatedMetrics,
-    extract_tail_time_series_async, extract_grouped_time_series_async, avg_last_n,
+    extract_tail_time_series_async, extract_grouped_time_series_async,
+    compute_run_avg_last_n, avg_last_n,
 )
 from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
 from analysis.plotting.layout import AnalysisLayout
@@ -68,25 +69,29 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
         async def _extract(index: int, run: SimulationRun):
             singles = self._unpack_runs(run)
             if not singles or len(singles[0].particle_files) <= 2:
-                return None
+                return None, None
             console.print(f"    [{run.name}] {x_label_key}={x_raw[index]} — {len(singles[0].particle_files)} 时间步")
             if len(singles) == 1:
-                return await extract_tail_time_series_async(singles[0], self.INTERVALS, field_files_needed=True)
-            return await extract_grouped_time_series_async(singles, self.INTERVALS, field_files_needed=True)
+                series = await extract_tail_time_series_async(singles[0], self.INTERVALS, field_files_needed=True)
+                aggregated = await compute_run_avg_last_n(singles[0], self.INTERVALS, n=self.n_avg, field_files_needed=True)
+                return series, aggregated
+            series = await extract_grouped_time_series_async(singles, self.INTERVALS, field_files_needed=True)
+            aggregated = avg_last_n(series, n=self.n_avg) if series else None
+            return series, aggregated
 
         console.print(f"  并行提取 {len(runs)} 个 run 的时序数据...")
-        raw_series = list(await asyncio.gather(*[_extract(i, run) for i, run in enumerate(runs)]))
+        raw_results = list(await asyncio.gather(*[_extract(i, run) for i, run in enumerate(runs)]))
 
         all_series = []
-        all_avg: List[Optional[AggregatedMetrics]] = []
-        for i, series in enumerate(raw_series):
+        all_aggregated: List[Optional[AggregatedMetrics]] = []
+        for i, (series, aggregated) in enumerate(raw_results):
             all_series.append(series)
-            all_avg.append(avg_last_n(series, n=self.n_avg) if series else None)
+            all_aggregated.append(aggregated)
             if series is None:
                 console.print(f"  [yellow]跳过 {runs[i].name}（时间步不足）[/yellow]")
 
         # 过滤掉无效的
-        valid = [(i, s, a) for i, (s, a) in enumerate(zip(all_series, all_avg)) if s is not None and a is not None]
+        valid = [(i, s, a) for i, (s, a) in enumerate(zip(all_series, all_aggregated)) if s is not None and a is not None]
         if not valid:
             console.print("[yellow]没有有效的时序数据。[/yellow]")
             return
@@ -224,7 +229,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
     # =========================================================================
 
     def _plot_param_scan(self, ctx: ComparisonContext, runs, x_scaled, x_raw, x_label_key,
-                         all_series, all_avg: List[AggregatedMetrics], style):
+                         all_series, all_aggregated: List[AggregatedMetrics], style):
         """子图结构完全复刻 tail_statisticsV2，但数据源用时间平均值"""
         # 图1：各能段 excess_ratio 参数扫描
         with ComparisonLayout(ctx, suffix="excess", plot_ratio=(10, 3.5)) as layout:
@@ -232,9 +237,9 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax = layout.request_axes()
                 label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
 
-                avg_vals = np.array([a.tail_excess.get(label, 0.0) * 100 for a in all_avg])
-                th_unc = np.array([a.tail_uncertainty.get(label, 0.0) * 100 for a in all_avg])
-                run_std = np.array([a.tail_excess_std.get(label, 0.0) * 100 for a in all_avg])
+                avg_vals = np.array([a.tail_excess.get(label, 0.0) * 100 for a in all_aggregated])
+                th_unc = np.array([a.tail_uncertainty.get(label, 0.0) * 100 for a in all_aggregated])
+                run_std = np.array([a.tail_excess_std.get(label, 0.0) * 100 for a in all_aggregated])
 
                 # 合成误差 = sqrt(理论² + 跨run²)
                 combined = np.sqrt(th_unc ** 2 + run_std ** 2)
@@ -261,8 +266,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
         with ComparisonLayout(ctx, suffix="other", plot_ratio=(10, 3.5)) as layout:
             # --- 温度 ---
             ax_temp = layout.request_axes()
-            avg_temps = [a.T_keV for a in all_avg]
-            avg_temp_err = [a.T_keV_std for a in all_avg]
+            avg_temps = [a.T_keV for a in all_aggregated]
+            avg_temp_err = [a.T_keV_std for a in all_aggregated]
             ax_temp.errorbar(x_scaled, avg_temps,
                              yerr=np.array(avg_temp_err) if np.any(np.array(avg_temp_err) > 0) else None,
                              fmt='-s', capsize=4, color=style.color_comparison_secondary, lw=style.lw_base,
@@ -273,8 +278,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
 
             # --- 磁能占比 ---
             ax_mag = layout.request_axes()
-            avg_mag = [a.mag_fraction for a in all_avg]
-            avg_mag_err = [a.mag_fraction_std for a in all_avg]
+            avg_mag = [a.mag_fraction for a in all_aggregated]
+            avg_mag_err = [a.mag_fraction_std for a in all_aggregated]
             ax_mag.errorbar(x_scaled, avg_mag,
                             yerr=np.array(avg_mag_err) if np.any(np.array(avg_mag_err) > 0) else None,
                             fmt='-d', capsize=4, color='darkorange', label='磁能占比 $E_B$')
@@ -283,9 +288,9 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
 
             # --- 电能占比 ---
             ax_elec = layout.request_axes()
-            ax_elec.errorbar(x_scaled, [a.elec_fraction for a in all_avg],
-                             yerr=np.array([a.elec_fraction_std for a in all_avg]) if np.any(
-                                 np.array([a.elec_fraction_std for a in all_avg]) > 0) else None,
+            ax_elec.errorbar(x_scaled, [a.elec_fraction for a in all_aggregated],
+                             yerr=np.array([a.elec_fraction_std for a in all_aggregated]) if np.any(
+                                 np.array([a.elec_fraction_std for a in all_aggregated]) > 0) else None,
                              fmt='-^', capsize=4, color='crimson', label='电能占比 $E_E$')
             ax_elec.set_ylabel(r"$E_E / E_{total}$")
             ax_elec.legend(fontsize='small')
@@ -293,7 +298,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
 
             # --- 总场能 ---
             ax_s = layout.request_axes()
-            ax_s.errorbar(x_scaled, [a.mag_fraction + a.elec_fraction for a in all_avg],
+            ax_s.errorbar(x_scaled, [a.mag_fraction + a.elec_fraction for a in all_aggregated],
                           fmt='-P', color='indigo', label='总场能 (B+E)')
             ax_s.set_ylabel(r"$(E_B + E_E) / E_{total}$")
 
@@ -305,8 +310,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ('total_density_norm', 'darkgreen', r"$U_{total} / (n_0 m_e c^2)$"),
             ]:
                 ax_e = layout.request_axes()
-                avg_vals = [getattr(a, attr) for a in all_avg]
-                avg_errs = [getattr(a, attr + '_std') for a in all_avg]
+                avg_vals = [getattr(a, attr) for a in all_aggregated]
+                avg_errs = [getattr(a, attr + '_std') for a in all_aggregated]
                 ax_e.errorbar(x_scaled, avg_vals,
                               yerr=np.array(avg_errs) if np.any(np.array(avg_errs) > 0) else None,
                               fmt='-o' if 'kin' in attr else ('-d' if 'mag' in attr else ('-^' if 'elec' in attr else '-s')),
