@@ -1,7 +1,7 @@
 # plotting/layout.py 新增
 from typing import Optional, Any, NamedTuple
 
-from numpy import ndarray
+import numpy as np
 
 from .layout import AnalysisLayout
 from ..core.param_display_names import get_param_display, ParamInfo
@@ -12,7 +12,7 @@ from ..modules.utils.spectrum_tools import filter_valid_runs
 
 class Unpacked(NamedTuple):
     runs: list[SimulationRun]
-    x_scaled: ndarray
+    x_scaled: np.ndarray
 
 
 class ComparisonContext:
@@ -72,7 +72,7 @@ class ComparisonContext:
         self.x_raw: list[str] = x_vals
         """X 轴原始值（字符串列表）"""
 
-        self.x_scaled: ndarray = x_scaled
+        self.x_scaled: np.ndarray = x_scaled
         """X 轴缩放后的数值（用于绘图定位）"""
 
         self.x_label_key: str = x_label_key
@@ -91,7 +91,7 @@ class ComparisonContext:
         """完整的输出文件名（含哈希前缀），传给 AnalysisLayout"""
 
     @property
-    def x(self) -> tuple[list[Any], ndarray]:
+    def x(self) -> tuple[list[Any], np.ndarray]:
         """一次获取 X 轴全部信息: (x_raw, x_scaled)"""
         return self.x_raw, self.x_scaled
 
@@ -102,7 +102,7 @@ class ComparisonContext:
 
 
     @property
-    def unpack(self) -> tuple[list[SimulationRun], ndarray]:
+    def unpack(self) -> tuple[list[SimulationRun], np.ndarray]:
         """解包最常用的两个属性: (runs, x_scaled)"""
         return self.runs, self.x_scaled
 
@@ -153,7 +153,12 @@ class ComparisonLayout(AnalysisLayout):
 
         # 仅为最后一个轴设置 X 轴标签
         if self.plot_axes:
-            self.plot_axes[-1].set_xlabel(self._ctx.x_label_str)
+            last_ax = self.plot_axes[-1]
+            last_ax.set_xlabel(self._ctx.x_label_str)
+            if not self._ctx.is_num:
+                ticks = np.arange(len(self._ctx.x_raw))
+                last_ax.set_xticks(ticks)
+                last_ax.set_xticklabels(self._ctx.x_raw, rotation=45, ha='right')
 
         # 委托父类完成参数表绘制、双版本保存和资源清理
         return super().__exit__(None, None, None)
