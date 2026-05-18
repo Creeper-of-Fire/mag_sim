@@ -13,6 +13,8 @@ Backtrace.*
 *.jsonl
 __pycache__/
 /sim_result/
+/temp/
+/tmp/
 *.log
 /sim_jobs/
 /plasma_simulation.egg-info/
