@@ -127,7 +127,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
             time_label = "时间步"
 
         # 图1：各能段 excess_ratio
-        with AnalysisLayout(run, f"tail_ts_excess_{run.name}", plot_ratio=(10, 3.5)) as layout:
+        with AnalysisLayout(run, f"tail_ts_excess_{run.name}", plot_ratio=(10, 3.5), ncols=2) as layout:
             for low, high in self.INTERVALS:
                 ax = layout.request_axes()
                 label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
@@ -158,10 +158,11 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax.legend(fontsize='x-small', loc='upper left', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
-            layout.plot_axes[-1].set_xlabel(time_label)
+            for ax in layout.bottom_row_axes:
+                ax.set_xlabel(time_label)
 
         # 图2：其他指标（温度、场能、能量密度）
-        with AnalysisLayout(run, f"tail_ts_other_{run.name}", plot_ratio=(10, 3.5)) as layout:
+        with AnalysisLayout(run, f"tail_ts_other_{run.name}", plot_ratio=(10, 3.5), ncols=2) as layout:
             # --- 温度 ---
             ax_t = layout.request_axes()
             temps = np.array([s.T_keV for s in series])
@@ -222,7 +223,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax_d.grid(True, linestyle=':', alpha=0.4)
                 ax_d.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
 
-            layout.plot_axes[-1].set_xlabel(time_label)
+            for ax in layout.bottom_row_axes:
+                ax.set_xlabel(time_label)
 
     # =========================================================================
     # 图B：参数扫描对比（X = 参数，Y = 时间平均值）
@@ -232,7 +234,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                          all_series, all_aggregated: List[AggregatedMetrics], style):
         """子图结构完全复刻 tail_statisticsV2，但数据源用时间平均值"""
         # 图1：各能段 excess_ratio 参数扫描
-        with ComparisonLayout(ctx, suffix="excess", plot_ratio=(10, 3.5)) as layout:
+        with ComparisonLayout(ctx, suffix="excess", plot_ratio=(10, 3.5), ncols=2) as layout:
             for low, high in self.INTERVALS:
                 ax = layout.request_axes()
                 label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
@@ -263,7 +265,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax.grid(True, linestyle=':', alpha=0.4)
 
         # 图2：其他指标参数扫描（温度、场能、能量密度）
-        with ComparisonLayout(ctx, suffix="other", plot_ratio=(10, 3.5)) as layout:
+        with ComparisonLayout(ctx, suffix="other", plot_ratio=(10, 3.5), ncols=2) as layout:
             # --- 温度 ---
             ax_temp = layout.request_axes()
             avg_temps = [a.T_keV for a in all_aggregated]

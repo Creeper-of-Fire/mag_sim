@@ -129,6 +129,7 @@ class ComparisonLayout(AnalysisLayout):
             ctx: ComparisonContext,
             plot_ratio: Optional[tuple[float, float]] = None,
             suffix: Optional[str] = None,
+            ncols: int = 1,
     ):
         filename = ctx.output_filename
         if suffix:
@@ -138,6 +139,7 @@ class ComparisonLayout(AnalysisLayout):
             base_filename="",  # 不使用 AnalysisLayout 的默认文件名逻辑
             plot_ratio=plot_ratio,
             override_filename=filename,
+            ncols=ncols,
         )
         self._ctx = ctx
 
@@ -146,19 +148,23 @@ class ComparisonLayout(AnalysisLayout):
         if exc_type is not None:
             return super().__exit__(exc_type, exc_val, exc_tb)
 
-        # 隐藏除最后一个轴以外的 X 轴刻度标签，保持图表整洁
-        for ax in self.plot_axes[:-1]:
-            ax.set_xticklabels([])
-            ax.set_xlabel("")
+        bottom_axes = self.bottom_row_axes
+        bottom_set = set(id(ax) for ax in bottom_axes)
 
-        # 仅为最后一个轴设置 X 轴标签
-        if self.plot_axes:
-            last_ax = self.plot_axes[-1]
-            last_ax.set_xlabel(self._ctx.x_label_str)
-            if not self._ctx.is_num:
-                ticks = np.arange(len(self._ctx.x_raw))
-                last_ax.set_xticks(ticks)
-                last_ax.set_xticklabels(self._ctx.x_raw, rotation=45, ha='right')
+        # 隐藏非底部行 axes 的 X 轴刻度标签
+        for ax in self.plot_axes:
+            if id(ax) not in bottom_set:
+                ax.set_xticklabels([])
+                ax.set_xlabel("")
+
+        # 底部行 axes 全部设置 X 轴标签
+        if bottom_axes:
+            for ax in bottom_axes:
+                ax.set_xlabel(self._ctx.x_label_str)
+                if not self._ctx.is_num:
+                    ticks = np.arange(len(self._ctx.x_raw))
+                    ax.set_xticks(ticks)
+                    ax.set_xticklabels(self._ctx.x_raw, rotation=45, ha='right')
 
         # 委托父类完成参数表绘制、双版本保存和资源清理
         return super().__exit__(None, None, None)

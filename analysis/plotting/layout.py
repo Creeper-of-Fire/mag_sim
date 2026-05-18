@@ -1,5 +1,6 @@
 # plotting/layout.py
 
+import math
 from typing import List, Optional
 
 import matplotlib.pyplot as plt
@@ -30,10 +31,12 @@ class AnalysisLayout:
             base_filename: str,
             plot_ratio: Optional[tuple[float, float]] = None,  # 单个绘图区的宽高比
             override_filename: Optional[str] = None,
+            ncols: int = 1,
     ):
         self.run_or_runs = run_or_runs
         self.base_filename = base_filename
         self.override_filename = override_filename
+        self.ncols = max(1, ncols)
 
         # --- 标题和输出文件名 ---
         if self.override_filename:
@@ -52,13 +55,13 @@ class AnalysisLayout:
         # --- 画布宽度 ---
         style = get_style()
         base_width, base_height = style.figsize
-        self.plot_width = base_width
+        self.plot_width = base_width * self.ncols
         if plot_ratio is None:
             prop_w, prop_h = base_width, base_height
         else:
             prop_w, prop_h = plot_ratio
 
-        # 单个绘图单元的高度 = 宽度按比例换算
+        # 单个绘图单元的高度 = 单列宽度按比例换算
         self._unit_height = base_width * (prop_h / prop_w)
 
         # --- 动态状态 ---
@@ -67,9 +70,19 @@ class AnalysisLayout:
         self.plot_ratios: List[float] = []  # 英寸
         self._gs = None
 
+    @property
+    def bottom_row_axes(self) -> List[Axes]:
+        """返回最后一行的所有 axes（含不完整末行）。"""
+        n_items = len(self.plot_axes)
+        if n_items == 0:
+            return []
+        n_rows = math.ceil(n_items / self.ncols)
+        start = (n_rows - 1) * self.ncols
+        return self.plot_axes[start:]
+
     def request_axes(self, ratio: float = 1.0) -> Axes:
         """
-        申请一个绘图轴并立即返回。
+        申请一个绘图轴并立即返回。按 row-major 顺序填充网格。
 
         Args:
             ratio: 相对于 unit_plot_height 的高度比例，越大轴越高。
@@ -78,27 +91,39 @@ class AnalysisLayout:
         """
         self.plot_ratios.append(ratio)
 
-        # 计算所有行的高度比例
-        heights = [r * self._unit_height for r in self.plot_ratios]
+        # 计算网格维度
+        n_items = len(self.plot_ratios)
+        n_rows = math.ceil(n_items / self.ncols)
+
+        # 行高 = 该行所有 ratio 的最大值 × unit_height
+        row_heights = []
+        for row_idx in range(n_rows):
+            start = row_idx * self.ncols
+            end = min(start + self.ncols, n_items)
+            row_heights.append(max(self.plot_ratios[start:end]) * self._unit_height)
 
         # 更新画布总高度
-        total_height = sum(heights)
+        total_height = sum(row_heights)
         self.fig.set_size_inches(self.plot_width, total_height)
 
         # 创建新的GridSpec
-        n_rows = len(heights)
-        new_gs = self.fig.add_gridspec(n_rows, 1, height_ratios=heights,
-                                       hspace=0.15, top=0.95, bottom=0.05)
+        new_gs = self.fig.add_gridspec(
+            n_rows, self.ncols,
+            height_ratios=row_heights,
+            hspace=0.15, wspace=0.20,
+            top=0.95, bottom=0.05,
+        )
 
-        # 移动现有绘图轴到新位置（从上到下）
+        # 移动现有绘图轴到新位置（row-major）
         for i, ax in enumerate(self.plot_axes):
+            r, c = divmod(i, self.ncols)
             if ax.get_subplotspec() is not None:
-                # 清除旧gridspec关联，但保留内容
-                ax.set_subplotspec(new_gs[i, 0])
+                ax.set_subplotspec(new_gs[r, c])
 
-        # 创建新的绘图轴（倒数第二行，紧挨表格上方）
+        # 创建新的绘图轴
         new_idx = len(self.plot_axes)
-        new_ax = self.fig.add_subplot(new_gs[new_idx, 0])
+        new_r, new_c = divmod(new_idx, self.ncols)
+        new_ax = self.fig.add_subplot(new_gs[new_r, new_c])
         self.plot_axes.append(new_ax)
 
         # 更新GridSpec引用
