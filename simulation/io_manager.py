@@ -1,10 +1,10 @@
 import shutil
 from pathlib import Path
 
-import dill
 from mpi4py import MPI
 
 from simulation.utils import master_only, enable_mpi_print
+from utils import param_store
 
 comm = MPI.COMM_WORLD
 
@@ -39,14 +39,10 @@ class IOManager:
         self.diags_dir.mkdir(parents=True, exist_ok=True)
 
     @master_only
-    def save_simulation_parameters(self, params_dict: dict, filename: str = "sim_parameters.dpkl"):
-        """
-        保存模拟参数到磁盘。
-        """
-        file_path = self.output_dir / filename
-        with open(file_path, "wb") as f:
-            dill.dump(params_dict, f)
-        print(f"模拟参数已保存至: {file_path}")
+    def save_simulation_parameters(self, params_dict: dict):
+        """保存模拟参数到磁盘。"""
+        path = param_store.save(self.output_dir, params_dict)
+        print(f"模拟参数已保存至: {path}")
 
     @master_only
     def clean_diagnostics(self):

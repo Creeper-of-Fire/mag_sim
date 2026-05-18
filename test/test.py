@@ -8,11 +8,11 @@
 # --- https://aip.scitation.org/doi/10.1063/1.4943893.
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
 
-import dill
 import numpy as np
 from mpi4py import MPI as mpi
 
@@ -100,10 +100,12 @@ class ForceFreeSheetReconnection(object):
 
         self.J0 = self.B0 / constants.mu0 / self.l_i
 
-        # dump all the current attributes to a dill pickle file
+        # dump parameters to json
         if comm.rank == 0:
-            with open("sim_parameters.dpkl", "wb") as f:
-                dill.dump(self, f)
+            params = {k: v for k, v in self.__dict__.items()
+                      if not k.startswith('_') and isinstance(v, (int, float, str, bool))}
+            with open("sim_parameters.json", "w") as f:
+                json.dump(params, f, indent=2)
 
         # print out plasma parameters
         if comm.rank == 0:

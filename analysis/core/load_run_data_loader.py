@@ -4,15 +4,15 @@ from typing import Set, Optional
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationSingle import SimulationRunSingle
 from analysis.core.utils import console
+from utils import param_store
 
 
 def load_run_data(dir_path: str, required_data: Set[str] = None) -> Optional[SimulationRun]:
     """
     [工厂函数] 为单个模拟目录创建一个 SimulationRun 实例。
     """
-    param_file = os.path.join(dir_path, "sim_parameters.dpkl")
-    if not os.path.exists(param_file):
-        console.print(f"  [red]✗ 错误: 找不到参数文件 '{param_file}'。[/red]")
+    if not param_store.exists(dir_path):
+        console.print(f"  [red]✗ 错误: 找不到参数文件 {param_store.PARAM_FILENAME}。[/red]")
         return None
 
     try:

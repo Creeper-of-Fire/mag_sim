@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
 
-import dill
 import numpy as np
 
 from analysis.core.cache import SmartCache, cached_op
@@ -17,6 +16,7 @@ from analysis.core.data_loader import (
     read_field_slice,
 )
 from analysis.core.simulation import SimulationRun
+from utils import param_store
 
 
 @dataclass
@@ -48,20 +48,19 @@ class SimulationRunSingle(SimulationRun):
         # 缓存管理器，目录名由 SmartCache 内部决定
         self._cache = SmartCache(Path(self.path))
 
-        # 1. 定位参数文件
-        self._param_file = os.path.join(self.path, "sim_parameters.dpkl")
+        # 定位参数文件
+        self._param_file = str(Path(self.path) / param_store.PARAM_FILENAME)
 
-        # 2. 建立文件索引 (glob非常快)
+        # 建立文件索引 (glob非常快)
         # 确保排序，因为文件列表的顺序会影响缓存指纹
         self._particle_files = sorted(glob.glob(os.path.join(self.path, "diags/particle_states", "openpmd_*.h5")))
         self._field_files = sorted(glob.glob(os.path.join(self.path, "diags/field_states", "*.h5")))
 
     @property
     def sim(self):
-        """懒加载 sim_parameters，首次访问时才从 dpkl 文件反序列化。"""
+        """懒加载 sim_parameters，首次访问时从 JSON 反序列化。"""
         if self._sim_obj is None:
-            with open(self._param_file, "rb") as f:
-                self._sim_obj = SimpleNamespace(**dill.load(f))
+            self._sim_obj = param_store.load_as_namespace(self.path)
         return self._sim_obj
 
     # --- 基础属性 ---

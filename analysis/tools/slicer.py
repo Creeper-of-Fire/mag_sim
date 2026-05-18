@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import json
 import os
-import pickle
 import re
 import shutil
 from pathlib import Path
@@ -11,6 +10,7 @@ from typing import List, Tuple
 from rich.prompt import Prompt, Confirm
 
 from analysis.core.utils import console
+from utils import param_store
 
 
 def _extract_step(filename: str) -> int:
@@ -39,27 +39,16 @@ def _get_available_steps(run_dir: Path) -> List[int]:
 
 def _get_sim_time_params(run_dir: Path) -> Tuple[float, float]:
     """
-    尝试从原模拟的 sim_parameters 中读取物理时间步长 dt 和归一化时间步长 DT
-    返回: (dt, DT)
+    从 sim_parameters.json 读取物理时间步长 dt 和归一化时间步长 DT。
     """
-    dt, DT = 0.0, 0.0
-
-    # 尝试读取 dpkl
-    dpkl_path = run_dir / "sim_parameters.dpkl"
-    if dpkl_path.exists():
-        try:
-            with open(dpkl_path, 'rb') as f:
-                data = pickle.load(f)
-                if isinstance(data, dict):
-                    dt = float(data.get('dt', 0.0))
-                    DT = float(data.get('DT', 0.0))
-                else:
-                    dt = float(getattr(data, 'dt', 0.0))
-                    DT = float(getattr(data, 'DT', 0.0))
-        except Exception as e:
-            console.print(f"[yellow]⚠ 读取 {dpkl_path.name} 失败 ({e})，时间步将默认为 0。[/yellow]")
-
-    return dt, DT
+    if not param_store.exists(run_dir):
+        return 0.0, 0.0
+    try:
+        data = param_store.load(run_dir)
+        return float(data.get('dt', 0.0)), float(data.get('DT', 0.0))
+    except Exception as e:
+        console.print(f"[yellow]⚠ 读取参数失败 ({e})，时间步将默认为 0。[/yellow]")
+        return 0.0, 0.0
 
 
 def create_virtual_slices(run_dir: Path):
@@ -114,11 +103,11 @@ def create_virtual_slices(run_dir: Path):
             # 1. 创建目录
             virtual_dir.mkdir(exist_ok=True)
 
-            # 2. 软链接参数文件 dpkl
-            dpkl = run_dir / "sim_parameters.dpkl"
-            virt_dpkl = virtual_dir / dpkl.name
-            if dpkl.exists() and not virt_dpkl.exists():
-                os.symlink(dpkl.resolve(), virt_dpkl)
+            # 2. 软链接参数文件
+            param_src = run_dir / param_store.PARAM_FILENAME
+            virt_param = virtual_dir / param_src.name
+            if param_src.exists() and not virt_param.exists():
+                os.symlink(param_src.resolve(), virt_param)
 
             # 3. 软链接 diags 目录 (只链接 <= step 的文件)
             orig_diags = run_dir / "diags"

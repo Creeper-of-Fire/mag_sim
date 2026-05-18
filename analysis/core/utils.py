@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.table import Table
 
 from utils.project_config import PROJECT_ROOT
+from utils import param_store
 from .config import config
 from .selector import BaseSelector, SimpleTableSelector
 
@@ -64,19 +65,12 @@ def natural_sort_key(s):
 
 def get_valid_simulation_runs(root_path: Path) -> List[Path]:
     """
-    递归查找包含 'sim_parameters.dpkl' 的目录。
-    现在的结构通常是: JobDir -> sim_results -> TaskDir -> .dpkl
+    递归查找包含参数文件的目录。
+    现在的结构通常是: JobDir -> sim_results -> TaskDir
     """
-    valid_runs = []
     if not root_path.exists():
         return []
-
-    # 使用 rglob 可以在 sim_results 下查找，适配可能存在的不同层级深度
-    for path in root_path.rglob('sim_parameters.dpkl'):
-        valid_runs.append(path.parent)
-
-    # 使用 natural_sort_key 排序
-    return sorted(valid_runs, key=lambda x: natural_sort_key(x.name))
+    return param_store.find_all(root_path)
 
 
 class JobSelector(BaseSelector[Dict]):
