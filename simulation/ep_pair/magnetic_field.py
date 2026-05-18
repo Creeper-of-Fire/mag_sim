@@ -137,12 +137,13 @@ class UniformField(InitialMagneticField):
     """均匀磁场模型。"""
 
     def _build_expressions(self):
-        print(f"  - 创建均匀磁场 B_rms = {self.B_target_rms:.3e} T")
-        # 对于均匀场，B_rms 就是每个分量的值（如果方向是(1,1,1)的话，需要调整，但这里简化）
-        # 假设 B0 就是目标 B_target_rms, 且 Bx=By=Bz=B0
-        self.Bx_expr = sympy.sympify(self.B_target_rms)
-        self.By_expr = sympy.sympify(self.B_target_rms)
-        self.Bz_expr = sympy.sympify(self.B_target_rms)
+        # B_target_rms 是 |B| 的 RMS。均匀场 Bx=By=Bz=Bc 时，|B|=sqrt(3)*Bc
+        # 所以每个分量 Bc = B_target_rms / sqrt(3)
+        B_comp = self.B_target_rms / np.sqrt(3.0)
+        print(f"  - 创建均匀磁场 B_rms = {self.B_target_rms:.3e} T (每分量 {B_comp:.3e} T)")
+        self.Bx_expr = sympy.sympify(B_comp)
+        self.By_expr = sympy.sympify(B_comp)
+        self.Bz_expr = sympy.sympify(B_comp)
 
 
 class ABCField(InitialMagneticField):
@@ -156,7 +157,8 @@ class ABCField(InitialMagneticField):
         ky = 2 * sympy.pi / self.Ly
         kz = 2 * sympy.pi / self.Lz
 
-        A, B, C = self.B_target_rms, self.B_target_rms, self.B_target_rms
+        # B_target_rms 是 |B| 的 RMS。ABC 场 <B^2> = 3*A^2，所以 A = B_rms/sqrt(3)
+        A, B, C = [self.B_target_rms / np.sqrt(3.0)] * 3
 
         self.Bx_expr = A * sympy.sin(kz * self.z) + C * sympy.cos(ky * self.y)
         self.By_expr = B * sympy.sin(kx * self.x) + A * sympy.cos(kz * self.z)

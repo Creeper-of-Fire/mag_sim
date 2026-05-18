@@ -4,7 +4,7 @@ import logging
 from typing import Tuple
 
 import numpy as np
-from scipy.constants import mu_0, e, epsilon_0
+from scipy.constants import mu_0, e, epsilon_0, m_e, c
 
 from analysis.core.cache import cached_op
 from analysis.core.data_loader import _get_step_from_filename, h5open
@@ -39,7 +39,7 @@ def compute_run_energy_partition(run: 'SimulationRunSingle', step_index: int) ->
     if t_metrics.avg_energy_MeV <= 0:
         return np.nan, np.nan, np.nan
 
-    u_kin = (2.0 * run.sim.n_plasma) * (t_metrics.avg_energy_MeV * e * 1e6)
+    u_kin = (2.0 * run.sim.n_plasma) * (m_e * c ** 2 + t_metrics.avg_energy_MeV * e * 1e6)
     try:
         field_fpath = run.get_field_file(step_index)
     except IndexError:
@@ -60,11 +60,11 @@ def compute_run_energy_densities_normalized(run: 'SimulationRunSingle', step_ind
     if t_metrics.avg_energy_MeV <= 0:
         return 0.0, 0.0, 0.0, 0.0
 
-    m_e_c2_J = 8.1871e-14
+    m_e_c2_J = m_e * c ** 2
     n0 = run.sim.n_plasma
     norm_factor = n0 * m_e_c2_J
 
-    u_kin_J = (2.0 * n0) * (t_metrics.avg_energy_MeV * e * 1e6)
+    u_kin_J = (2.0 * n0) * (m_e_c2_J + t_metrics.avg_energy_MeV * e * 1e6)
     u_kin_norm = u_kin_J / norm_factor
 
     try:

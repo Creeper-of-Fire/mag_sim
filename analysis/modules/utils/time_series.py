@@ -288,7 +288,6 @@ def _avg_last_n_impl(series, n: int = 5) -> Optional[AggregatedMetrics]:
     )
 
 
-@cached_op(file_dep="all")
 async def compute_run_avg_last_n(
         run: SimulationRunSingle,
         intervals: List[Tuple[float, Optional[float]]],
