@@ -41,7 +41,8 @@ def load_history_hashes(history_file_path: str) -> dict:
     return hash_status_map
 
 
-def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list[str] | None = None):
+def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list[str] | None = None,
+              main_py_rel: str = "simulation/runs/run_ep_pair.py"):
     """
     批量执行任务
 
@@ -49,6 +50,7 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list
         job_dir_win: Windows 格式的工作目录路径
         manager_type: 计算管理器类型 ("wsl", "gongji", "yingbo")
         manager_args: 透传给 Manager 的额外命令行参数列表
+        main_py_rel: 入口脚本相对于项目根的路径
     """
     job_path = Path(job_dir_win).resolve()
     job_name = job_path.name  # 获取 {job_name}
@@ -132,7 +134,8 @@ def run_batch(job_dir_win: str, manager_type: str = "yingbo", manager_args: list
                     task_hash=task_hash,
                     params=task_params,
                     output_dir_name=task_name,
-                    rel_job_path=str(rel_job_dir).replace("\\", "/")
+                    rel_job_path=str(rel_job_dir).replace("\\", "/"),
+                    main_py_rel=main_py_rel
                 )
                 log_manager.log_system("任务已提交，等待执行...")
             except Exception as e:
@@ -253,7 +256,9 @@ if __name__ == "__main__":
     parser.add_argument("--manager", type=str, default="yingbo",
                         choices=["wsl", "gongji", "yingbo"],
                         help="选择计算管理器类型 (默认: yingbo)")
+    parser.add_argument("--main-py", type=str, default="simulation/runs/run_ep_pair.py",
+                        help="入口脚本相对于项目根的路径 (默认: simulation/runs/run_ep_pair.py)")
 
     args, extra = parser.parse_known_args()
 
-    run_batch(args.work_dir, args.manager, manager_args=extra)
+    run_batch(args.work_dir, args.manager, manager_args=extra, main_py_rel=args.main_py)

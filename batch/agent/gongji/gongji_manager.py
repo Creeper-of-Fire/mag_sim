@@ -116,7 +116,8 @@ class GongjiComputeManager(BaseComputeManager):
             results.append(f">>> [CLOUD_SYSTEM] {reason}: {msg}\n")
         return results
 
-    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str,
+               main_py_rel: str = "simulation/runs/run_ep_pair.py"):
         """
         提交任务到共绩云平台
         """
@@ -140,7 +141,8 @@ class GongjiComputeManager(BaseComputeManager):
             task_hash=task_hash,
             output_dir_name=output_dir_name,
             rel_job_path=rel_job_path,
-            params=params
+            params=params,
+            main_py_rel=main_py_rel
         )
 
         # spack 的 setup 脚本路径

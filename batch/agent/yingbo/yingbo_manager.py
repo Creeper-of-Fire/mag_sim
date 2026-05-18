@@ -425,7 +425,8 @@ class YingboComputeManager(BaseComputeManager):
 
         return cls(gpu_type=GPUType.A800, cpu_type=None)
 
-    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str,
+               main_py_rel: str = "simulation/runs/run_ep_pair.py"):
         # 获取镜像地址
         using_image = self.current_spec.environment.get_image(os.getenv("DOCKER_IMAGE_PREFIX"))
 
@@ -440,7 +441,8 @@ class YingboComputeManager(BaseComputeManager):
             output_dir_name=output_dir_name,
             rel_job_path=rel_job_path,
             params=params,
-            python_exe="python3"
+            python_exe="python3",
+            main_py_rel=main_py_rel
         )
 
         # ========== 性能采样包裹 ==========

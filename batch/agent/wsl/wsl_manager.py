@@ -23,17 +23,19 @@ class WSLComputeManager(BaseComputeManager):
                     self.log_queue.put(line)
             self.process.stdout.close()
 
-    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str,
+               main_py_rel: str = "simulation/runs/run_ep_pair.py"):
         spack_cmd = get_spack_activation_command()
 
         agent_cmd = self.build_node_command(
             executor_module=wsl_agent,
-            remote_root=PROJECT_ROOT_WSL,  # 直接使用 .env 配置的根目录
+            remote_root=PROJECT_ROOT_WSL,
             task_hash=task_hash,
             output_dir_name=output_dir_name,
             rel_job_path=rel_job_path,
             params=params,
-            python_exe="python"
+            python_exe="python",
+            main_py_rel=main_py_rel
         )
 
         # 构建 WSL 内部执行命令

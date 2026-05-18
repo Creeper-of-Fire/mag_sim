@@ -8,7 +8,7 @@ import numpy as np
 import sympy
 from mpi4py import MPI as mpi
 
-from simulation.utils import Bunch, enable_mpi_print
+from simulation.ep_pair.utils import Bunch, enable_mpi_print
 
 comm = mpi.COMM_WORLD
 

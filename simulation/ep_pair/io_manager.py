@@ -3,7 +3,7 @@ from pathlib import Path
 
 from mpi4py import MPI
 
-from simulation.utils import master_only, enable_mpi_print
+from simulation.ep_pair.utils import master_only, enable_mpi_print
 from utils import param_store
 
 comm = MPI.COMM_WORLD

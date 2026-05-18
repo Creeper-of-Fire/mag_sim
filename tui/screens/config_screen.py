@@ -7,11 +7,11 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Input, Button, Label
+from textual.widgets import Header, Footer, Static, Input, Button, Label, Select
 
 from tui.controllers.csv_tool import CsvToolRunner
 from tui.store.app_store import app_store
-from tui.store.config_store import config_store
+from tui.store.config_store import config_store, JobConfig
 from tui.store.log_store import logger
 from tui.utils.open_csv_in_excel import open_csv_in_excel
 from tui.widgets.csv_editor import CsvEditor
@@ -69,6 +69,20 @@ class ConfigScreen(Screen):
         self.csv_tool = CsvToolRunner()
         self._schema = None
 
+    @staticmethod
+    def _scan_sim_types() -> list[tuple[str, str]]:
+        """扫描 simulation/runs/run_*.py，返回 (display_name, value) 列表。"""
+        from pathlib import Path
+        runs_dir = Path(__file__).resolve().parent.parent.parent / "simulation" / "runs"
+        options = []
+        if runs_dir.exists():
+            for p in sorted(runs_dir.glob("run_*.py")):
+                sim_type = p.stem.removeprefix("run_")  # run_ep_pair → ep_pair
+                options.append((sim_type, sim_type))
+        if not options:
+            options.append(("ep_pair", "ep_pair"))
+        return options
+
     def compose(self) -> ComposeResult:
         yield Header()
 
@@ -76,6 +90,9 @@ class ConfigScreen(Screen):
         with Vertical(id="config_container"):
             yield Static(f"🛠 项目配置 - {self.job_dir.name}", classes="panel_title")
             with Vertical(id="script_config"):
+                with Horizontal(classes="config_row"):
+                    yield Label("模拟类型:")
+                    yield Select(self._scan_sim_types(), id="select_sim_type")
                 with Horizontal(classes="config_row"):
                     yield Label("CSV 工具脚本:")
                     yield Input(value="", id="input_csv_tool_script", placeholder="如 csv_tool_constant_energy.py")
@@ -99,6 +116,7 @@ class ConfigScreen(Screen):
     def on_mount(self) -> None:
         """加载 schema 和 CSV 数据"""
         config = config_store.load()
+        self.query_one("#select_sim_type", Select).value = config.sim_type
         self.query_one("#input_csv_tool_script", Input).value = config.csv_tool_script
         self.query_one("#input_csv_tool_args", Input).value = config.csv_tool_args
         self.query_one("#runner_config", RunnerConfig).set_from_args(config.runner_args)
@@ -127,10 +145,13 @@ class ConfigScreen(Screen):
     def action_save_all(self) -> None:
         """保存配置和 CSV"""
         # 保存脚本配置
+        sim_type = self.query_one("#select_sim_type", Select).value or "ep_pair"
         csv_tool_script = self.query_one("#input_csv_tool_script", Input).value.strip()
         csv_tool_args = self.query_one("#input_csv_tool_args", Input).value.strip()
         runner_args = self.query_one("#runner_config", RunnerConfig).get_runner_args()
 
+        self.config.sim_type = sim_type
+        self.config.runner_script = f"run_{sim_type}.py"
         self.config.csv_tool_script = csv_tool_script
         self.config.csv_tool_args = csv_tool_args
         self.config.runner_args = runner_args

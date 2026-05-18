@@ -16,6 +16,8 @@ class JobConfig(BaseModel):
     csv_tool_script: str = Field(default="csv_tool_constant_energy.py", description="CSV 工具的脚本名")
     csv_tool_args: str = Field(default="", description="传给 csv_tool convert 的额外参数")
     runner_args: str = Field(default="", description="传给 batch_runner 的额外参数")
+    runner_script: str = Field(default="run_ep_pair.py", description="simulation/runs/ 下的入口脚本")
+    sim_type: str = Field(default="ep_pair", description="模拟类型，对应 simulation/ 下的子目录")
 
 
 class ConfigStore:

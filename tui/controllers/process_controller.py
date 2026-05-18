@@ -28,8 +28,11 @@ class BatchProcessController:
             return
 
         # 构建命令
+        config = config_store.config
         cmd = [sys.executable, str(runner_path), str(job_dir)]
-        runner_args = config_store.config.runner_args
+        cmd.append(f"--main-py")
+        cmd.append(f"simulation/runs/{config.runner_script}")
+        runner_args = config.runner_args
         if runner_args.strip():
             cmd.extend(runner_args.strip().split())
         logger.info(f"[Controller] 启动进程: {' '.join(cmd)}")

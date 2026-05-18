@@ -27,7 +27,8 @@ class BaseComputeManager(ABC):
     """
 
     @abstractmethod
-    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str):
+    def submit(self, task_hash: str, params: dict, output_dir_name: str, rel_job_path: str,
+               main_py_rel: str = "simulation/runs/run_ep_pair.py"):
         """异步提交任务到计算环境。"""
         pass
 
@@ -54,7 +55,8 @@ class BaseComputeManager(ABC):
             output_dir_name: str,
             rel_job_path: str,
             params: dict,
-            python_exe: str = "python3"
+            python_exe: str = "python3",
+            main_py_rel: str = "simulation/runs/run_ep_pair.py"
     ) -> str:
         """
         基于模块反射，动态生成发往远端的标准执行命令。
@@ -66,6 +68,7 @@ class BaseComputeManager(ABC):
         :param rel_job_path: 任务在项目中的相对路径
         :param params: JSON 配置字典
         :param python_exe: 远端使用的 python 解释器命令
+        :param main_py_rel: 入口脚本相对于项目根的路径
         :return: 拼装好的 bash 命令片段
         """
         # 1. 显式反射：获取 executor 模块在本地的绝对路径
@@ -81,8 +84,7 @@ class BaseComputeManager(ABC):
         remote_root = remote_root.rstrip('/').replace('\\', '/')
         abs_agent_py = f"{remote_root}/{rel_path.as_posix()}"
 
-        # main.py 和 work_dir 永远遵循固定的项目结构约定
-        abs_main_py = f"{remote_root}/main.py"
+        abs_main_py = f"{remote_root}/{main_py_rel}"
         abs_work_dir = f"{remote_root}/{rel_job_path}/sim_results/{output_dir_name}"
 
         # 4. JSON 参数转义 (避免 Bash 引号嵌套炸裂)

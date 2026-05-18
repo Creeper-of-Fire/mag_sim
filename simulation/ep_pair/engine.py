@@ -10,13 +10,13 @@ from pywarpx import picmi, warpx
 from pywarpx.picmi import CoulombCollisions
 from scipy.constants import e, m_e, c
 
-from simulation.io_manager import IOManager
-from simulation.magnetic_field_models import InitialMagneticField, magnetic_field_factory, Dim
-from simulation.utils import Bunch, mpi_barrier, enable_mpi_print
+from simulation.ep_pair.io_manager import IOManager
+from simulation.ep_pair.magnetic_field import InitialMagneticField, magnetic_field_factory, Dim
+from simulation.ep_pair.utils import Bunch, mpi_barrier, enable_mpi_print
 
 if typing.TYPE_CHECKING:
     from pywarpx.Bucket import Bucket
-    from simulation.config import SimulationParameters  # 用于类型提示
+    from simulation.ep_pair.config import SimulationParameters
 
 constants = picmi.constants
 comm = mpi.COMM_WORLD

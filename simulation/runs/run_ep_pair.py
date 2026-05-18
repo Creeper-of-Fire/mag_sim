@@ -4,8 +4,8 @@ import json
 import os
 import sys
 
-from simulation.config import SimulationParameters
-from simulation.simulation import PlasmaSimulation
+from simulation.ep_pair.config import SimulationParameters
+from simulation.ep_pair.engine import PlasmaSimulation
 
 def main():
     """

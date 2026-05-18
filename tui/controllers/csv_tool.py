@@ -27,6 +27,7 @@ class CsvToolRunner:
 
         cmd = [
             sys.executable, str(script_path),
+            "--sim-type", config_store.config.sim_type,
             "generate-template",
             "-o", str(target_csv)
         ]
@@ -65,7 +66,7 @@ class CsvToolRunner:
 
         script_path = PROJECT_ROOT / "batch" / config_store.config.csv_tool_script
 
-        cmd = [sys.executable, str(script_path), "convert", str(csv_path)]
+        cmd = [sys.executable, str(script_path), "--sim-type", config_store.config.sim_type, "convert", str(csv_path)]
 
         extra_args = config_store.config.csv_tool_args
 
@@ -105,6 +106,7 @@ class CsvToolRunner:
 
         cmd = [
             sys.executable, str(script_path),
+            "--sim-type", config_store.config.sim_type,
             "dump-schema"
         ]
 

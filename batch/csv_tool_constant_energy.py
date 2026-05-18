@@ -14,14 +14,8 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
 from batch import csv_tool
+from batch.csv_tool import _load_sim_params, DEFAULT_SIM_TYPE
 from utils.project_config import PROJECT_ROOT
-
-try:
-    from simulation.config import SimulationParameters
-except ImportError as e:
-    print(f"错误: 无法导入 'SimulationParameters'。请确保 '{PROJECT_ROOT / 'simulation' / 'config.py'}' 文件存在且无误。", file=sys.stderr)
-    print(f"详细错误: {e}", file=sys.stderr)
-    sys.exit(1)
 
 
 # --- 核心物理计算逻辑 ---
@@ -116,6 +110,9 @@ if __name__ == "__main__":
 
     # 3. 解析参数
     args = parser.parse_args()
+
+    # 根据 --sim-type 动态加载参数类
+    csv_tool.SimulationParameters = _load_sim_params(args.sim_type)
 
     # 4. 关键点：拦截 convert 命令
     if args.command == 'convert':

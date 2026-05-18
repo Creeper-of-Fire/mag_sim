@@ -11,13 +11,24 @@ from pathlib import Path
 
 from utils.project_config import COLUMN_TASK_NAME, PROJECT_ROOT, FILENAME_QUEUE
 
-try:
-    # 尝试从 simulation 模块导入参数类
-    from simulation.config import SimulationParameters
-except ImportError as e:
-    print(f"错误: 无法导入 'SimulationParameters'。请确保 '{PROJECT_ROOT / 'simulation' / 'config.py'}' 文件存在且无误。", file=sys.stderr)
-    print(f"详细错误: {e}", file=sys.stderr)
-    sys.exit(1)
+# 默认模拟类型，可通过 --sim-type 覆盖
+DEFAULT_SIM_TYPE = "ep_pair"
+
+
+def _load_sim_params(sim_type: str = DEFAULT_SIM_TYPE):
+    """动态导入指定模拟类型的参数类。"""
+    import importlib
+    try:
+        mod = importlib.import_module(f"simulation.{sim_type}.config")
+        return mod.SimulationParameters
+    except (ImportError, AttributeError) as e:
+        print(f"错误: 无法导入 simulation.{sim_type}.config.SimulationParameters", file=sys.stderr)
+        print(f"详细错误: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+# 延迟加载，等 CLI 参数解析后再决定 sim_type
+SimulationParameters = None
 
 if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -233,6 +244,10 @@ def setup_parser():
         description="Plasma Simulation CSV Tool - 用于生成模板和转换任务队列。",
         formatter_class=argparse.RawTextHelpFormatter
     )
+    parser.add_argument(
+        '--sim-type', default=DEFAULT_SIM_TYPE,
+        help=f"模拟类型，对应 simulation/ 下的子目录 (默认: {DEFAULT_SIM_TYPE})"
+    )
     subparsers = parser.add_subparsers(dest='command', required=True, help='可用的子命令')
 
     # --- 'generate-template' 子命令 ---
@@ -283,4 +298,8 @@ def setup_parser():
 if __name__ == "__main__":
     parser = setup_parser()
     args = parser.parse_args()
+
+    # 根据 --sim-type 动态加载参数类
+    SimulationParameters = _load_sim_params(args.sim_type)
+
     args.func(args)
