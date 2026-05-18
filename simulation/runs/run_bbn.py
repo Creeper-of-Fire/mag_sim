@@ -5,6 +5,8 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
 from simulation.bbn.config import SimulationParameters
 from simulation.bbn.engine import BBNHybridSimulation
 

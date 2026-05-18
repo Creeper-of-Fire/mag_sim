@@ -4,6 +4,8 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
 from simulation.ep_pair.config import SimulationParameters
 from simulation.ep_pair.engine import PlasmaSimulation
 
