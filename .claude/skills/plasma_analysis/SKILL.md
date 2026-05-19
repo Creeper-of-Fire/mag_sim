@@ -1,6 +1,11 @@
+---
+name: plasma_analysis
+description: 操控 Plasma Simulation 的交互式分析控制台
+disable-model-invocation: true
+---
 你的任务是操控 Plasma Simulation 的交互式分析控制台。
 
-> **此 skill 文件位置**: `.claude/commands/plasma_analysis.md`
+> **此 skill 文件位置**: `${CLAUDE_SKILL_DIR}/SKILL.md`
 
 ## 核心约束
 
