@@ -1,6 +1,7 @@
 # analysis/modules/field_slice_video.py
 import os
 import shutil
+from pathlib import Path
 from typing import List
 
 import imageio
@@ -155,7 +156,7 @@ class FieldSliceVideoModule(BaseVideoModule):
                 for filename in tqdm(frame_paths, desc="  视频合成", unit="frame", leave=False):
                     writer.append_data(imageio.imread(filename))
 
-            console.print(f"  [bold green]✔ 视频已成功保存: {final_video_path}[/bold green]")
+            console.print(f"  [bold green]✔ 视频已成功保存: [link={Path(final_video_path).resolve().as_uri()}]{final_video_path}[/link][/bold green]")
         except Exception as e:
             console.print(f"  [red]✗ 视频合成失败: {e}[/red]")
         finally:

@@ -392,7 +392,8 @@ def save_figure(
             except ValueError:
                 display_path = output_path
 
-        console.print(f"  [green]✔ 图已保存: {display_path}[/green]")
+        file_uri = output_path.resolve().as_uri()
+        console.print(f"  [green]✔ 图已保存: [link={file_uri}]{display_path}[/link][/green]")
 
     except Exception as e:
         console.print(f"  [red]✗ 保存图像失败: {e}[/red]")
