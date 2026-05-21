@@ -1,6 +1,9 @@
 # Plasma Simulation 项目结构说明
+
 基于 WarpX 的相对论电子-正电子对等离子体粒子模拟（PIC）框架。
+
 ## 目录概览
+
 | 目录 | 用途 |
 |------|------|
 | simulation/ | 核心模拟引擎，配置并运行 WarpX PIC 模拟 |
@@ -13,7 +16,9 @@
 | data/ | 运行时状态文件（GUI 状态、模块选择缓存） |
 | test/ | 测试脚本（WarpX 重联 benchmark、OpenMP 扩展性测试） |
 | sim_jobs/ | **模拟数据输出目录，数据量极大，搜索时必须绕开** |
+
 ## 顶层入口文件
+
 | 文件 | 用途 |
 |------|------|
 | main.py | 模拟入口，解析 CLI 参数并运行单次模拟 |
@@ -21,7 +26,9 @@
 | tui_app.py | TUI 应用启动器 |
 | config.py | 向后兼容层，重导出 simulation.config.SimulationParameters |
 | pyproject.toml | 包元数据（plasma_simulation v0.1.0） |
-##  工作流
+
+## 工作流
+
 1. **配置** — 通过 simulation/config.py、batch/csv_tool.py 或 TUI 定义模拟参数
 2. **模拟** — 通过 main.py 本地运行（MPI）或 batch/ 系统批量提交到远程集群
 3. **分析** — 通过 analysis_console.py 交互式加载 HDF5 数据，运行模块化分析
