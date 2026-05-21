@@ -42,13 +42,12 @@ def _compute_spectrum_1d(field_2d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     # E(k) * dk = Sum of power in ring
     energy_hist, _ = np.histogram(K_R, bins=k_bins, weights=power_spectrum_2d)
 
-    # 获取bin中心
     k_centers = 0.5 * (k_bins[1:] + k_bins[:-1])
 
-    # 归一化：除以环内的像素数（可选，得到平均能量密度），或者直接保留总能量
-    # 这里为了计算平均尺度，使用总能量即可
-
-    return k_centers, energy_hist
+    # 过滤低值 bin：去除零值和数值噪声，避免 loglog 坐标轴被拉伸
+    threshold = energy_hist.max() * 1e-6
+    valid = (k_centers > 0) & (energy_hist > threshold)
+    return k_centers[valid], energy_hist[valid]
 
 
 def compute_fragmentation_metrics(run: SimulationRun, max_samples: int = 50) -> Dict[str, Any]:
@@ -137,6 +136,10 @@ class FieldFragmentationModule(BaseAnalysisModule):
         initial_spectrum = metrics["initial_spectrum"]
         final_spectrum = metrics["final_spectrum"]
 
+        if len(times) == 0:
+            console.print(f"  [yellow]警告: {run.name} 没有有效的帧数据，跳过。[/yellow]")
+            return
+
         # --- 绘图 ---
         with AnalysisLayout(run, "field_fragmentation") as layout:
             # 3个子图：尺度演化、峰度演化、能谱对比
@@ -159,13 +162,12 @@ class FieldFragmentationModule(BaseAnalysisModule):
                 ax_scale.text(0.05, 0.9, f"变化率: {pct:.1f}%", transform=ax_scale.transAxes, color=color, fontweight='bold')
 
             # Plot 2: 峰度演化
-            ax_kurt.plot(times, kurtosis_vals, 's-', color='darkorange', lw=2)
+            finite_kurt = np.isfinite(kurtosis_vals)
+            ax_kurt.plot(times[finite_kurt], kurtosis_vals[finite_kurt], 's-', color='darkorange', lw=2)
             ax_kurt.set_title("磁场结构间歇性 (Kurtosis)", fontsize=14)
             ax_kurt.set_ylabel("峰度 (Gaussian=0)")
             ax_kurt.set_xlabel("时间 (s)")
             ax_kurt.grid(True, alpha=0.3)
-            ax_kurt.text(0.05, 0.85, "高峰度 $\\rightarrow$ 强局域结构/细丝", transform=ax_kurt.transAxes, fontsize=10, color='gray')
-
             # Plot 3: 初始 vs 最终 能谱
             if initial_spectrum and final_spectrum:
                 k_i, E_i = initial_spectrum
@@ -185,8 +187,10 @@ class FieldFragmentationModule(BaseAnalysisModule):
                 ax_spec.text(0.95, 0.05, "高频能量增加 $\\rightarrow$ 碎裂", transform=ax_spec.transAxes, ha='right', va='bottom', color='crimson')
 
         console.print(f"  [green]✔ 分析完成: {run.name}[/green]")
-        console.print(f"    最终特征尺度: {characteristic_scales[-1]:.2f} (初始: {characteristic_scales[0]:.2f})")
-        console.print(f"    最终峰度: {kurtosis_vals[-1]:.2f}")
+        if len(characteristic_scales) > 0:
+            console.print(f"    最终特征尺度: {characteristic_scales[-1]:.2f} (初始: {characteristic_scales[0]:.2f})")
+        if len(kurtosis_vals) > 0 and np.isfinite(kurtosis_vals[-1]):
+            console.print(f"    最终峰度: {kurtosis_vals[-1]:.2f}")
 
     def run(self, loaded_runs: List[SimulationRun]):
         console.print("\n[bold magenta]执行: 磁场碎裂与湍流度分析...[/bold magenta]")
