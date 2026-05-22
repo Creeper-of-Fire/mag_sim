@@ -24,6 +24,7 @@ class EnvironmentType(str, Enum):
     """环境类型枚举"""
     SPACK = "spack"
     CONDA = "conda"
+    SOURCE = "source"
     NONE = "none"
 
 
@@ -33,40 +34,44 @@ class EnvironmentConfig(BaseModel):
     env_name: Optional[str] = Field(None, description="环境名称")
     image_tag: str = Field(..., description="Docker 镜像标签")
 
-    def get_command_builder(self) -> Optional[Union["SpackCommandBuilder", "CondaCommandBuilder"]]:
+    def get_command_builder(self) -> Optional[Union["SpackCommandBuilder", "CondaCommandBuilder", "SourceCommandBuilder"]]:
         """根据环境类型获取对应的命令构建器"""
         if self.type == EnvironmentType.SPACK and self.env_name:
             return SpackCommandBuilder(spack_env=self.env_name)
         elif self.type == EnvironmentType.CONDA and self.env_name:
             return CondaCommandBuilder(conda_env=self.env_name)
+        elif self.type == EnvironmentType.SOURCE and self.env_name:
+            return SourceCommandBuilder(source_path=self.env_name)
         return None
 
     def get_image(self, prefix: str) -> str:
         """获取完整镜像地址"""
         return prefix + self.image_tag
 
+
 class CPUType(str, Enum):
     """CPU 类型枚举"""
-    C1M2 = "C1M2"      # 1核 2GB
-    C2M4 = "C2M4"      # 2核 4GB
-    C4M8 = "C4M8"      # 4核 8GB
-    C8M16 = "C8M16"    # 8核 16GB
+    C1M2 = "C1M2"  # 1核 2GB
+    C2M4 = "C2M4"  # 2核 4GB
+    C4M8 = "C4M8"  # 4核 8GB
+    C8M16 = "C8M16"  # 8核 16GB
     C16M32 = "C16M32"  # 16核 32GB
     C32M64 = "C32M64"  # 32核 64GB
     C64M128 = "C64M128"  # 64核 128GB
-    C1M4 = "C1M4"      # 1核 4GB
-    C2M8 = "C2M8"      # 2核 8GB
-    C4M16 = "C4M16"    # 4核 16GB
-    C8M32 = "C8M32"    # 8核 32GB
+    C1M4 = "C1M4"  # 1核 4GB
+    C2M8 = "C2M8"  # 2核 8GB
+    C4M16 = "C4M16"  # 4核 16GB
+    C8M32 = "C8M32"  # 8核 32GB
     C16M64 = "C16M64"  # 16核 64GB
     C32M128 = "C32M128"  # 32核 128GB
     C64M256 = "C64M256"  # 64核 256GB
-    C1M8 = "C1M8"      # 1核 8GB
-    C2M16 = "C2M16"    # 2核 16GB
-    C4M32 = "C4M32"    # 4核 32GB
-    C8M64 = "C8M64"    # 8核 64GB
+    C1M8 = "C1M8"  # 1核 8GB
+    C2M16 = "C2M16"  # 2核 16GB
+    C4M32 = "C4M32"  # 4核 32GB
+    C8M64 = "C8M64"  # 8核 64GB
     C16M128 = "C16M128"  # 16核 128GB
     C32M256 = "C32M256"  # 32核 256GB
+
 
 class GPUType(str, Enum):
     """GPU 类型枚举"""
@@ -143,7 +148,7 @@ class CPUSpec(YingboGPUSpec):
                 type=EnvironmentType.CONDA,
                 env_name="warpx-cpu",
                 image_tag="warpx/warpxcpu:warpxcpu"
-            ), # 固定环境
+            ),  # 固定环境
         )
 
     @property
@@ -224,6 +229,7 @@ class CPUConfig(BaseModel):
             raise ValueError(f"未知的 CPU 类型: {cpu_type}")
         return self.specs[cpu_type]
 
+
 class YingboGPUConfig(BaseModel):
     """英博云 GPU 配置管理"""
     specs: Dict[GPUType, YingboGPUSpec] = Field(default_factory=dict)
@@ -249,8 +255,12 @@ class YingboGPUConfig(BaseModel):
                 cpu="10",
                 mem="100Gi",
                 flavor="bob-eci.4090.5large",
-                gpu_driver=["580.76.05", "535.161.08"],
-                environment=None,
+                gpu_driver=["580.65.06"],
+                environment=EnvironmentConfig(
+                    type=EnvironmentType.SOURCE,
+                    env_name="/root/plasma-env/.spack-env/view/bin/activate",
+                    image_tag="warpx/build:plasma-cuda89"
+                ),
             ),
             GPUType.RTX_4090D: YingboGPUSpec(
                 label="RTX_4090D",
@@ -375,11 +385,37 @@ class SpackCommandBuilder:
         return None
 
 
+class SourceCommandBuilder:
+    """通用 source 命令构建器"""
+
+    def __init__(self, source_path: str):
+        self.source_path = source_path
+
+    def build_command(self, agent_cmd: str) -> str:
+        if not self.source_path:
+            return agent_cmd
+        return (
+            f"source {self.source_path} && "
+            f"{agent_cmd}"
+        )
+
+
+# 集群配置映射：GPU 类型 -> 对应的 env 文件
+CLUSTER_ENV_MAP: Dict[str, Path] = {
+    "RTX_4090": current_dir / '.yingbo4090.service.env',
+}
+# xibei2 集群 (RTX_4090): w4090v2-eb-kubeconfig, registry-cn-xibei2
+DEFAULT_ENV_FILE = current_dir / '.yingbo.service.env'
+
+
 class YingboComputeManager(BaseComputeManager):
-    def __init__(self,  gpu_type: GPUType | None = None, cpu_type: CPUType | None = None):
-        # 加载 kubeconfig
+    def __init__(self, gpu_type: GPUType | None = None, cpu_type: CPUType | None = None):
+        # 根据 GPU 类型加载对应的集群 env 文件
+        env_file = CLUSTER_ENV_MAP.get(gpu_type.value if gpu_type else None, DEFAULT_ENV_FILE)
+        load_dotenv(env_file, override=True)
+
         kubeconfig_path = os.getenv("KUBECONFIG_PATH")
-        print(f"[DEBUG] 正在尝试加载 Kubeconfig: {kubeconfig_path}")  # 添加这一行
+        print(f"[DEBUG] 正在尝试加载 Kubeconfig: {kubeconfig_path}")
         config.load_kube_config(config_file=kubeconfig_path)
 
         self.batch_v1 = client.BatchV1Api()
