@@ -1,9 +1,9 @@
-# plotting/layout.py 新增
+# plotting/comparison_layout.py
 from typing import Optional, Any, NamedTuple
 
 import numpy as np
 
-from .layout import AnalysisLayout
+from .data_layout import DataLayout
 from ..core.param_display_names import get_param_display, ParamInfo
 from ..core.parameter_selector import ParameterSelector
 from ..core.simulation import SimulationRun
@@ -107,20 +107,17 @@ class ComparisonContext:
         return self.runs, self.x_scaled
 
 
-class ComparisonLayout(AnalysisLayout):
+class ComparisonLayout(DataLayout):
     """
-    对比分析专用布局管理器，继承自 AnalysisLayout。
+    对比分析专用布局管理器，DataLayout 的薄包装。
 
-    在 AnalysisLayout 的基础上增加了绘图结束时的自动收尾：
-    - 隐藏除最后一个轴以外的 X 轴刻度标签
-    - 为最后一个轴设置 X 轴标签
+    从 ComparisonContext 提取 xlabel 和 xtick 配置，委托给 DataLayout 处理
+    共享 xlabel、CSV 导出和图片保存。
 
     用法:
-        with ComparisonLayout(ctx) as layout:
-            ax1 = layout.request_axes()
-            ax1.plot(ctx.x_scaled, data1)
-            ax2 = layout.request_axes()
-            ax2.plot(ctx.x_scaled, data2)
+        with ComparisonLayout(ctx, suffix="excess") as layout:
+            ax = layout.request_axes()
+            ax.plot(ctx.x_scaled, data)
         # 退出时自动收尾并保存
     """
 
@@ -136,35 +133,11 @@ class ComparisonLayout(AnalysisLayout):
             filename = f"{filename}_{suffix}"
         super().__init__(
             ctx.runs,
-            base_filename="",  # 不使用 AnalysisLayout 的默认文件名逻辑
+            base_filename="",
             plot_ratio=plot_ratio,
             override_filename=filename,
             ncols=ncols,
+            shared_xlabel=ctx.x_label_str,
+            xtick_labels=ctx.x_raw if not ctx.is_num else None,
         )
         self._ctx = ctx
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """绘图结束后统一收尾，然后委托给 AnalysisLayout 保存并清理。"""
-        if exc_type is not None:
-            return super().__exit__(exc_type, exc_val, exc_tb)
-
-        bottom_axes = self.bottom_row_axes
-        bottom_set = set(id(ax) for ax in bottom_axes)
-
-        # 隐藏非底部行 axes 的 X 轴刻度标签
-        for ax in self.plot_axes:
-            if id(ax) not in bottom_set:
-                ax.set_xticklabels([])
-                ax.set_xlabel("")
-
-        # 底部行 axes 全部设置 X 轴标签
-        if bottom_axes:
-            for ax in bottom_axes:
-                ax.set_xlabel(self._ctx.x_label_str)
-                if not self._ctx.is_num:
-                    ticks = np.arange(len(self._ctx.x_raw))
-                    ax.set_xticks(ticks)
-                    ax.set_xticklabels(self._ctx.x_raw, rotation=45, ha='right')
-
-        # 委托父类完成参数表绘制、双版本保存和资源清理
-        return super().__exit__(None, None, None)

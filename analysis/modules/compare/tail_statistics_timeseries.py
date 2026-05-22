@@ -26,7 +26,7 @@ from analysis.modules.utils.time_series import (
     compute_run_avg_last_n, avg_last_n,
 )
 from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLayout
-from analysis.plotting.layout import AnalysisLayout
+from analysis.plotting.data_layout import DataLayout
 from analysis.plotting.styles import get_style
 
 
@@ -127,7 +127,8 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
             time_label = "时间步"
 
         # 图1：各能段 excess_ratio
-        with AnalysisLayout(run, f"tail_ts_excess_{run.name}", plot_ratio=(10, 3.5), ncols=2) as layout:
+        with DataLayout(run, f"tail_ts_excess_{run.name}", plot_ratio=(10, 3.5), ncols=2,
+                        shared_xlabel=time_label) as layout:
             for low, high in self.INTERVALS:
                 ax = layout.request_axes()
                 label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
@@ -158,11 +159,9 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax.legend(fontsize='x-small', loc='upper left', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
-            for ax in layout.bottom_row_axes:
-                ax.set_xlabel(time_label)
-
         # 图2：其他指标（温度、场能、能量密度）
-        with AnalysisLayout(run, f"tail_ts_other_{run.name}", plot_ratio=(10, 3.5), ncols=2) as layout:
+        with DataLayout(run, f"tail_ts_other_{run.name}", plot_ratio=(10, 3.5), ncols=2,
+                        shared_xlabel=time_label) as layout:
             # --- 温度 ---
             ax_t = layout.request_axes()
             temps = np.array([s.T_keV for s in series])
@@ -222,9 +221,6 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                 ax_d.set_ylabel(ylabel)
                 ax_d.grid(True, linestyle=':', alpha=0.4)
                 ax_d.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
-
-            for ax in layout.bottom_row_axes:
-                ax.set_xlabel(time_label)
 
     # =========================================================================
     # 图B：参数扫描对比（X = 参数，Y = 时间平均值）
