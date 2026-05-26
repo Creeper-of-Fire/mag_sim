@@ -572,16 +572,35 @@ class YingboComputeManager(BaseComputeManager):
             self._status = JobStatus.FAILED
             raise Exception(f"K8S 提交失败: {e}")
 
+    def _get_job_conditions(self) -> list[str]:
+        """获取 Job conditions 中的失败/警告消息"""
+        try:
+            job = self.batch_v1.read_namespaced_job_status(name=self.job_name, namespace=self.namespace)
+            messages = []
+            if job.status.conditions:
+                for cond in job.status.conditions:
+                    if cond.type == "Failed" and cond.status == "True":
+                        messages.append(f"[Job] {cond.reason}: {cond.message}")
+            return messages
+        except Exception:
+            return []
+
     def get_status(self) -> JobStatus:
         try:
             job = self.batch_v1.read_namespaced_job_status(name=self.job_name, namespace=self.namespace)
             status = job.status
-            if status.active:
-                return JobStatus.RUNNING
+            # 检查 Job conditions（调度失败等 Job 级别错误）
+            if status.conditions:
+                for cond in status.conditions:
+                    if cond.type == "Failed" and cond.status == "True":
+                        print(f"[Yingbo] Job 失败: {cond.reason} — {cond.message}", file=sys.stderr)
+                        return JobStatus.FAILED
             if status.succeeded:
                 return JobStatus.SUCCESS
             if status.failed:
                 return JobStatus.FAILED
+            if status.active:
+                return JobStatus.RUNNING
             return JobStatus.PENDING
         except Exception as e:
             print(f"[Yingbo] 获取 Job 状态失败: {e}", file=sys.stderr)
@@ -594,7 +613,8 @@ class YingboComputeManager(BaseComputeManager):
             label_selector=f"job-name={self.job_name}"
         )
         if not pods.items:
-            return []
+            # Pod 还没创建，回退输出 Job condition 消息（如调度失败）
+            return [msg + "\n" for msg in self._get_job_conditions()]
 
         pod_name = pods.items[0].metadata.name
         try:
@@ -604,7 +624,20 @@ class YingboComputeManager(BaseComputeManager):
             new_lines = lines[self.last_log_line_count:]
             self.last_log_line_count = len(lines)
             return [l + "\n" for l in new_lines]
+        except client.ApiException as e:
+            if e.status == 400:
+                # ContainerCreating / ImagePull 等过渡状态，提取简短原因
+                return [f"[Yingbo] Pod {pod_name}: {e.reason}\n"]
+            # 其他 API 错误，优先输出 Job condition
+            fallback = self._get_job_conditions()
+            if fallback:
+                return [msg + "\n" for msg in fallback]
+            print(f"[Yingbo] 获取日志失败 ({pod_name}): {e}", file=sys.stderr)
+            return []
         except Exception as e:
+            fallback = self._get_job_conditions()
+            if fallback:
+                return [msg + "\n" for msg in fallback]
             print(f"[Yingbo] 获取日志失败 ({pod_name}): {e}", file=sys.stderr)
             return []
 
