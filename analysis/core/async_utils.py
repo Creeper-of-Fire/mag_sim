@@ -17,7 +17,7 @@ from typing import Awaitable, Callable, TypeVar
 
 T = TypeVar('T')
 
-_POOL_SIZE = min(32, os.cpu_count() + 4)
+_POOL_SIZE = int(os.environ.get('ANALYSIS_POOL_SIZE', min(32, os.cpu_count() + 4)))
 _pools: dict = {}
 
 
