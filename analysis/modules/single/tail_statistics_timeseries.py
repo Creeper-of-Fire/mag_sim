@@ -11,6 +11,7 @@ from typing import List, Optional
 import numpy as np
 
 from analysis.core.data_loader import _get_step_from_filename
+from analysis.core.group_merger import detect_and_merge_groups
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationGroup import SimulationRunGroup
 from analysis.core.simulationSingle import SimulationRunSingle
@@ -68,13 +69,16 @@ class TailStatisticsTimeSeriesSingleModule(BaseAnalysisModule):
         style = get_style()
         console.print(f"\n[bold magenta]执行: {self.name}...[/bold magenta]")
 
+        # 分组合并步骤（类似 compare 模块使用 ComparisonContext 的模式）
+        merged_runs = detect_and_merge_groups(loaded_runs)
+
         async def _process_all():
-            tasks = [self._extract(run) for run in loaded_runs]
+            tasks = [self._extract(run) for run in merged_runs]
             return list(await asyncio.gather(*tasks))
 
         raw_results = asyncio.get_event_loop().run_until_complete(_process_all())
 
-        for run, (series, aggregated) in zip(loaded_runs, raw_results):
+        for run, (series, aggregated) in zip(merged_runs, raw_results):
             if series is None or aggregated is None:
                 console.print(f"  [yellow]跳过 {run.name}（时间步不足）[/yellow]")
                 continue
