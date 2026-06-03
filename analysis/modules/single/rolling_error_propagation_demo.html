@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>滑动平均误差传递算法说明</title>
+<style>
+  :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --text: #e0e0e0; --highlight: #e94560; --ok: #4ecca3; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 24px 32px; line-height: 1.7; }
+  h1 { color: #fff; margin-bottom: 8px; font-size: 1.5em; }
+  h2 { color: var(--ok); margin: 28px 0 12px; font-size: 1.15em; border-left: 3px solid var(--ok); padding-left: 10px; }
+  h3 { color: #fff; margin: 16px 0 8px; font-size: 1em; }
+  .subtitle { color: #888; margin-bottom: 24px; font-size: 0.9em; }
+  .card { background: var(--card); border-radius: 8px; padding: 20px 24px; margin-bottom: 16px; }
+  .formula { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px 20px; margin: 12px 0; font-family: 'Cambria Math', 'Latin Modern Math', serif; font-size: 1.05em; color: #f0f0f0; overflow-x: auto; }
+  .formula .label { color: var(--ok); font-weight: bold; }
+  .formula .note { color: #888; font-size: 0.85em; }
+  .formula .warn { color: var(--highlight); }
+  table { border-collapse: collapse; margin: 12px 0; font-size: 0.88em; }
+  th, td { border: 1px solid #30363d; padding: 6px 12px; text-align: right; }
+  th { background: var(--accent); color: #fff; text-align: center; }
+  td { background: #0d1117; }
+  tr:hover td { background: #1c2333; }
+  canvas { background: #0d1117; border-radius: 6px; margin: 12px 0; display: block; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-right: 4px; }
+  .tag-ok { background: #1a3a2a; color: var(--ok); }
+  .tag-warn { background: #3a1a1a; color: var(--highlight); }
+  .tag-blue { background: #1a2a3a; color: #4dabf7; }
+  .question { background: #2a1a0a; border-left: 3px solid #f0a030; padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .question::before { content: "需要确认："; color: #f0a030; font-weight: bold; }
+  code { background: #0d1117; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; color: var(--ok); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .arrow { color: var(--ok); font-size: 1.3em; margin: 0 8px; }
+</style>
+</head>
+<body>
+
+<h1>滑动平均 — 误差传递说明</h1>
+<p class="subtitle">tail_statistics_timeseries.py 中 <code>_rolling_avg</code> &amp; <code>_rolling_err</code> 的算法</p>
+
+<!-- ===================== 第一部分：数据流水线 ===================== -->
+
+<h2>1. 数据流水线：从原始粒子到滑动平均</h2>
+
+<div class="card">
+
+<p>数据经过两个阶段的平均，误差在每个阶段都应<b>减小</b>：</p>
+
+<div class="formula" style="line-height: 2.2;">
+<span class="label">阶段 1：跨 run 平均（M 个 run → 均值）</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;x&#772;[j] = (1/M) &Sigma;<sub>m=1</sub><sup>M</sup> x<sub>m</sub>[j]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;均值的标准误差：sem[j] = &sigma;<sub>run</sub>[j] / &radic;M<br><br>
+<span class="arrow">&darr;</span> &nbsp; M 个独立 run 的平均使误差缩小 &radic;M 倍<br><br>
+<span class="label">阶段 2：滑动平均（N 个时间步 → 滑动均值）</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;X&#772;[i] = (1/N) &Sigma;<sub>j=start</sub><sup>i</sup> x&#772;[j]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;滑动平均的标准误差：(1/N) &radic;(&Sigma; sem[j]&sup2;) = (1/(N&radic;M)) &radic;(&Sigma; &sigma;<sub>run</sub>[j]&sup2;)<br><br>
+<span class="arrow">&darr;</span> &nbsp; N 步滑动平均使误差再缩小 &radic;N 倍
+</div>
+
+<p style="margin-top:8px;">两个阶段独立的，所以最终误差 = 阶段2输出，已经包含了阶段1的缩减。</p>
+</div>
+
+<!-- ===================== 第二部分：两种最终误差 ===================== -->
+
+<h2>2. 滑动平均后的两种误差</h2>
+
+<div class="grid">
+<div class="card">
+<h3><span class="tag tag-ok">理论误差</span> &sigma;<sub>theory</sub></h3>
+<p>来源：有限粒子数的<b>泊松计数统计</b>。每个时间步的测量本身有不确定度 &sigma;<sub>th</sub>[j]。</p>
+<p>这是<b>测量精度</b>的极限。</p>
+<div class="formula">
+<span class="label">传递公式</span><br><br>
+&sigma;<sub>theory</sub>[i] = (1/N) &radic;(&Sigma;<sub>j</sub> &sigma;<sub>th</sub>[j]&sup2;)<br><br>
+<span class="note">&sigma;<sub>th</sub>[j] = tail_uncertainty[j]，各时间步独立</span><br>
+<span class="note">窗口 N 越大，理论误差越小（&prop; 1/&radic;N）</span>
+</div>
+</div>
+
+<div class="card">
+<h3><span class="tag tag-blue">统计误差</span> &sigma;<sub>stat</sub></h3>
+<p>来源：M 个 run 的<b>实际统计涨落</b>。跨 run 均值的标准误差为 &sigma;<sub>run</sub>/&radic;M。</p>
+<p>这是<b>采样精度</b>的极限。</p>
+<div class="formula">
+<span class="label">传递公式</span><br><br>
+&sigma;<sub>stat</sub>[i] = (1/N) &radic;(&Sigma;<sub>j</sub> (&sigma;<sub>run</sub>[j]/&radic;M)&sup2;)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = (1/(N&radic;M)) &radic;(&Sigma;<sub>j</sub> &sigma;<sub>run</sub>[j]&sup2;)<br><br>
+<span class="note">&sigma;<sub>run</sub>[j] = tail_excess_std[j]，M 个 run 之间的标准差</span><br>
+<span class="note">窗口 N 越大、run 数 M 越大，统计误差越小</span>
+</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+<p style="color:#f0a030;"><b>注意</b>：两种误差不应合成。σ_run 中已包含粒子计数的贡献，合成会重复计算。两条带应独立展示、对比解读。</p>
+</div>
+
+<!-- ===================== 第三部分：当前代码的问题 ===================== -->
+
+<h2>3. 当前代码的问题</h2>
+
+<div class="card">
+<p>当前代码对两种误差使用了<b>同一个函数</b> <code>_rolling_err</code>，直接传入原始 &sigma;：</p>
+
+<div class="formula" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9em; line-height: 1.5;">
+<span style="color:#888;"># 理论误差——传的是 &sigma;<sub>th</sub>，正确</span><br>
+roll_th = _rolling_err(th_unc * 100, w)<br><br>
+<span style="color:var(--highlight)"># 统计误差——传的是 &sigma;<sub>run</sub>，但应该是 &sigma;<sub>run</sub>/&radic;M</span><br>
+roll_run = _rolling_err(run_std * 100, w)  <span style="color:var(--highlight)">&larr; 缺少 &radic;M 的缩减</span>
+</div>
+
+<p style="margin-top:12px;">
+<b>结果</b>：统计误差被<b>高估了 &radic;M 倍</b>（M=4 时高估 2 倍）。<br>
+图中"跨 run 散布(传递)"的误差带比实际应该的大得多。
+</p>
+</div>
+
+<!-- ===================== 第四部分：修正方案 ===================== -->
+
+<h2>4. 修正方案</h2>
+
+<div class="card">
+<p>统计误差传入前先除以 &radic;M：</p>
+
+<div class="formula" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9em; line-height: 1.5;">
+<span style="color:#888;"># 理论误差：直接传播（不变）</span><br>
+roll_th = _rolling_err(th_unc * 100, w)<br><br>
+<span style="color:var(--ok)"># 统计误差：先转成 sem 再传播</span><br>
+roll_run = _rolling_err(run_std * 100 / <b style="color:var(--ok)">np.sqrt(M)</b>, w)
+</div>
+
+<p style="margin-top:12px;">图例名称改为：<b>"理论误差"</b> 和 <b>"统计误差"</b>。</p>
+</div>
+
+<!-- ===================== 第五部分：可视化 ===================== -->
+
+<h2>5. 可视化对比：修正前 vs 修正后</h2>
+
+<div class="card">
+<p>蓝色 = 滑动平均曲线，两种误差带分别着色。下方为模拟数据（M=4, W=10）。</p>
+<canvas id="chart" width="860" height="420"></canvas>
+<p style="color:#888; font-size:0.85em; margin-top:8px;">
+  <b style="color:rgba(78,204,163,0.5)">绿线</b>：原始数据 &nbsp;|&nbsp;
+  <b style="color:#4dabf7">蓝线</b>：滑动平均 &nbsp;|&nbsp;
+  <b style="color:var(--ok)">绿色带</b>：理论误差（两种算法相同）&nbsp;|&nbsp;
+  <b style="color:#ff6b6b">红色带</b>：统计误差（修正前 = 当前代码）&nbsp;|&nbsp;
+  <b style="color:#ffd43b">黄色带</b>：统计误差（修正后 = &sigma;/&radic;M）
+</p>
+</div>
+
+<!-- ===================== 第六部分：数值对照表 ===================== -->
+
+<h2>6. 数值对照表</h2>
+
+<div class="card">
+<table id="error-table"></table>
+<p style="color:#888; font-size:0.85em; margin-top:8px;">
+  <b>理论误差</b> = (1/N)&radic;(&Sigma; &sigma;<sub>th</sub>&sup2;) &nbsp;|&nbsp;
+  <b>统计误差(修正前)</b> = (1/N)&radic;(&Sigma; &sigma;<sub>run</sub>&sup2;) &nbsp;|&nbsp;
+  <b>统计误差(修正后)</b> = (1/(N&radic;M))&radic;(&Sigma; &sigma;<sub>run</sub>&sup2;)，M=4
+</p>
+</div>
+
+<!-- ===================== JavaScript ===================== -->
+
+<script>
+const W = 10, N_PTS = 25, M_RUNS = 4;
+
+function generateData() {
+  const vals = [], thErr = [], runStd = [];
+  for (let i = 0; i < N_PTS; i++) {
+    const t = i / N_PTS;
+    const base = 2.0 + 3.0 * Math.exp(-3 * t) * Math.cos(4 * t);
+    vals.push(base + (Math.random() - 0.5) * 0.3);
+    thErr.push(0.05 + Math.random() * 0.10);
+    runStd.push(0.10 + Math.random() * 0.20);
+  }
+  return { vals, thErr, runStd };
+}
+
+const data = generateData();
+
+function rollingAvg(values, w) {
+  const out = [];
+  for (let i = 0; i < values.length; i++) {
+    const s = Math.max(0, i - w + 1);
+    const sl = values.slice(s, i + 1);
+    out.push(sl.reduce((a, b) => a + b, 0) / sl.length);
+  }
+  return out;
+}
+
+function rollingErr(errors, w) {
+  const out = [];
+  for (let i = 0; i < errors.length; i++) {
+    const s = Math.max(0, i - w + 1);
+    const n = i - s + 1;
+    let sum = 0;
+    for (let j = s; j <= i; j++) sum += errors[j] * errors[j];
+    out.push(Math.sqrt(sum) / n);
+  }
+  return out;
+}
+
+const avg = rollingAvg(data.vals, W);
+
+// 理论误差（直接传播 &sigma;_th）
+const errTheory = rollingErr(data.thErr, W);
+
+// 统计误差修正前（直接传 &sigma;_run，当前代码）
+const errStatOld = rollingErr(data.runStd, W);
+
+// 统计误差修正后（传 &sigma;_run / &radic;M）
+const errStatNew = rollingErr(data.runStd.map(e => e / Math.sqrt(M_RUNS)), W);
+
+// --- 表格 ---
+function fillTable() {
+  const tbl = document.getElementById('error-table');
+  let h = '<tr><th>i</th><th>N</th><th>x[i]</th><th>x&#772;[i]</th><th>&sigma;<sub>th</sub>[i]</th><th>&sigma;<sub>run</sub>[i]</th><th style="color:var(--ok)">理论误差</th><th style="color:#ff6b6b">统计(修正前)</th><th style="color:#ffd43b">统计(修正后)</th></tr>';
+  for (let i = 0; i < N_PTS; i++) {
+    const n = Math.min(i + 1, W);
+    h += `<tr><td>${i}</td><td>${n}</td><td>${data.vals[i].toFixed(3)}</td><td>${avg[i].toFixed(3)}</td><td>${data.thErr[i].toFixed(4)}</td><td>${data.runStd[i].toFixed(4)}</td><td style="color:var(--ok)">&plusmn;${errTheory[i].toFixed(4)}</td><td style="color:#ff6b6b">&plusmn;${errStatOld[i].toFixed(4)}</td><td style="color:#ffd43b">&plusmn;${errStatNew[i].toFixed(4)}</td></tr>`;
+  }
+  tbl.innerHTML = h;
+}
+
+// --- 绘图 ---
+function drawChart() {
+  const c = document.getElementById('chart');
+  const ctx = c.getContext('2d');
+  const CW = c.width, CH = c.height;
+  const pad = { t: 30, r: 30, b: 40, l: 60 };
+  const pw = CW - pad.l - pad.r, ph = CH - pad.t - pad.b;
+  const allV = data.vals.concat(avg);
+  const yMin = Math.min(...allV) - 0.5, yMax = Math.max(...allV) + 0.5;
+  const xMin = 0, xMax = N_PTS - 1;
+  const tx = i => pad.l + (i - xMin) / (xMax - xMin) * pw;
+  const ty = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * ph;
+
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, CW, CH);
+
+  // grid
+  ctx.strokeStyle = '#21262d'; ctx.lineWidth = 0.5;
+  for (let v = Math.ceil(yMin); v <= yMax; v += 0.5) { ctx.beginPath(); ctx.moveTo(pad.l, ty(v)); ctx.lineTo(CW - pad.r, ty(v)); ctx.stroke(); }
+  for (let i = 0; i < N_PTS; i += 5) { ctx.beginPath(); ctx.moveTo(tx(i), pad.t); ctx.lineTo(tx(i), CH - pad.b); ctx.stroke(); }
+
+  // axes
+  ctx.fillStyle = '#888'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  for (let i = 0; i < N_PTS; i += 5) ctx.fillText(i, tx(i), CH - pad.b + 16);
+  ctx.fillText('时间步', CW / 2, CH - 4);
+  ctx.textAlign = 'right';
+  for (let v = Math.ceil(yMin); v <= yMax; v++) ctx.fillText(v.toFixed(0), pad.l - 8, ty(v) + 4);
+
+  // raw data
+  ctx.strokeStyle = 'rgba(78,204,163,0.4)'; ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (let i = 0; i < N_PTS; i++) { i === 0 ? ctx.moveTo(tx(i), ty(data.vals[i])) : ctx.lineTo(tx(i), ty(data.vals[i])); }
+  ctx.stroke();
+
+  // band drawing helper
+  function drawBand(avgA, errA, fill, stroke) {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    for (let i = 0; i < N_PTS; i++) { i === 0 ? ctx.moveTo(tx(i), ty(avgA[i] + errA[i])) : ctx.lineTo(tx(i), ty(avgA[i] + errA[i])); }
+    for (let i = N_PTS - 1; i >= 0; i--) ctx.lineTo(tx(i), ty(avgA[i] - errA[i]));
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < N_PTS; i++) { i === 0 ? ctx.moveTo(tx(i), ty(avgA[i] + errA[i])) : ctx.lineTo(tx(i), ty(avgA[i] + errA[i])); }
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < N_PTS; i++) { i === 0 ? ctx.moveTo(tx(i), ty(avgA[i] - errA[i])) : ctx.lineTo(tx(i), ty(avgA[i] - errA[i])); }
+    ctx.stroke();
+  }
+
+  // stat err OLD (red, widest)
+  drawBand(avg, errStatOld, 'rgba(255,107,107,0.07)', 'rgba(255,107,107,0.4)');
+  // stat err NEW (yellow)
+  drawBand(avg, errStatNew, 'rgba(255,212,59,0.10)', 'rgba(255,212,59,0.5)');
+  // theory err (green)
+  drawBand(avg, errTheory, 'rgba(78,204,163,0.10)', 'rgba(78,204,163,0.5)');
+
+  // rolling avg line
+  ctx.strokeStyle = '#4dabf7'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i = 0; i < N_PTS; i++) { i === 0 ? ctx.moveTo(tx(i), ty(avg[i])) : ctx.lineTo(tx(i), ty(avg[i])); }
+  ctx.stroke();
+
+  // legend
+  const lx = pad.l + 10, ly = pad.t + 10;
+  const legs = [
+    { c: 'rgba(78,204,163,0.5)', l: '理论误差 (1/N)√(Σσ²th)' },
+    { c: '#ff6b6b', l: `统计误差 修正前：直接传σrun（高估√M倍）` },
+    { c: '#ffd43b', l: `统计误差 修正后：传σrun/√M（M=${M_RUNS}）` },
+    { c: '#4dabf7', l: '10步滑动平均' },
+    { c: 'rgba(78,204,163,0.4)', l: '原始数据' },
+  ];
+  ctx.font = '11px sans-serif';
+  legs.forEach((lg, idx) => {
+    const y = ly + idx * 17;
+    ctx.fillStyle = '#0d1117cc'; ctx.fillRect(lx - 2, y - 8, 310, 15);
+    ctx.strokeStyle = lg.c; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(lx + 18, y); ctx.stroke();
+    ctx.fillStyle = '#ccc'; ctx.textAlign = 'left'; ctx.fillText(lg.l, lx + 24, y + 4);
+  });
+}
+
+fillTable();
+drawChart();
+</script>
+
+</body>
+</html>

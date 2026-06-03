@@ -137,7 +137,10 @@ class TailStatisticsTimeSeriesSingleModule(BaseAnalysisModule):
                 ax.legend(fontsize='x-small', loc='best', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
-        # 图2：其他指标（温度、场能、能量密度）
+        # 图2：滑动平均 excess_ratio（独立图片）
+        self._plot_rolling_excess(run, series, avg, style, x_time, time_label, is_grouped, len(singles))
+
+        # 图3：其他指标（温度、场能、能量密度）
         with DataLayout(run, f"tail_ts_other_{run.name}", plot_ratio=(10, 3.5), ncols=2,
                         shared_xlabel=time_label) as layout:
             # --- 温度 ---
@@ -199,6 +202,58 @@ class TailStatisticsTimeSeriesSingleModule(BaseAnalysisModule):
                 ax_d.set_ylabel(ylabel)
                 ax_d.grid(True, linestyle=':', alpha=0.4)
                 ax_d.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+    @staticmethod
+    def _rolling_avg(values: np.ndarray, window: int) -> np.ndarray:
+        """滑动平均，输出长度与输入相同（前 window-1 个点用累积平均填充）。"""
+        out = np.empty_like(values)
+        for i in range(len(values)):
+            start = max(0, i - window + 1)
+            out[i] = np.mean(values[start:i + 1])
+        return out
+
+    @staticmethod
+    def _rolling_err(errors: np.ndarray, window: int) -> np.ndarray:
+        """误差传播：σ_avg = sqrt(Σσ²) / N。"""
+        out = np.empty_like(errors)
+        for i in range(len(errors)):
+            start = max(0, i - window + 1)
+            n = i - start + 1
+            out[i] = np.sqrt(np.sum(errors[start:i + 1] ** 2)) / n
+        return out
+
+    def _plot_rolling_excess(self, run, series, avg, style, x_time, time_label, is_grouped, n_runs):
+        w = 10
+        with DataLayout(run, f"tail_ts_rolling_{run.name}", plot_ratio=(10, 3.5), ncols=2,
+                        shared_xlabel=time_label) as layout:
+            for low, high in self.INTERVALS:
+                ax = layout.request_axes()
+                label = f"{low:.2f}-{high:.2f}" if high else f"{low:.2f}-inf"
+                vals, th_unc, run_std = self._extract_fields(series, label, is_grouped)
+
+                raw_pct = vals * 100
+                roll_vals = self._rolling_avg(raw_pct, w)
+                roll_th = self._rolling_err(th_unc * 100, w)
+
+                ax.plot(x_time, raw_pct, color='grey', lw=0.6, alpha=0.35, label='原始数据')
+                ax.plot(x_time, roll_vals, color=style.color_comparison_primary, lw=style.lw_base,
+                        label=f'{w}步滑动平均')
+                ax.fill_between(x_time, roll_vals - roll_th, roll_vals + roll_th,
+                                color='teal', alpha=0.12, label='理论误差')
+
+                if run_std is not None:
+                    roll_sem = self._rolling_err(run_std * 100 / np.sqrt(n_runs), w)
+                    ax.fill_between(x_time, roll_vals - roll_sem, roll_vals + roll_sem,
+                                    color='coral', alpha=0.12, label='统计误差(标准误)')
+
+                band_str = f"${low:.2f}T < E < {high:.2f}T$" if high else f"$E > {low:.2f}T$"
+                ax.text(0.98, 0.95, band_str, transform=ax.transAxes, ha='right', va='top',
+                        fontsize='medium', fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
+                ax.axhline(0, color='black', linestyle='-', alpha=0.3, lw=0.8)
+                ax.set_ylabel("超额能量占比 (%)")
+                ax.legend(fontsize='x-small', loc='best', ncol=2)
+                ax.grid(True, linestyle=':', alpha=0.4)
 
     @staticmethod
     def _extract_fields(series, label: str, is_grouped: bool):
