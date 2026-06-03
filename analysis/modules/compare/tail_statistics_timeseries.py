@@ -127,7 +127,7 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                         bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
                 ax.axhline(0, color='black', linestyle='-', alpha=0.3, lw=1)
                 ax.set_ylabel("超额能量占比 (%)")
-                ax.legend(fontsize='x-small', loc='upper left', ncol=2)
+                ax.legend(fontsize='x-small', loc='best', ncol=2)
                 ax.grid(True, linestyle=':', alpha=0.4)
 
         # 图2：其他指标参数扫描（温度、场能、能量密度）
@@ -161,13 +161,14 @@ class TailStatisticsTimeSeriesModule(BaseComparisonModule):
                                  np.array([a.elec_fraction_std for a in all_aggregated]) > 0) else None,
                              fmt='-^', capsize=4, color='crimson', label='电能占比 $E_E$')
             ax_elec.set_ylabel(r"$E_E / E_{total}$")
-            ax_elec.legend(fontsize='small')
+            ax_elec.legend(fontsize='small', loc='best')
             ax_elec.grid(True, alpha=0.3)
 
             # --- 总场能 ---
             ax_s = layout.request_axes()
             ax_s.errorbar(x_valid, [a.mag_fraction + a.elec_fraction for a in all_aggregated],
                           fmt='-P', color='indigo', label='总场能 (B+E)')
+            ax_s.legend(fontsize='small', loc='best')
             ax_s.set_ylabel(r"$(E_B + E_E) / E_{total}$")
 
             # --- 能量密度 ---
