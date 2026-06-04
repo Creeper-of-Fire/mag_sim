@@ -10,7 +10,7 @@ from analysis.core.async_utils import asyncify
 from analysis.core.simulation import SimulationRun
 from analysis.core.simulationGroup import SimulationRunGroup
 from analysis.core.utils import console
-from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.abstract.base_module import BaseComparisonModule, legacy
 from analysis.physics.field import (
     compute_run_energy_partition, compute_run_energy_densities_normalized,
 )
@@ -22,6 +22,7 @@ from analysis.plotting.comparison_layout import ComparisonContext, ComparisonLay
 from analysis.plotting.styles import get_style
 
 
+@legacy(reason="已被 tail_statistics_timeseries 取代，后者支持全时序分析和多 run 分组统计")
 class MultiBandTailStatisticsModule(BaseComparisonModule):
     @property
     def name(self) -> str:

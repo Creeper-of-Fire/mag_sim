@@ -6,12 +6,13 @@ import numpy as np
 
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
-from analysis.modules.abstract.base_module import BaseComparisonModule
+from analysis.modules.abstract.base_module import BaseComparisonModule, legacy
 from analysis.modules.utils.comparison_utils import create_common_energy_bins
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import AnalysisLayout
 
 
+@legacy(reason="与 parametric_flux 功能重叠，且未使用 ComparisonLayout")
 class SpectrumGainModule(BaseComparisonModule):
     """
     能谱增益/比率分析模块。

@@ -43,10 +43,11 @@ CACHE_FILE = CACHE_DIR / "module_selections.json"
 class AnalysisConsole:
     """Rich 总控页面 — 循环交互式分析管理器。"""
 
-    def __init__(self):
+    def __init__(self, include_legacy: bool = False):
         self._console = console
         self._store = analysis_store
         self._last_run_info: Optional[dict] = None
+        self._include_legacy = include_legacy
 
         # 模块文件 mtime 缓存: {file_path: mtime}
         self._file_mtimes: Dict[str, float] = {}
@@ -157,6 +158,7 @@ class AnalysisConsole:
 
     def _cmd_select_modules(self):
         from analysis.core.selector import SimpleTableSelector
+        from analysis.modules.abstract.base_module import is_legacy as _is_legacy, get_legacy_info
 
         all_mods = self._store.all_modules
         if not all_mods:
@@ -172,6 +174,10 @@ class AnalysisConsole:
                 tag = "[yellow]对比[/yellow]"
             else:
                 tag = "[magenta]视频[/magenta]"
+
+            if _is_legacy(type(inst)):
+                tag += " [dim][legacy][/dim]"
+
             items.append((name, inst, tag))
 
         preselected = self._store.selected_module_names
@@ -295,7 +301,7 @@ class AnalysisConsole:
         """首次全量发现模块，记录 mtime 和文件→模块映射。"""
         from analysis_cli.modules import discover_modules as _discover
 
-        individual, comparison, video = _discover()
+        individual, comparison, video = _discover(include_legacy=self._include_legacy)
         self._store.individual_modules = individual
         self._store.comparison_modules = comparison
         self._store.video_modules = video
@@ -375,7 +381,7 @@ class AnalysisConsole:
                 self._store.video_modules.pop(name, None)
 
         from analysis_cli.modules import discover_modules as _discover
-        individual, comparison, video = _discover()
+        individual, comparison, video = _discover(include_legacy=self._include_legacy)
         self._store.individual_modules = individual
         self._store.comparison_modules = comparison
         self._store.video_modules = video
@@ -440,10 +446,15 @@ def main():
         default=analysis_config.global_output_dir,
         help="兜底输出目录 (默认: %(default)s)",
     )
+    parser.add_argument(
+        '--legacy',
+        action='store_true',
+        help="也加载被 @legacy 标记的模块",
+    )
     args = parser.parse_args()
     analysis_config.global_output_dir = args.global_output
 
-    app = AnalysisConsole()
+    app = AnalysisConsole(include_legacy=args.legacy)
     app.run()
 
 

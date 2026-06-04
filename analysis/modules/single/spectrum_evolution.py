@@ -8,9 +8,10 @@ import numpy as np
 from scipy.constants import c, m_e, e
 from tqdm import tqdm
 
+from analysis.core.data_loader import _get_step_from_filename
 from analysis.core.simulation import SimulationRun, SpectrumData
 from analysis.core.utils import console
-from analysis.modules.abstract.base_module import BaseAnalysisModule
+from analysis.modules.abstract.base_module import BaseAnalysisModule, legacy
 from analysis.modules.utils import physics_mj
 from analysis.modules.utils.spectrum_tools import filter_valid_runs
 from analysis.plotting.layout import AnalysisLayout
@@ -83,7 +84,7 @@ def compute_spectrum_evolution_metrics(run: SimulationRun) -> Dict[str, np.ndarr
             continue
 
         # 获取时间
-        step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
+        step = _get_step_from_filename(fpath)
         time = step * run.sim.dt
 
         # 2. 使用 _analyze_single_spectrum 进行分析
@@ -106,6 +107,7 @@ def compute_spectrum_evolution_metrics(run: SimulationRun) -> Dict[str, np.ndarr
     }
 
 
+@legacy(reason="已被 tail_statistics_timeseries 的时序分析取代")
 class SpectrumEvolutionModule(BaseAnalysisModule):
     @property
     def name(self) -> str:

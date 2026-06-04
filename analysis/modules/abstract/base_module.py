@@ -9,6 +9,31 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from analysis.core.simulation import SimulationRun
 
+# ── legacy 标记 ──
+
+_LEGACY_ATTR = "_legacy_info"
+
+
+def legacy(reason: str = ""):
+    """将分析模块标记为 legacy，discover_modules() 默认跳过。"""
+
+    def decorator(cls):
+        setattr(cls, _LEGACY_ATTR, reason)
+        return cls
+
+    return decorator
+
+
+def is_legacy(cls) -> bool:
+    return hasattr(cls, _LEGACY_ATTR)
+
+
+def get_legacy_info(cls) -> str:
+    return getattr(cls, _LEGACY_ATTR, "")
+
+
+# ── 基类 ──
+
 
 class BaseAnalysisModule(ABC):
     """

@@ -6,16 +6,26 @@ from pathlib import Path
 from typing import Union
 
 from analysis.core.utils import console
-from analysis.modules.abstract.base_module import BaseAnalysisModule, BaseComparisonModule, BaseVideoModule
+from analysis.modules.abstract.base_module import (
+    BaseAnalysisModule, BaseComparisonModule, BaseVideoModule,
+    is_legacy, get_legacy_info,
+)
 
 AnyModule = Union[BaseAnalysisModule, BaseComparisonModule, BaseVideoModule]
 
 
-def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseComparisonModule], dict[str, BaseVideoModule]]:
-    """递归扫描 `modules` 文件夹及其子文件夹，加载并区分模块。"""
+def discover_modules(
+    include_legacy: bool = False,
+) -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseComparisonModule], dict[str, BaseVideoModule]]:
+    """递归扫描 `modules` 文件夹及其子文件夹，加载并区分模块。
+
+    Args:
+        include_legacy: 为 True 时也发现被 @legacy 标记的模块。
+    """
     individual_modules = {}
     comparison_modules = {}
     video_modules = {}
+    skipped_legacy: list[str] = []
 
     base_dir = Path(__file__).resolve().parent.parent  # analysis_cli/ -> 项目根
     modules_dir = base_dir / "analysis" / "modules"
@@ -38,6 +48,10 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
                 if item in base_types:
                     continue
 
+                if not include_legacy and is_legacy(item):
+                    skipped_legacy.append(f"{item.__name__} ({get_legacy_info(item)})")
+                    continue
+
                 if issubclass(item, BaseVideoModule):
                     instance = item()
                     video_modules[instance.name] = instance
@@ -51,7 +65,8 @@ def discover_modules() -> tuple[dict[str, BaseAnalysisModule], dict[str, BaseCom
         except Exception as e:
             console.print(f"[red]加载模块 {module_name} 失败: {e}[/red]")
 
-    console.print("已加载的模块：")
+    if skipped_legacy:
+        console.print(f"[dim]跳过 {len(skipped_legacy)} 个 legacy 模块 (--legacy 启用)[/dim]")
 
     return (
         dict(sorted(individual_modules.items())),
