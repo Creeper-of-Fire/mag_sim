@@ -11,6 +11,7 @@ from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
 from analysis.core.config import config  # 需要导入配置以获取输出目录
+from analysis.core.data_loader import _get_step_from_filename
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseVideoModule
@@ -92,7 +93,7 @@ class FieldSliceVideoModule(BaseVideoModule):
             data_slice = run.get_field_slice_from_path(fpath, axis=SLICE_AXIS)
 
             # 获取元数据
-            step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
+            step = _get_step_from_filename(fpath)
             time = step * run.sim.dt
 
             # 根据维度处理数据切片

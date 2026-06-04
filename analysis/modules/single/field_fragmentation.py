@@ -7,6 +7,7 @@ import numpy as np
 from scipy.stats import kurtosis
 from tqdm import tqdm
 
+from analysis.core.data_loader import _get_step_from_filename
 from analysis.core.simulation import SimulationRun
 from analysis.core.utils import console
 from analysis.modules.abstract.base_module import BaseAnalysisModule
@@ -78,13 +79,9 @@ def compute_fragmentation_metrics(run: SimulationRun, max_samples: int = 50) -> 
     console.print(f"  [cyan]计算场结构碎裂指标 ({len(selected_files)} 帧)...[/cyan]")
 
     for i, fpath in enumerate(tqdm(selected_files, desc="  分析场结构", unit="file", leave=False)):
-        try:
-            B_slice = run.get_field_slice_from_path(fpath, axis='z')
-            step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
-            time = step * run.sim.dt
-        except Exception as e:
-            console.print(f"[dim]⚠ 跳过帧 {fpath.name}: {e}[/dim]")
-            continue
+        B_slice = run.get_field_slice_from_path(fpath, axis='z')
+        step = _get_step_from_filename(fpath)
+        time = step * run.sim.dt
 
         # 1. 计算能谱
         k, E_k = _compute_spectrum_1d(B_slice)

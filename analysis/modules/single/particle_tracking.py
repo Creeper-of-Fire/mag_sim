@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 import h5py
 import numpy as np
-from analysis.core.data_loader import h5open
+from analysis.core.data_loader import h5open, _get_step_from_filename
 import pandas as pd
 from scipy.constants import c, m_e, e
 from tqdm import tqdm
@@ -158,27 +158,22 @@ def compute_particle_trajectories(run: SimulationRun, sample_size: int = 500, mo
 
     # 3. 穿越时间步进行追踪
     for i, fpath in enumerate(tqdm(files, desc="  穿越时间追踪粒子", unit="帧", leave=False)):
-        try:
-            step = int(os.path.basename(fpath).split('_')[-1].split('.')[0])
-            times[i] = step * run.sim.dt
+        step = _get_step_from_filename(fpath)
+        times[i] = step * run.sim.dt
 
-            _, current_ids, current_ek = _read_species_tracking_data(fpath)
-            if current_ids is None: continue
+        _, current_ids, current_ek = _read_species_tracking_data(fpath)
+        if current_ids is None: continue
 
-            # [核心魔法] 利用 Pandas 瞬间对齐跨帧打乱的 ID
-            # 将当前帧的数据建成一个以 ID 为索引的字典表
-            frame_series = pd.Series(current_ek, index=current_ids)
+        # [核心魔法] 利用 Pandas 瞬间对齐跨帧打乱的 ID
+        # 将当前帧的数据建成一个以 ID 为索引的字典表
+        frame_series = pd.Series(current_ek, index=current_ids)
 
-            # 直接提取我们需要追踪的 ID 的能量（如果该 ID 丢失，自动填 NaN）
-            tracked_energies = frame_series.reindex(target_ids_all).values
+        # 直接提取我们需要追踪的 ID 的能量（如果该 ID 丢失，自动填 NaN）
+        tracked_energies = frame_series.reindex(target_ids_all).values
 
-            # 填入历史记录矩阵
-            bulk_history[:, i] = tracked_energies[:n_bulk]
-            tail_history[:, i] = tracked_energies[n_bulk:]
-
-        except Exception as e:
-            console.print(f"[dim]⚠ 跳过帧 {fpath.name}: {e}[/dim]")
-            continue
+        # 填入历史记录矩阵
+        bulk_history[:, i] = tracked_energies[:n_bulk]
+        tail_history[:, i] = tracked_energies[n_bulk:]
 
     return {
         "time": times,
