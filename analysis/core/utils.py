@@ -9,6 +9,7 @@ import logging
 # 包含共享的、与具体物理计算无关的辅助函数。
 #
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Union, Dict, Any
 
@@ -88,11 +89,13 @@ class JobSelector(BaseSelector[Dict]):
                 if not search_scope.exists(): search_scope = job_dir
 
                 runs = get_valid_simulation_runs(search_scope)
+                mtime = job_dir.stat().st_mtime
                 processed_items.append({
                     "dir": job_dir,
                     "name": job_dir.name,
                     "count": len(runs),
-                    "runs": runs  # 缓存起来传给下一步
+                    "runs": runs,  # 缓存起来传给下一步
+                    "mtime": mtime,
                 })
 
         super().__init__(processed_items, title="步骤 1/2: 选择 Job 目录")
@@ -102,12 +105,14 @@ class JobSelector(BaseSelector[Dict]):
         table.add_column("ID", justify="right", style="cyan", no_wrap=True)
         table.add_column("Job 名称", style="magenta")
         table.add_column("包含模拟数", justify="right", style="green")
+        table.add_column("最后修改", style="yellow")
         table.add_column("路径", style="dim")
 
         for i, item in enumerate(self.items):
             count_str = str(item['count']) if item['count'] > 0 else f"[red]{item['count']}[/red]"
+            mtime_str = datetime.fromtimestamp(item['mtime']).strftime("%m-%d %H:%M")
             rel_path = str(item['dir'].relative_to(PROJECT_ROOT) if PROJECT_ROOT != Path(".") else item['dir'])
-            table.add_row(str(i), item['name'], count_str, rel_path)
+            table.add_row(str(i), item['name'], count_str, mtime_str, rel_path)
 
         console.print(table)
 
@@ -178,7 +183,7 @@ def select_directories() -> List[str]:
         return [str(p) for p in selected]
 
     available_jobs = sorted([d for d in jobs_root.iterdir() if d.is_dir()],
-                            key=lambda x: natural_sort_key(x.name))
+                            key=lambda x: x.stat().st_mtime, reverse=True)
 
     if not available_jobs:
         console.print("[red]sim_jobs 下无目录。[/red]")
