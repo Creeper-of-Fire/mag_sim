@@ -150,7 +150,7 @@ class NormalityTestModule(BaseAnalysisModule):
             # JB P 值
             safe_jb_p = np.clip(data["JB_p"], 1e-15, 1.0)
             ax_jb_p.plot(t, safe_jb_p, "s-", color="darkorange", ms=3, label="JB P 值")
-            ax_jb_p.axhline(0.05, color="red", ls=":", lw=1.5, label=r"$\\alpha = 0.05$")
+            ax_jb_p.axhline(0.05, color="red", ls=":", lw=1.5, label=r"$\alpha = 0.05$")
             ax_jb_p.set_ylabel("P 值")
             ax_jb_p.set_title("Jarque-Bera P 值")
             ax_jb_p.set_yscale("log")
@@ -169,7 +169,7 @@ class NormalityTestModule(BaseAnalysisModule):
             # SW P 值
             safe_sw_p = np.clip(data["SW_p"], 1e-15, 1.0)
             ax_sw_p.plot(t, safe_sw_p, "s-", color="seagreen", ms=3, label="SW P 值")
-            ax_sw_p.axhline(0.05, color="red", ls=":", lw=1.5, label=r"$\\alpha = 0.05$")
+            ax_sw_p.axhline(0.05, color="red", ls=":", lw=1.5, label=r"$\alpha = 0.05$")
             ax_sw_p.set_ylabel("P 值")
             ax_sw_p.set_title("Shapiro-Wilk P 值")
             ax_sw_p.set_yscale("log")
