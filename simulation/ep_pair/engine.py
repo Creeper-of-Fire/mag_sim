@@ -643,6 +643,15 @@ class PlasmaSimulation(object):
         )
         simulation.add_applied_field(B_ext)
 
+        # 叠加恒定外部背景磁场，每步强加在粒子上（不参与 Maxwell 演化）
+        if self.p.enable_constant_bkg:
+            B_const = picmi.ConstantAppliedField(
+                Bx=self.p.B0_constant_bx,
+                By=self.p.B0_constant_by,
+                Bz=self.p.B0_constant_bz,
+            )
+            simulation.add_applied_field(B_const)
+
         #######################################################################
         # 添加粒子和布局
         #######################################################################

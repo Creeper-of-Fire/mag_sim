@@ -86,3 +86,10 @@ class SimulationParameters:
     # 这是一个固定的物理尺度，使得不同尺寸 (LX) 的模拟具有物理可比性。
     # 推荐值: > 2.5，以确保每个波包能被至少几个网格点解析，避免数值不稳定。
     gaussian_width_de_ratio = 2.5
+
+    # --- 6. 恒定外部背景磁场 ---
+    # ConstantAppliedField，每步强加到粒子的洛伦兹力，不参与 Maxwell 演化
+    enable_constant_bkg: bool = False      # 是否启用恒定背景场
+    B0_constant_bx: float = 0.0           # Bx 分量（特斯拉）
+    B0_constant_by: float = 0.0           # By 分量（特斯拉）
+    B0_constant_bz: float = 0.0           # Bz 分量（特斯拉）

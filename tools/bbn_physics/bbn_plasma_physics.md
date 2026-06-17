@@ -1,5 +1,7 @@
 # BBN 等离子体物理参数总结
 
+> ⚠ 本文件数据需对照 CosmoCons.dat 逐行核实，确认无误后再引用。目前发现存在数值不一致问题。
+
 ## 1. 概述
 
 BBN（Big Bang Nucleosynthesis）时期的宇宙是一个高温、高密度的等离子体。

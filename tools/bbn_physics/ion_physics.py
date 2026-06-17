@@ -1,4 +1,6 @@
-"""Compute BBN-era ion plasma parameters for PIC simulation design.
+"""⚠ 本文件数据需对照 CosmoCons.dat 逐行核实，确认无误后再引用。目前发现存在数值不一致问题。
+
+Compute BBN-era ion plasma parameters for PIC simulation design.
 
 Derives ion-relevant quantities from CosmoCons.dat data:
 - Ion plasma frequencies, Debye lengths, Larmor radii

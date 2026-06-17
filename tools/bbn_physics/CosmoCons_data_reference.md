@@ -1,5 +1,7 @@
 # CosmoCons.dat 数据格式参考
 
+> ⚠ 本文件数据需对照 CosmoCons.dat 逐行核实，确认无误后再引用。目前发现存在数值不一致问题。
+
 数据来源：`/mnt/d/User/Desktop/Project/BBNHHe/CosmoCons.dat`
 生成程序：`bbn_kmmHHe.f`（Kawano BBN code，经 kmm 修改）
 理论参考：Wagoner, Fowler & Hoyle 1967, Ap.J. 148

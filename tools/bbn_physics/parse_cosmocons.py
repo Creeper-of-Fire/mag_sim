@@ -1,4 +1,6 @@
-"""Parse CosmoCons.dat and compute derived physical quantities for BBN plasma simulation."""
+"""⚠ 本文件数据需对照 CosmoCons.dat 逐行核实，确认无误后再引用。目前发现存在数值不一致问题。
+
+Parse CosmoCons.dat and compute derived physical quantities for BBN plasma simulation."""
 
 import numpy as np
 from pathlib import Path
