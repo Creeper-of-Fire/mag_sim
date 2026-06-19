@@ -653,14 +653,12 @@ class PlasmaSimulation(object):
             simulation.add_applied_field(B_const)
 
         # 时变解析外部背景场（AnalyticAppliedField），每步强加到粒子（粒子通道，不参与 Maxwell 演化）
+        # 物理数值（B0/k/ω 等）由外部生成脚本拼进表达式字符串，engine 不参与解析
         if self.p.enable_analytic_applied:
             applied_B = picmi.AnalyticAppliedField(
                 Bx_expression=self.p.analytic_Bx_expr,
                 By_expression=self.p.analytic_By_expr,
                 Bz_expression=self.p.analytic_Bz_expr,
-                B0=self.p.analytic_B0,
-                k_wave=self.p.analytic_k_wave,
-                omega_si=self.p.analytic_omega_si,
             )
             simulation.add_applied_field(applied_B)
 

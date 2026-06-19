@@ -98,10 +98,6 @@ class SimulationParameters:
 # AnalyticAppliedField，每步强加到粒子（粒子通道，不参与 Maxwell 演化）
 # 注意：表达式中 t 为 SI 秒，x/y/z 为 SI 米
 enable_analytic_applied: bool = False       # 是否启用时变解析背景场
-analytic_Bx_expr: str = "0.0"             # Bx 表达式（SI 单位）
-analytic_By_expr: str = "0.0"             # By 表达式（SI 单位）
-analytic_Bz_expr: str = "0.0"             # Bz 表达式（SI 单位）
-# 表达式里可引用的常数（CSV 标量列，外部脚本算好 SI 值填入）
-analytic_B0: float = 0.0           # 场幅度（特斯拉）
-analytic_k_wave: float = 0.0       # 波数（1/米）
-analytic_omega_si: float = 0.0     # 角频率（弧度/秒）
+analytic_Bx_expr: str = "0.0"             # Bx 表达式（SI 单位，外部脚本拼好字符串直接塞入）
+analytic_By_expr: str = "0.0"             # By 表达式（SI 单位，外部脚本拼好字符串直接塞入）
+analytic_Bz_expr: str = "0.0"             # Bz 表达式（SI 单位，外部脚本拼好字符串直接塞入）
