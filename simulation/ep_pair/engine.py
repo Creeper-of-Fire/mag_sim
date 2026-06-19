@@ -658,7 +658,9 @@ class PlasmaSimulation(object):
                 Bx_expression=self.p.analytic_Bx_expr,
                 By_expression=self.p.analytic_By_expr,
                 Bz_expression=self.p.analytic_Bz_expr,
-                **self.p.analytic_constants,
+                B0=self.p.analytic_B0,
+                k_wave=self.p.analytic_k_wave,
+                omega_si=self.p.analytic_omega_si,
             )
             simulation.add_applied_field(applied_B)
 
