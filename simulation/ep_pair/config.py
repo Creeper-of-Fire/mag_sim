@@ -93,3 +93,14 @@ class SimulationParameters:
     B0_constant_bx: float = 0.0           # Bx 分量（特斯拉）
     B0_constant_by: float = 0.0           # By 分量（特斯拉）
     B0_constant_bz: float = 0.0           # Bz 分量（特斯拉）
+
+# --- 7. 时变解析外部背景磁场 ---
+# AnalyticAppliedField，每步强加到粒子（粒子通道，不参与 Maxwell 演化）
+# 注意：表达式中 t 为 SI 秒，x/y/z 为 SI 米；用户常量通过 analytic_constants 传入
+enable_analytic_applied: bool = False       # 是否启用时变解析背景场
+analytic_Bx_expr: str = "0.0"             # Bx 表达式（SI 单位）
+analytic_By_expr: str = "0.0"             # By 表达式（SI 单位）
+analytic_Bz_expr: str = "0.0"             # Bz 表达式（SI 单位）
+# 用户常数字典：表达式里引用的符号名 -> SI 数值
+# 例如 {"B0": 1e7, "k_wave": 1e8, "omega_si": 4.8e17}
+analytic_constants: dict = {}

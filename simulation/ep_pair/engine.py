@@ -652,6 +652,16 @@ class PlasmaSimulation(object):
             )
             simulation.add_applied_field(B_const)
 
+        # 时变解析外部背景场（AnalyticAppliedField），每步强加到粒子（粒子通道，不参与 Maxwell 演化）
+        if self.p.enable_analytic_applied:
+            applied_B = picmi.AnalyticAppliedField(
+                Bx_expression=self.p.analytic_Bx_expr,
+                By_expression=self.p.analytic_By_expr,
+                Bz_expression=self.p.analytic_Bz_expr,
+                **self.p.analytic_constants,
+            )
+            simulation.add_applied_field(applied_B)
+
         #######################################################################
         # 添加粒子和布局
         #######################################################################
